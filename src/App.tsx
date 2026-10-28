@@ -10,7 +10,6 @@ import { AccountDetail } from "@/screens/accounts";
 import { Analytics } from "@/screens/analytics";
 import { ActivityDetail, Review } from "@/screens/activity";
 import { Chat } from "@/screens/chat";
-import { needsReview } from "@/screens/ledger-list";
 import { Money } from "@/screens/money";
 import { Onboarding } from "@/screens/onboarding";
 import { Scan } from "@/screens/scan";
@@ -19,7 +18,7 @@ import { ImportOffer, localLedger, OpenFailed, Opening, SignIn } from "@/screens
 import { Today } from "@/screens/today";
 import { Welcome } from "@/screens/welcome";
 
-const TAB_ROOTS = ["/today", "/money", "/analytics", "/review"];
+const TAB_ROOTS = ["/today", "/money", "/analytics"];
 
 /**
  * Old routes and where they live now. Insights became Analytics (D-0017),
@@ -105,7 +104,6 @@ function Router() {
   }, [base]);
 
   const showTabs = state.onboarded && TAB_ROOTS.includes(base);
-  const reviewCount = showTabs ? state.entries.filter(needsReview).length : 0;
 
   return (
     <ChromeProvider value={{ openAdd: (o) => setAdd({ open: true, ...o }) }}>
@@ -118,7 +116,7 @@ function Router() {
       <main id="main" tabIndex={-1} ref={mainRef} className="outline-none">
         <React.Fragment key={base}>{target ? null : screen}</React.Fragment>
       </main>
-      {showTabs ? <TabBar path={base} reviewCount={reviewCount} /> : null}
+      {showTabs ? <TabBar path={base} /> : null}
       {state.onboarded ? (
         <AddSheet
           open={add.open}

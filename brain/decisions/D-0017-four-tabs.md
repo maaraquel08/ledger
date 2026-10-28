@@ -1,14 +1,16 @@
 ---
 type: decision
 area: design
-status: active
+status: superseded
 updated: 2026-10-29
 related: [features/analytics, features/home, features/insights, features/accounts, features/activity, features/review, system-map, D-0015, D-0016]
 supersedes: [D-0015]
-superseded_by: null
+superseded_by: D-0018
 ---
 
 # D-0017 Four tabs: Today, Money, Analytics, Review
+
+> Superseded by D-0018 (2026-10-29): Review no longer has a tab; it opens from Today.
 
 **Context.** D-0015 folded the week / month / year analysis into Today. The Owner asked on 2026-10-29: "Why we don't have analytics page? I want this so that I can get insights every week or month or year and compare my spending and income habits." Analysis under today's number made Today long and left no place to step through periods and compare them.
 

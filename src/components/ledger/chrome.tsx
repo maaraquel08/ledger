@@ -1,7 +1,7 @@
 import * as React from "react";
 import { cn } from "@/lib/cn";
 import { navigate } from "@/lib/router";
-import { AccountsIcon, AnalyticsIcon, HomeIcon, PlusIcon, ReviewIcon } from "./icons";
+import { AccountsIcon, AnalyticsIcon, HomeIcon, PlusIcon } from "./icons";
 
 /* ---------- global UI: the add sheet is reachable from every tab ------ */
 
@@ -19,14 +19,14 @@ const TABS = [
   { path: "/today", label: "Today", Icon: HomeIcon },
   { path: "/money", label: "Money", Icon: AccountsIcon },
   { path: "/analytics", label: "Analytics", Icon: AnalyticsIcon },
-  { path: "/review", label: "Review", Icon: ReviewIcon },
 ] as const;
 
 /**
- * Four tabs (D-0017); adding an entry is the yellow floating action above the
- * nav, bottom right, on every tab. #FCC305 is used nowhere else.
+ * Three tabs (D-0018); Review opens from Today's "to review" row. Adding an
+ * entry is the yellow floating action above the nav, bottom right, on every
+ * tab. #FCC305 is used nowhere else.
  */
-export function TabBar({ path, reviewCount = 0 }: { path: string; reviewCount?: number }) {
+export function TabBar({ path }: { path: string }) {
   const { openAdd } = useChrome();
   return (
     <nav
@@ -41,27 +41,19 @@ export function TabBar({ path, reviewCount = 0 }: { path: string; reviewCount?: 
       >
         <PlusIcon size={26} />
       </button>
-      <div className="grid grid-cols-4 px-3 pt-[7px] pb-[max(14px,env(safe-area-inset-bottom))]">
+      <div className="grid grid-cols-3 px-3 pt-[7px] pb-[max(14px,env(safe-area-inset-bottom))]">
         {TABS.map(({ path: p, label, Icon }) => {
           const active = path === p || path.startsWith(`${p}/`);
-          const badge = p === "/review" && reviewCount > 0 ? reviewCount : 0;
           return (
             <button
               key={p}
               type="button"
-              aria-label={badge ? `${label}, ${badge} to review` : label}
+              aria-label={label}
               aria-current={active ? "page" : undefined}
               onClick={() => (active ? window.scrollTo({ top: 0, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" }) : navigate(p))}
               className={cn("flex min-h-11 flex-col items-center gap-[3px] py-1", active ? "text-fg" : "text-fg-subtle")}
             >
-              <span className="relative">
-                <Icon filled={active} />
-                {badge ? (
-                  <span className="tnum absolute -top-1.5 left-[calc(100%-7px)] flex h-[17px] min-w-[17px] items-center justify-center rounded-full bg-accent px-1 font-mono text-[9.5px] font-semibold text-accent-fg">
-                    {badge > 99 ? "99+" : badge}
-                  </span>
-                ) : null}
-              </span>
+              <Icon filled={active} />
               <span className={cn("text-[10.5px] leading-none", active && "font-semibold")}>{label}</span>
             </button>
           );

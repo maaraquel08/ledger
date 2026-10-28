@@ -557,7 +557,8 @@ export function Review() {
 
   if (queue.length === 0 && gaps.list.length === 0) {
     return (
-      <Screen tabbed>
+      <Screen>
+        <BackBar label="Today" onBack={() => back("/today")} />
         <PageTitle>Review</PageTitle>
         <div className="flex flex-1 flex-col items-center justify-center px-8 pb-24 text-center">
           <h2 className="text-[19px] leading-[1.25] font-semibold tracking-[-0.01em]">All filed.</h2>
@@ -572,7 +573,8 @@ export function Review() {
   }
 
   return (
-    <Screen tabbed>
+    <Screen>
+      <BackBar label="Today" onBack={() => back("/today")} />
       <PageTitle right={<span className="font-mono text-[11px] tracking-[0.06em] text-fg-subtle uppercase">{left + gaps.list.length} left</span>}>Review</PageTitle>
       <p className="px-6 pt-2.5 text-[13.5px] leading-[1.5] text-fg-muted">
         {cloud
@@ -651,7 +653,7 @@ export function Review() {
 }
 
 /** Cloud: reconciliation gaps (reported ≠ derived), refetched after every sync. */
-function useGaps() {
+export function useGaps() {
   const c = useCloud();
   const { dispatch } = useLedger();
   const [list, setList] = React.useState<Gap[]>([]);

@@ -43,7 +43,7 @@ Banner in Activity -> `/review` -> pick pills -> row animates out -> "Accept sug
 | Review | `/review` | Pick category/account; "Accept suggestions" | Screen, EntryRow, Pill, CategoryChip, Cta |
 
 ## Planned (approved 2026-10-29, not shipped)
-- Review becomes a tab (D-0015), not a screen behind the Activity banner.
+- ~~Review becomes a tab (D-0015)~~ Shipped 2026-10-29: Review has no tab (D-0018); it opens from Today's "N things to review" row, which counts entries needing a detail and balance gaps. Back returns to Today.
 - Cloud mode: the queue also holds entries the capture confidence gate did not pass, each with one targeted question (e.g. which account, is this a duplicate) (D-0013). D-0005 still holds: nothing blocks logging.
 - Every correction is stored and may become a learned **rule**, applied before Claude's guess next time.
 - Snapshot gaps waiting for an Adjustment (D-0014) may surface here (open).

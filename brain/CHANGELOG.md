@@ -13,6 +13,7 @@ Format: `- kind — what, in one sentence — files`
 ## 2026
 
 ### 2026-10-29
+- decided — D-0018 removes the Review tab (Owner request): three tabs Today / Money / Analytics, Review opens from Today's "things to review" row, which also counts balance gaps; supersedes D-0017 — `decisions/D-0018-review-has-no-tab.md`, `decisions/D-0017-four-tabs.md`, `features/review.md`, `system-map.md`
 - decided — D-0017 four tabs Today · Money · Analytics · Review on the Owner's request ("Why we don't have analytics page?"); supersedes D-0015 — `decisions/D-0017-four-tabs.md`, `decisions/D-0015-three-tabs.md`
 - shipped — Analytics tab (`/analytics?p=week|month|year&at=`): period stepping, like-for-like and trailing-average headline, trend chart with table view, habits, recurring bills, income, deterministic "What this means" cards with tap-through to the exact entries, cloud review for the period; `/insights` redirects there — `features/analytics.md` (added), `features/insights.md` (superseded), `system-map.md`, `src/screens/analytics.tsx`, `src/lib/analytics.ts`
 - shipped — Today drops the week / month / year analysis for a "This month so far" row into Analytics and an "N entries to review" row; tab screens pad by `--tab-clearance` so the Add button no longer covers the last goal row — `features/home.md`, `system-map.md`

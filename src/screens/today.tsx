@@ -11,6 +11,7 @@ import { todayBudget } from "@/lib/today";
 import { MathSheet, ProfileSheet } from "@/screens/today-sheets";
 import { Plan } from "@/screens/plan";
 import { InsightsInbox, useInsights } from "@/screens/insights-inbox";
+import { useGaps } from "@/screens/activity";
 import { needsReview } from "@/screens/ledger-list";
 import { cloud } from "@/lib/supabase";
 import { clearChatHistory } from "@/lib/chat-history";
@@ -59,7 +60,10 @@ export function Today({ path }: { path: string }) {
   const tb = todayBudget(state, now);
   const [mf, mt] = monthBounds(now);
   const month = monthName(now);
+  const gaps = useGaps();
   const reviewCount = state.entries.filter(needsReview).length;
+  // Review has no tab (D-0018): this row is its only door, so balance gaps count too
+  const toReview = reviewCount + gaps.list.length;
 
   // /budgets lands here: bring the plan section into view
   const toPlan = query(path).get("plan") === "1";
@@ -151,10 +155,10 @@ export function Today({ path }: { path: string }) {
             </span>
             <ChevronRight size={14} className="flex-none text-fg-subtle" />
           </button>
-          {reviewCount > 0 ? (
+          {toReview > 0 ? (
             <button type="button" onClick={() => navigate("/review")} className="flex min-h-12 w-full items-center gap-3 px-4 text-left active:bg-surface">
               <span className="min-w-0 flex-1 text-[14px]">
-                <span className="tnum font-semibold">{reviewCount}</span> {reviewCount === 1 ? "entry" : "entries"} to review
+                <span className="tnum font-semibold">{toReview}</span> {toReview === 1 ? "thing" : "things"} to review
               </span>
               <ChevronRight size={14} className="flex-none text-fg-subtle" />
             </button>

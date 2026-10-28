@@ -2,7 +2,7 @@
 type: fact
 status: draft
 updated: 2026-10-29
-related: [D-0012, D-0013, D-0014, D-0015, D-0016, D-0017, features/analytics, features/home, features/add-entry, features/receipt-scan, features/activity, features/review, features/accounts, features/insights, features/budgets-and-goals, features/chat, features/onboarding, design/screens]
+related: [D-0012, D-0013, D-0014, D-0015, D-0016, D-0017, D-0018, features/analytics, features/home, features/add-entry, features/receipt-scan, features/activity, features/review, features/accounts, features/insights, features/budgets-and-goals, features/chat, features/onboarding, design/screens]
 ---
 
 # System map
