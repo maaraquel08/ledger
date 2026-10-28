@@ -1,0 +1,181 @@
+{
+  "pkg": "ledger",
+  "globalName": "Ledger",
+  "shape": "package",
+  "buildCmd": "npm run build:ds",
+  "tsconfig": "tsconfig.app.json",
+  "cssEntry": "dist-ds/styles.css",
+  "provider": {
+    "component": "LedgerDesignSystem"
+  },
+  "guidelinesGlob": [
+    "brain/product.md",
+    "brain/glossary.md",
+    "brain/users.md",
+    "brain/rules/*.md",
+    "brain/design/screens.md",
+    "brain/features/*.md",
+    "brain/design/ledger-design-taste/SKILL.md",
+    "brain/design/ledger-design-taste/references/*.md"
+  ],
+  "componentSrcMap": {
+    "LedgerDesignSystem": null,
+    "LedgerProvider": null,
+    "ChromeProvider": null
+  },
+  "dtsPropsFor": {},
+  "libOverrides": {},
+  "overrides": {
+    "Sheet": {
+      "cardMode": "single",
+      "viewport": "430x560"
+    },
+    "AddSheet": {
+      "cardMode": "single",
+      "viewport": "430x720"
+    },
+    "Drawer": {
+      "cardMode": "single",
+      "viewport": "430x520"
+    },
+    "DrawerContent": {
+      "cardMode": "single",
+      "viewport": "430x520"
+    },
+    "TabBar": {
+      "cardMode": "single",
+      "viewport": "430x160"
+    },
+    "Screen": {
+      "cardMode": "column"
+    },
+    "AiCard": {
+      "cardMode": "column"
+    },
+    "AiEyebrow": {
+      "cardMode": "column"
+    },
+    "AiMark": {
+      "cardMode": "column"
+    },
+    "AiPanel": {
+      "cardMode": "column"
+    },
+    "AiSummary": {
+      "cardMode": "column"
+    },
+    "AiSummaryLabel": {
+      "cardMode": "column"
+    },
+    "AiSummaryMark": {
+      "cardMode": "column"
+    },
+    "AiSummaryText": {
+      "cardMode": "column"
+    },
+    "Sparkle": {
+      "cardMode": "column"
+    },
+    "AccountsIcon": {
+      "cardMode": "column"
+    },
+    "ActivityIcon": {
+      "cardMode": "column"
+    },
+    "ArrowUpIcon": {
+      "cardMode": "column"
+    },
+    "CameraIcon": {
+      "cardMode": "column"
+    },
+    "CashIcon": {
+      "cardMode": "column"
+    },
+    "ChartIcon": {
+      "cardMode": "column"
+    },
+    "CheckIcon": {
+      "cardMode": "column"
+    },
+    "ChevronLeft": {
+      "cardMode": "column"
+    },
+    "ChevronRight": {
+      "cardMode": "column"
+    },
+    "CloseIcon": {
+      "cardMode": "column"
+    },
+    "HomeIcon": {
+      "cardMode": "column"
+    },
+    "InsightsIcon": {
+      "cardMode": "column"
+    },
+    "MicIcon": {
+      "cardMode": "column"
+    },
+    "MoreIcon": {
+      "cardMode": "column"
+    },
+    "PlusIcon": {
+      "cardMode": "column"
+    },
+    "ScanIcon": {
+      "cardMode": "column"
+    },
+    "SearchIcon": {
+      "cardMode": "column"
+    },
+    "SortIcon": {
+      "cardMode": "column"
+    },
+    "ActionButton": {
+      "cardMode": "column"
+    },
+    "Amount": {
+      "cardMode": "column"
+    },
+    "BackBar": {
+      "cardMode": "column"
+    },
+    "CategoryChip": {
+      "cardMode": "column"
+    },
+    "Cta": {
+      "cardMode": "column"
+    },
+    "Delta": {
+      "cardMode": "column"
+    },
+    "EntryRow": {
+      "cardMode": "column"
+    },
+    "Eyebrow": {
+      "cardMode": "column"
+    },
+    "PageTitle": {
+      "cardMode": "column"
+    },
+    "Pill": {
+      "cardMode": "column"
+    },
+    "ProviderMark": {
+      "cardMode": "column"
+    },
+    "Segmented": {
+      "cardMode": "column"
+    },
+    "StatGrid": {
+      "cardMode": "column"
+    },
+    "Progress": {
+      "cardMode": "single",
+      "primaryStory": "Labeled"
+    }
+  },
+  "docsDir": ".design-sync/docs",
+  "srcDir": "src/ds",
+  "readmeHeader": ".design-sync/conventions.md",
+  "projectId": "cb67ab0a-4a18-49b6-b505-37d4b1e32b10"
+}

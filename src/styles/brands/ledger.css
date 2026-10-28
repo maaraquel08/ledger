@@ -1,0 +1,102 @@
+/* ==================================================================
+ * Brand: Ledger — espresso ink, white and one yellow.
+ * Built from sc1m's boilerplate-template.css. #FCC305 is reserved for
+ * the floating add button (--highlight) and nothing else; the ink
+ * carries every CTA, the active nav and the hero number. Colour is
+ * semantic only: success = income/gains/headroom, danger = spend/
+ * overspend/losses, info = goals; AI is gold (--ledger-gold-ink). The same yellow marks the
+ * finding inside an AI summary (ink text on it) — its only other use.
+ * ================================================================== */
+
+[data-brand="ledger"] {
+  /* -- 1. primitives: neutral ramp -------------------------------- */
+  --n-0: #eceae6;   /* canvas */
+  --n-50: #f7f6f4;  /* weak — focused input fill */
+  --n-100: #ececea; /* fill — tracks, disabled CTA */
+  --n-200: #e6e4e0; /* line */
+  --n-300: #dcdad6; /* edge — chip and secondary borders */
+  --n-400: #b5b5b5; /* mute — placeholder */
+  --n-500: #6e6e6e; /* quiet — eyebrows, meta */
+  --n-700: #5a5a5a; /* body */
+  --n-900: #252017; /* ink — espresso */
+
+  /* -- 1. primitives: brand hues ---------------------------------- */
+  --ledger-ink: #252017;
+  --ledger-paper: #ffffff;
+  --ledger-yellow: #fcc305;
+  --ledger-gold-ink: #7a6300; /* AI eyebrow text on white */
+
+  /* -- 2. surfaces & text ----------------------------------------- */
+  --bg: var(--ledger-paper);
+  --surface: var(--n-50);
+  --surface-raised: var(--ledger-paper);
+  --fg: var(--n-900);
+  --fg-muted: var(--n-700);
+  --fg-subtle: var(--n-500);
+  --line: var(--n-200);
+  --line-strong: var(--n-300);
+
+  /* -- 3. interactive --------------------------------------------- */
+  --accent: var(--ledger-ink);
+  --accent-hover: #3b3428;
+  --accent-fg: #ffffff;
+  --highlight: var(--ledger-yellow); /* the add button, only */
+  --highlight-fg: var(--ledger-ink);
+  --ring: var(--ledger-ink);
+
+  /* -- 3b. identity ----------------------------------------------- */
+  --brand-icon: #252017;
+  --brand-icon-fg: #fcc305;
+
+  /* -- 3c. camera — theme-stable: the viewfinder is always dark ---- */
+  --ledger-cam: #14110c;
+  --ledger-cam-sheet: #252017;
+  --ledger-cam-cell: #2d281f;
+  --ledger-cam-line: #3a342a;
+  --ledger-cam-ink: #f2f1ef;
+  --ledger-cam-muted: #a59f93;
+
+  /* -- 4. status: success = money in, danger = money out ---------- */
+  --success: #0f7a45;
+  --danger: #c0362a;
+  --danger-fg: #ffffff;
+  --info: #0f4fb0;
+  --warning: #d9a400;
+
+  /* -- 5. shape & type -------------------------------------------- */
+  --brand-radius-sm: 5px;
+  --brand-radius-md: 10px;
+  --brand-radius-lg: 12px;
+  --brand-radius-xl: 22px;
+  --brand-font-sans: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --brand-font-mono: ui-monospace, Menlo, monospace;
+  --brand-shadow-overlay: 0 8px 34px rgb(0 0 0 / 0.2);
+}
+
+/* Dark: paper flips to warm near-black; the ramp reverses by role; the
+ * ink accent becomes paper so CTAs stay the highest-contrast mark. */
+[data-brand="ledger"].dark {
+  --n-0: #0f0d0a;
+  --n-50: #1d1a15;
+  --n-100: #26221c;
+  --n-200: #2e2a23;
+  --n-300: #3a352d;
+  --n-400: #6b665e;
+  --n-500: #9a958c;
+  --n-700: #c4bfb6;
+  --n-900: #f5f2ec;
+
+  --ledger-ink: #f5f2ec;
+  --ledger-paper: #15120e;
+  --ledger-gold-ink: #e3c04a;
+
+  --surface-raised: var(--n-100);
+  --accent-hover: #ffffff;
+  --accent-fg: #15120e;
+  --highlight-fg: #15120e;
+  --danger-fg: #15120e;
+  --success: #4cc286;
+  --danger: #f0705f;
+  --info: #6aa0f0;
+  --warning: #f0c43a;
+}
