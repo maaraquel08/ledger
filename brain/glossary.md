@@ -2,7 +2,7 @@
 type: fact
 status: draft
 updated: 2026-10-29
-related: [product, features/home, features/activity, features/chat, D-0012, D-0013, D-0014, D-0015, D-0016]
+related: [D-0017, features/analytics, product, features/home, features/activity, features/chat, D-0012, D-0013, D-0014, D-0015, D-0016]
 ---
 
 # Glossary
@@ -39,7 +39,12 @@ Use the first column everywhere: UI, specs, decisions, code names. Words in "Don
 | Fact | A number computed in SQL that M8's prose cites by placeholder | Stat, figure | A digit in M8's prose that isn't a fact is rejected (D-0013); internal word |
 | Raw input | What the Owner gave to log: text, a voice clip or a photo, kept with what was parsed from it | Source, upload | Every captured entry points to its raw input; internal word |
 | Rule (learned rule) | A filing rule learned from the Owner's correction, e.g. "Jollibee → Food & drink" | Automation, filter | Applied before Claude's guess (D-0013) |
-| Today | The first tab: M8's sentence, today's number, week / month / year analysis | Home, Dashboard | D-0015; route name may stay `/home` until shipped |
+| Today | The first tab: M8's sentence, today's number, this month so far, Review count, budgets and goals | Home, Dashboard | D-0017; `/today` |
+| Analytics | The third tab: one week, month or year at a time, compared with the period before and the usual | Insights (for the tab), Reports, Stats | D-0017; `/analytics`. "Insight" stays the word for one thing M8 says |
+| Like for like | Comparing an unfinished period with the same elapsed days of the one before (Oct 1–29 vs Sep 1–29) | Same period last time | UI: "VS. SEP 1–29 (SAME DAYS)" |
+| Trailing average | The average of up to 8 weeks / 3 months / 5 years before the period, like for like, since the ledger began | Baseline, norm | UI: "VS AVG", "AVG OF 3 MONTHS" |
+| Savings rate | Net saved as a share of income in a period | Savings ratio | Changes shown in points ("−5 PTS") |
+| Recurring bill | A merchant charged about monthly, similar amount and day, in ≥ 3 of the last 6 months | Subscription (unless it is one), autopay | Detected, never scheduled; Analytics only |
 | Money | The second tab: accounts, net worth and the full ledger | Wallet, Accounts tab | D-0015 |
 | Verdict | Internal name for the monthly budget computation | — | `selectors.ts` `verdict()`; never shown as a word |
 | Refunded | An expense entry reversed; struck through, excluded from spend, balance restored (D-0009) | Reversed, voided | Expenses only |

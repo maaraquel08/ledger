@@ -1,11 +1,13 @@
 ---
 type: fact
-status: draft
+status: superseded
 updated: 2026-10-29
-related: [budgets-and-goals, activity, add-entry, home, users, system-map, D-0012, rules/rule-signed-money, D-0013, D-0015, D-0016]
+related: [analytics, D-0017, budgets-and-goals, activity, add-entry, home, users, system-map, D-0012, rules/rule-signed-money, D-0013, D-0015, D-0016]
 ---
 
 # Insights
+
+> Superseded 2026-10-29: the week / month / year analysis is the **Analytics** tab (`features/analytics.md`, D-0017); `/insights` redirects there. The cloud insight inbox (D-0016) stays on Today. What follows is the old `/insights` screen, kept as history.
 
 **Purpose.** Lets the Owner see where a week, month or year went, once enough days are logged.
 

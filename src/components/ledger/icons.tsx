@@ -47,6 +47,14 @@ export const ReviewIcon = ({ size, filled, ...p }: P & { filled?: boolean }) => 
   </svg>
 );
 
+/** Analytics: three bars on a baseline. */
+export const AnalyticsIcon = ({ size, filled, ...p }: P & { filled?: boolean }) => (
+  <svg {...stroke(size, p)}>
+    <path d="M3.8 20.2h16.4" />
+    <path fill={filled ? "currentColor" : "none"} d="M5.6 12.6a1 1 0 0 1 1-1h1.8a1 1 0 0 1 1 1v7.6H5.6zM10.6 5.8a1 1 0 0 1 1-1h1.8a1 1 0 0 1 1 1v14.4h-3.8zM15.6 9.6a1 1 0 0 1 1-1h1.8a1 1 0 0 1 1 1v10.6h-3.8z" />
+  </svg>
+);
+
 export const ChartIcon = ({ size = 17, ...p }: P) => (
   <svg {...stroke(size, p)}>
     <polyline points="4 15.5 9 10.5 13 14 20 6.5" />

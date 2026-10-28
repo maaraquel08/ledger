@@ -7,6 +7,7 @@ import { CloudLedgerProvider, useCloud } from "@/lib/cloud/provider";
 import { LedgerProvider, useLedger, useOnline } from "@/lib/store";
 import { cloud } from "@/lib/supabase";
 import { AccountDetail } from "@/screens/accounts";
+import { Analytics } from "@/screens/analytics";
 import { ActivityDetail, Review } from "@/screens/activity";
 import { Chat } from "@/screens/chat";
 import { needsReview } from "@/screens/ledger-list";
@@ -18,16 +19,17 @@ import { ImportOffer, localLedger, OpenFailed, Opening, SignIn } from "@/screens
 import { Today } from "@/screens/today";
 import { Welcome } from "@/screens/welcome";
 
-const TAB_ROOTS = ["/today", "/money", "/review"];
+const TAB_ROOTS = ["/today", "/money", "/analytics", "/review"];
 
 /**
- * Old routes and where they live now. Insights and Budgets folded into
- * Today, Activity and Accounts into Money.
+ * Old routes and where they live now. Insights became Analytics (D-0017),
+ * Budgets folded into Today, Activity and Accounts into Money.
  */
 function redirect(path: string): string | null {
   const [base, qs] = path.split("?");
   let m: Record<string, string> | null;
-  if (base === "/home" || base === "/insights") return "/today";
+  if (base === "/home") return "/today";
+  if (base === "/insights") return "/analytics";
   if (base === "/budgets") return "/today?plan=1";
   if (base === "/accounts") return "/money";
   if ((m = match("/accounts/:id", base))) return `/money/${encodeURIComponent(m.id)}`;
@@ -78,6 +80,7 @@ function Router() {
   else if ((m = match("/onboarding/:step", base))) screen = <Onboarding step={m.step} />;
   else if (base === "/today") screen = <Today path={path} />;
   else if (base === "/money") screen = <Money path={path} />;
+  else if (base === "/analytics") screen = <Analytics path={path} />;
   else if ((m = match("/money/:id", base))) screen = <AccountDetail id={m.id} path={path} />;
   else if (base === "/review") screen = <Review />;
   else if ((m = match("/activity/:id", base))) screen = <ActivityDetail id={m.id} />;

@@ -14,7 +14,7 @@ import type { Category, Entry } from "@/lib/types";
  * The ledger: every entry, newest first, filtered by type, account,
  * category, date range and search. Money shows it under the accounts;
  * an account page shows the same list pinned to that account. Filters
- * live in the URL so analysis cards on Today can link straight into it.
+ * live in the URL so Analytics can link straight into it.
  */
 
 export type EntryKind = "income" | "expense" | "transfer" | "invest";
@@ -64,6 +64,55 @@ export function ledgerHref(f: { type?: EntryKind; cat?: Category; from?: Date; t
   if (f.to) p.set("to", localDay(f.to));
   const s = p.toString();
   return `${base}${s ? `?${s}` : ""}`;
+}
+
+interface Structural {
+  kind: EntryKind | null;
+  cat: Category | null;
+  /** "YYYY-MM-DD", inclusive */
+  from: string | null;
+  to: string | null;
+  accts: string[];
+}
+
+/** The ledger's type, category, account and date filters; search and pinned ids aside. */
+function passes(e: Entry, f: Structural) {
+  const t = new Date(e.date).getTime();
+  if (f.from && t < dayOf(f.from).getTime()) return false;
+  if (f.to && t >= addDays(dayOf(f.to), 1).getTime()) return false;
+  if (f.kind && entryKind(e) !== f.kind) return false;
+  if (f.accts.length && !f.accts.includes(e.accountId ?? "")) return false;
+  if (f.cat && e.category !== f.cat && !e.split?.some((s) => s.category === f.cat)) return false;
+  return true;
+}
+
+/**
+ * A link to exactly `picked`: the readable filter link when that filter shows the same
+ * entries, otherwise the entries pinned by id under `label`.
+ */
+export function entriesHref(all: Entry[], picked: Entry[], label: string, filter?: { type?: EntryKind; cat?: Category; from?: Date; to?: Date }) {
+  if (filter) {
+    const f: Structural = {
+      kind: filter.type ?? null,
+      cat: filter.cat ?? null,
+      from: filter.from ? localDay(filter.from) : null,
+      to: filter.to ? localDay(filter.to) : null,
+      accts: [],
+    };
+    const want = new Set(picked.map((e) => e.id));
+    let n = 0;
+    let same = true;
+    for (const e of all) {
+      if (!passes(e, f)) continue;
+      n++;
+      if (!want.has(e.id)) {
+        same = false;
+        break;
+      }
+    }
+    if (same && n === want.size) return ledgerHref(filter);
+  }
+  return ledgerHref({ ids: picked.map((e) => e.id), label });
 }
 
 function rangeLabel(from: string | null, to: string | null) {
@@ -162,15 +211,10 @@ export function LedgerList({ path, base, accountId }: { path: string; base: stri
 
   const matches = React.useMemo(() => {
     const needle = q.trim().toLowerCase();
-    const a = from ? dayOf(from).getTime() : -Infinity;
-    const b = to ? addDays(dayOf(to), 1).getTime() : Infinity;
+    const f: Structural = { kind, cat, from, to, accts };
     const list = scope.filter((e) => {
       if (pinned && !pinned.has(e.id)) return false;
-      const t = new Date(e.date).getTime();
-      if (t < a || t >= b) return false;
-      if (kind && entryKind(e) !== kind) return false;
-      if (accts.length && !accts.includes(e.accountId ?? "")) return false;
-      if (cat && e.category !== cat && !e.split?.some((s) => s.category === cat)) return false;
+      if (!passes(e, f)) return false;
       if (needle) {
         const acc = e.accountId ? accountById.get(e.accountId) : undefined;
         const hay = `${e.desc} ${e.raw ?? ""} ${e.category ?? ""} ${acc?.name ?? ""} ${acc?.providerLabel ?? ""}`.toLowerCase();

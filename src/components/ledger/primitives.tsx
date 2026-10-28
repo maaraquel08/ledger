@@ -31,8 +31,8 @@ export function Screen({
       className={cn(
         "screen-in relative mx-auto flex min-h-dvh w-full max-w-[430px] flex-col bg-bg",
         "pt-[env(safe-area-inset-top)]",
-        // tab bar (~65px) + 14px gap + 60px FAB + 16px air
-        tabbed && "pb-[calc(156px+env(safe-area-inset-bottom))]",
+        // tab bar (66px) + 14px gap + 60px FAB + 40px air, so the last row and its meta clear the FAB and its glow
+        tabbed && "pb-[var(--tab-clearance)]",
         className,
       )}
     >
@@ -314,14 +314,15 @@ export function StatGrid({ items }: { items: { label: string; value: React.React
   );
 }
 
-/** "+12%" / "−8%"; null = nothing to compare with (the category is new this period). */
-export function Delta({ value, invert }: { value: number | null; invert?: boolean }) {
+/** "+12%" / "−8%"; null = nothing to compare with (the category is new this period). `unit` " PTS" for percentage points. */
+export function Delta({ value, invert, unit = "%" }: { value: number | null; invert?: boolean; unit?: string }) {
   if (value === null) return <span className="border border-line-strong px-[5px] py-px font-mono text-[10.5px] font-semibold text-fg-subtle">NEW</span>;
   const bad = invert ? value < 0 : value > 0;
   return (
     <span className={cn("border px-[5px] py-px font-mono text-[10.5px] font-semibold", value === 0 ? "border-line-strong text-fg-subtle" : bad ? "border-danger text-danger" : "border-success text-success")}>
       {value > 0 ? "+" : value < 0 ? "−" : ""}
-      {Math.abs(value)}%
+      {Math.abs(value)}
+      {unit}
     </span>
   );
 }

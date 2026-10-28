@@ -1,23 +1,25 @@
 import * as React from "react";
-import { ArrowUpIcon, Sparkle } from "@/components/ledger/icons";
+import { ArrowUpIcon, ChevronRight, Sparkle } from "@/components/ledger/icons";
 import { AiCard, AiMark, Eyebrow, Screen } from "@/components/ledger/primitives";
 import { cn } from "@/lib/cn";
 import { balance, dayName, monthName, peso } from "@/lib/format";
 import { navigate, query } from "@/lib/router";
+import { analyticsHref } from "@/lib/analytics";
 import { inRange, monthBounds, verdict } from "@/lib/selectors";
 import { useLedger, useOnline } from "@/lib/store";
 import { todayBudget } from "@/lib/today";
-import { Analysis } from "@/screens/analysis";
 import { MathSheet, ProfileSheet } from "@/screens/today-sheets";
 import { Plan } from "@/screens/plan";
 import { InsightsInbox, useInsights } from "@/screens/insights-inbox";
+import { needsReview } from "@/screens/ledger-list";
 import { cloud } from "@/lib/supabase";
 import { clearChatHistory } from "@/lib/chat-history";
 
 /*
  * Today: one M8 sentence and the month's number, today's number beside it,
- * then the week / month / year analysis, then budgets and goals. Logging is
- * the global Add; questions go to M8 in Chat.
+ * a one-line "this month so far" into Analytics and the Review count, then
+ * budgets and goals. Logging is the global Add; questions go to M8 in Chat;
+ * the week / month / year analysis lives in Analytics (D-0017).
  */
 
 type V = ReturnType<typeof verdict>;
@@ -57,6 +59,7 @@ export function Today({ path }: { path: string }) {
   const tb = todayBudget(state, now);
   const [mf, mt] = monthBounds(now);
   const month = monthName(now);
+  const reviewCount = state.entries.filter(needsReview).length;
 
   // /budgets lands here: bring the plan section into view
   const toPlan = query(path).get("plan") === "1";
@@ -131,8 +134,35 @@ export function Today({ path }: { path: string }) {
         </button>
       </div>
 
+      <div className="px-6 pt-7">
+        <div className="divide-y divide-line rounded-lg border border-line">
+          <button type="button" onClick={() => navigate(analyticsHref("month", mf))} className="flex min-h-14 w-full items-center gap-3 px-4 py-3 text-left active:bg-surface">
+            <span className="min-w-0 flex-1">
+              <span className="eyebrow block">THIS MONTH SO FAR · ANALYTICS</span>
+              <span className="tnum mt-1.5 block text-[14px] text-fg-muted">
+                In <span className="font-semibold text-fg">{peso(v.totals.in)}</span> · Out <span className="font-semibold text-fg">{peso(v.totals.out)}</span>
+                {v.totals.in > 0 ? (
+                  <>
+                    {" "}
+                    · Saved <span className="font-semibold text-fg">{v.savedRate}%</span>
+                  </>
+                ) : null}
+              </span>
+            </span>
+            <ChevronRight size={14} className="flex-none text-fg-subtle" />
+          </button>
+          {reviewCount > 0 ? (
+            <button type="button" onClick={() => navigate("/review")} className="flex min-h-12 w-full items-center gap-3 px-4 text-left active:bg-surface">
+              <span className="min-w-0 flex-1 text-[14px]">
+                <span className="tnum font-semibold">{reviewCount}</span> {reviewCount === 1 ? "entry" : "entries"} to review
+              </span>
+              <ChevronRight size={14} className="flex-none text-fg-subtle" />
+            </button>
+          ) : null}
+        </div>
+      </div>
+
       <InsightsInbox items={insights.inbox} onDismiss={insights.dismiss} />
-      <Analysis />
       <Plan />
 
       <MathSheet open={mathOpen} onOpenChange={setMathOpen} v={v} month={inRange(state.entries, mf, mt)} today={now} />

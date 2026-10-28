@@ -1,14 +1,16 @@
 ---
 type: decision
 area: design
-status: active
+status: superseded
 updated: 2026-10-29
 related: [features/home, features/accounts, features/activity, features/review, features/insights, features/budgets-and-goals, features/chat, features/receipt-scan, features/add-entry, system-map, design/screens]
 supersedes: []
-superseded_by: null
+superseded_by: D-0017
 ---
 
 # D-0015 Three tabs: Today, Money, Review
+
+> Superseded 2026-10-29 by D-0017 (four tabs: Today, Money, Analytics, Review).
 
 **Context.** Four tabs (Home, Activity, Accounts, Insights) plus Budgets, Scan and Chat off to the side split the Owner's money across too many places; the CFO direction wants a quick glance, plain analysis and one consolidated view (spec 2026-10-29). Decided by the Owner on 2026-10-29 ("yes" to the three-tab layout).
 

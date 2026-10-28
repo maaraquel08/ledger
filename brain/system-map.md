@@ -2,7 +2,7 @@
 type: fact
 status: draft
 updated: 2026-10-29
-related: [D-0012, D-0013, D-0014, D-0015, D-0016, features/home, features/add-entry, features/receipt-scan, features/activity, features/review, features/accounts, features/insights, features/budgets-and-goals, features/chat, features/onboarding, design/screens]
+related: [D-0012, D-0013, D-0014, D-0015, D-0016, D-0017, features/analytics, features/home, features/add-entry, features/receipt-scan, features/activity, features/review, features/accounts, features/insights, features/budgets-and-goals, features/chat, features/onboarding, design/screens]
 ---
 
 # System map
@@ -34,7 +34,8 @@ R = reads, W = writes, T = triggers something in, E = exposes to.
 | activity | — (owner) | R | R (category budget row) | T (banner "N entries to review") | — | — |
 | review | W (update category/account) | R | — | — | — | — |
 | accounts | W (transfer = two entries; remove orphans entries) | — (owner) | R (holdings %) | T (orphaned entries) | — | — |
-| insights | R | R | R (budget) · T (link to Budgets) | — | — | T (AddSheet "Log today") |
+| insights | superseded by analytics (D-0017) | | | | | |
+| analytics | R (period entries; T `/money` filtered or pinned ids) | — | R (month budget) | — | — | T (AddSheet, empty state) · R from home ("This month so far") |
 | budgets-and-goals | R (spend by category) | — | — (owner) | — | — | — |
 | chat | R | R | W (goal via offer) | — | — (owner) | — |
 
@@ -48,11 +49,12 @@ Things one feature emits that others react to. Reducer actions in `src/lib/store
 | `delete-entry` | home (Undo), activity | delete | balance reversed |
 | `flush-queue` | home | back online with queued entries | clears `queued` chips |
 | `upsert-account` / `remove-account` | accounts, onboarding | account edits | entries orphaned on remove |
-| `update-profile` | budgets-and-goals, chat (offer) | budget / goal change | today's number, Insights, ring |
+| `update-profile` | budgets-and-goals, chat (offer) | budget / goal change | today's number, Analytics (month pace), ring |
 | `ask` | chat | an answered question | 20/day limit |
 | `load-demo` / `reset` / `complete-onboarding` | onboarding, home (Profile sheet) | sign in, erase, finish setup | replaces all state |
 | `ledger:handoff` (sessionStorage) | receipt-scan | logged or possible duplicate | home receipt / duplicate card |
-| `ledger:onboarding`, `ledger:chat`, `ledger:insights-period`, `ledger:math-seen` | onboarding, chat, insights, home | drafts and per-session memory | same feature |
+| `ledger:onboarding`, `ledger:chat`, `ledger:math-seen` | onboarding, chat, home | drafts and per-session memory | same feature |
+| `/analytics?p=&at=` (URL) | analytics, home (This month so far), `/insights` redirect | the period shown | analytics |
 
 ## Shared surfaces
 Any feature that creates or changes an object must define its entry in each:
@@ -69,7 +71,9 @@ Any feature that creates or changes an object must define its entry in each:
 Shipped (local mode):
 Hash routes (`src/App.tsx:37-50`). Tab bar (Home, Activity, Accounts, Insights) only on exact tab roots. FAB only on Activity. Chat has no tab: reached from Home (typed or spoken question) or The math "Ask a follow-up". Scan is full-screen from Home. Budgets from Insights. Review from the Activity banner. Welcome/onboarding are public; everything else redirects to `/` until onboarded.
 
-Planned (D-0015): three tabs **Today** (home + insights + budgets-and-goals; chat and the insight inbox open from it), **Money** (accounts + activity; account detail = filtered ledger), **Review**. Add stays global; Scan is Add's Camera mode, not a route.
+Shipped 2026-10-29 (D-0017, supersedes D-0015): four tabs **Today · Money · Analytics · Review** (`src/components/ledger/chrome.tsx`), tab bar on those roots only, Add global above it. `/insights` → `/analytics`, `/home` → `/today`. Every tab screen pads by `--tab-clearance` so the Add button never covers the last row.
+
+Was planned (D-0015): three tabs **Today** (home + insights + budgets-and-goals; chat and the insight inbox open from it), **Money** (accounts + activity; account detail = filtered ledger), **Review**. Add stays global; Scan is Add's Camera mode, not a route.
 
 ## Planned: cloud mode (approved 2026-10-29, not shipped)
 Source: `docs/superpowers/specs/2026-10-29-cfo-agent-design.md`, schema in `supabase/CONTRACT.md`. Local mode keeps everything above.
@@ -99,7 +103,7 @@ Recurring across features; feature-specific ones stay in each feature file. Form
 - **EC-001 Entry missing category or account** — any log path, or a removed account · home, add-entry, receipt-scan, activity, review, accounts · totals include unfiled spend; "Needs category" / "ACCOUNT?" chips · saves anyway and lands in Review (D-0005) · draft
 - **EC-002 Offline** — `navigator.onLine` false · home, add-entry, receipt-scan, chat · entries flagged `queued` · local mode: "saved on your phone", questions still answered (D-0008); cloud mode (planned): "Saved on this phone" until acknowledged, then "Synced"; Claude answers and parsing wait for a connection (D-0012, D-0013) · draft
 - **EC-003 No budget yet** — income never entered · home, insights, budgets, chat · hero "₱—", The math will not open, chat asks to set a budget · every surface names the action that sets one · draft
-- **EC-004 Fewer than 7 logged days** — new user · insights · gate screen with mini bars · "Log today" CTA · draft
+- **EC-004 Little or no history** — new user · analytics · no 7-day gate any more (D-0017): no entries → "Nothing to analyse yet" + Add; first period → NO DATA comparisons and a one-period trend note · draft
 - **EC-005 Negative balance** — spend beyond balance · accounts, activity · shown signed in red via `balance()`; transfers from a non-credit account are blocked when they would go under · handled · draft
 - **EC-008 Storage write fails** — localStorage full or unavailable · every logging surface · state stays in memory only · `persistError` banner "Couldn't save on this phone."; photos live under their own capped key so entries still save · handled · draft
 - **EC-009 Leaving Home during Reading** — tab tap or second line within the 1.1 s animation · home · used to drop the entry · entries are committed before Reading starts · handled · draft

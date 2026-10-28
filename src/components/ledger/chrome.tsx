@@ -1,7 +1,7 @@
 import * as React from "react";
 import { cn } from "@/lib/cn";
 import { navigate } from "@/lib/router";
-import { AccountsIcon, HomeIcon, PlusIcon, ReviewIcon } from "./icons";
+import { AccountsIcon, AnalyticsIcon, HomeIcon, PlusIcon, ReviewIcon } from "./icons";
 
 /* ---------- global UI: the add sheet is reachable from every tab ------ */
 
@@ -18,11 +18,12 @@ export const useChrome = () => React.useContext(ChromeCtx);
 const TABS = [
   { path: "/today", label: "Today", Icon: HomeIcon },
   { path: "/money", label: "Money", Icon: AccountsIcon },
+  { path: "/analytics", label: "Analytics", Icon: AnalyticsIcon },
   { path: "/review", label: "Review", Icon: ReviewIcon },
 ] as const;
 
 /**
- * Three tabs; adding an entry is the yellow floating action above the
+ * Four tabs (D-0017); adding an entry is the yellow floating action above the
  * nav, bottom right, on every tab. #FCC305 is used nowhere else.
  */
 export function TabBar({ path, reviewCount = 0 }: { path: string; reviewCount?: number }) {
@@ -40,7 +41,7 @@ export function TabBar({ path, reviewCount = 0 }: { path: string; reviewCount?: 
       >
         <PlusIcon size={26} />
       </button>
-      <div className="grid grid-cols-3 px-3 pt-[7px] pb-[max(14px,env(safe-area-inset-bottom))]">
+      <div className="grid grid-cols-4 px-3 pt-[7px] pb-[max(14px,env(safe-area-inset-bottom))]">
         {TABS.map(({ path: p, label, Icon }) => {
           const active = path === p || path.startsWith(`${p}/`);
           const badge = p === "/review" && reviewCount > 0 ? reviewCount : 0;

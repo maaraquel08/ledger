@@ -250,6 +250,8 @@
   --color-canvas: var(--n-0);
   --color-fill: var(--n-100);
   --color-mute: var(--n-400);
+  --color-chart-in: var(--chart-in);
+  --color-chart-out: var(--chart-out);
   --color-cam: var(--ledger-cam);
   --color-cam-sheet: var(--ledger-cam-sheet);
   --color-cam-cell: var(--ledger-cam-cell);
@@ -270,7 +272,9 @@ body {
   -webkit-tap-highlight-color: transparent;
   overscroll-behavior-y: none;
 }
-html { scroll-padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
+/* Room a tab screen keeps under its last row: tab bar 66 + gap 14 + Add 60 + 40 air (the Add glow reaches ~20px) */
+:root { --tab-clearance: calc(180px + env(safe-area-inset-bottom)); }
+html { scroll-padding-bottom: var(--tab-clearance); }
 #root { isolation: isolate; min-height: 100dvh; }
 @media (min-width: 520px) { body { background: var(--color-canvas); } }
 

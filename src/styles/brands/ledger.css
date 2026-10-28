@@ -63,6 +63,12 @@
   --info: #0f4fb0;
   --warning: #d9a400;
 
+  /* -- 4b. charts: income vs spending marks. A darker green and a lighter red than
+   * the text tokens so the pair also separates by lightness (deutan/protan safe,
+   * dataviz validate_palette.js: CVD ΔE 10.0 light, 11.4 dark). Text never wears these. */
+  --chart-in: #0b6b3c;
+  --chart-out: #e06a5c;
+
   /* -- 5. shape & type -------------------------------------------- */
   --brand-radius-sm: 5px;
   --brand-radius-md: 10px;
@@ -99,4 +105,6 @@
   --danger: #f0705f;
   --info: #6aa0f0;
   --warning: #f0c43a;
+  --chart-in: #36ad73;
+  --chart-out: #b8473b;
 }

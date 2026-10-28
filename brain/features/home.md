@@ -2,7 +2,7 @@
 type: fact
 status: draft
 updated: 2026-10-29
-related: [add-entry, receipt-scan, chat, activity, review, budgets-and-goals, onboarding, users, system-map, D-0012, rules/rule-signed-money, rules/rule-daily-allowance, D-0013, D-0005, D-0006, D-0015, D-0016]
+related: [analytics, D-0017, add-entry, receipt-scan, chat, activity, review, budgets-and-goals, onboarding, users, system-map, D-0012, rules/rule-signed-money, rules/rule-daily-allowance, D-0013, D-0005, D-0006, D-0015, D-0016]
 ---
 
 # Home
@@ -59,10 +59,16 @@ Hold orb or type -> process (saves) -> reading -> receipt card (Undo 8 s). Quest
 | The math | sheet | "Ask a follow-up" | Sheet, StatGrid |
 | Profile | sheet | "Erase all data" | Sheet, Cta |
 
+## Today (shipped 2026-10-29, D-0017)
+- Route `/today` (`src/screens/today.tsx`): date eyebrow + avatar, M8 · Today card (cloud: fresh daily insight, else the local template), LEFT TO SPEND hero, today's number with "Show the math", "Ask M8 about your money".
+- A bordered block: "THIS MONTH SO FAR · ANALYTICS" with In / Out / Saved % for the month (`verdict().totals`), opens `/analytics?p=month&at=<1st>`; below it "N entries to review" (only when N > 0) opens `/review`.
+- Then the insight inbox (cloud, D-0016) and budgets and goals (`Plan`). The week / month / year analysis and its 7-day gate moved to Analytics; nothing of it remains on Today.
+- Bottom clearance: every tab screen pads by `--tab-clearance` (tab bar 66 + gap 14 + Add 60 + 40 air + safe area, `src/index.css`), so the last goal row clears the Add button and its glow.
+
 ## Planned (approved 2026-10-29, not shipped)
-Home becomes the **Today** tab (D-0015). It keeps today's number and The math (D-0006) and adds:
+Home becomes the **Today** tab (D-0015, now D-0017). It keeps today's number and The math (D-0006) and adds:
 - M8's sentence on top: the daily one-liner, an in-app insight (D-0016), never pushed.
-- A week / month / year switch with analysis cards (plain conclusions with numbers and the entries behind them); the Insights and Budgets screens fold in here (see `insights`, `budgets-and-goals`).
+- ~~A week / month / year switch with analysis cards~~: moved to the Analytics tab (D-0017, `analytics`). Budgets fold in here (`budgets-and-goals`).
 - Chat opens from Today; the insight inbox is reachable from Today.
 - Cloud mode: captures go to the `capture` function and save instantly with Undo only when the confidence gate passes, else land in Review with one question (D-0013); offline lines show "Saved on this phone" until synced (D-0012).
 - Scan stops being a separate screen; the scan icon opens Add in Camera mode.
@@ -73,7 +79,7 @@ Home becomes the **Today** tab (D-0015). It keeps today's number and The math (D
 | Owns | Nothing persistent (Profile sheet and math skeleton flag only) |
 | Reads | accounts, entries, profile initials/name, `todayBudget`, `verdict`, `useOnline` |
 | Writes | `add-entry`, `update-entry` (account answer, attach receipt), `delete-entry` (Undo), `flush-queue`, `reset` |
-| Triggers | `/chat?q=&via=`, `/scan`, `/activity/:id`, navigate `/` after reset; reads sessionStorage `ledger:handoff` |
+| Triggers | `/analytics?p=month&at=` (This month so far), `/review` (count row), `/chat?q=&via=`, `/scan`, `/activity/:id`, navigate `/` after reset; reads sessionStorage `ledger:handoff` |
 | Exposes | today's number and the math to chat ("daily" answer) |
 | Depends on | add-entry (parser), receipt-scan (handoff, duplicates), chat, review, budgets-and-goals |
 

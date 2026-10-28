@@ -157,12 +157,17 @@ export type PeriodKind = "week" | "month" | "year";
  * A finished period compares with the whole previous one. The current, unfinished
  * one compares with the same elapsed days of the previous period: Monday–Thursday
  * with last Monday–Thursday, 1–29 October with 1–29 September (clamped to its end),
- * 1 January–29 October with the same dates last year.
+ * 1 January–29 October with the same dates last year. `back` steps further:
+ * 2 is the period before that, with the same like-for-like stretch.
  */
-export function priorPeriod(kind: PeriodKind, from: Date, to: Date, now = new Date()) {
+export function priorPeriod(kind: PeriodKind, from: Date, to: Date, now = new Date(), back = 1) {
   const pf =
-    kind === "week" ? addDays(from, -7) : kind === "month" ? new Date(from.getFullYear(), from.getMonth() - 1, 1) : new Date(from.getFullYear() - 1, 0, 1);
-  const full = kind === "week" ? from : kind === "month" ? new Date(pf.getFullYear(), pf.getMonth() + 1, 1) : new Date(pf.getFullYear() + 1, 0, 1);
+    kind === "week"
+      ? addDays(from, -7 * back)
+      : kind === "month"
+        ? new Date(from.getFullYear(), from.getMonth() - back, 1)
+        : new Date(from.getFullYear() - back, 0, 1);
+  const full = kind === "week" ? addDays(pf, 7) : kind === "month" ? new Date(pf.getFullYear(), pf.getMonth() + 1, 1) : new Date(pf.getFullYear() + 1, 0, 1);
   const partial = now >= from && now < to && addDays(startOfDay(now), 1).getTime() < to.getTime();
   if (!partial) return { from: pf, to: full, partial: false };
   const day = startOfDay(now);

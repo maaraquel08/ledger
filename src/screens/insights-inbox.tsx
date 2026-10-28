@@ -12,7 +12,7 @@ import { cloud } from "@/lib/supabase";
 
 const DAY = 24 * 60 * 60 * 1000;
 
-const LABEL: Record<Insight["kind"], string> = {
+export const LABEL: Record<Insight["kind"], string> = {
   daily: "M8 · TODAY",
   weekly: "M8 · WEEKLY REVIEW",
   monthly: "M8 · MONTHLY CLOSE",
@@ -20,7 +20,8 @@ const LABEL: Record<Insight["kind"], string> = {
   answer: "M8",
 };
 
-export function useInsights() {
+/** `markRead: false` reads without marking the inbox read (Analytics shows only the period's review). */
+export function useInsights({ markRead = true }: { markRead?: boolean } = {}) {
   const [list, setList] = React.useState<Insight[]>([]);
   React.useEffect(() => {
     if (!cloud) return;
@@ -43,7 +44,7 @@ export function useInsights() {
   const inbox = list.filter((i) => i.kind !== "daily");
 
   // what's on screen has been read
-  const unread = inbox.filter((i) => !i.read_at).map((i) => i.id).join(",");
+  const unread = markRead ? inbox.filter((i) => !i.read_at).map((i) => i.id).join(",") : "";
   React.useEffect(() => {
     if (unread) markInsights(unread.split(","), "read_at").catch(() => {});
   }, [unread]);
@@ -52,7 +53,7 @@ export function useInsights() {
     setList((l) => l.filter((i) => i.id !== id));
     markInsights([id], "dismissed_at").catch(() => {});
   };
-  return { daily, inbox, dismiss };
+  return { daily, inbox, all: list, dismiss };
 }
 
 export function InsightsInbox({ items, onDismiss }: { items: Insight[]; onDismiss: (id: string) => void }) {
