@@ -44,14 +44,19 @@ const SORT_LABEL: Record<Sort, string> = { new: "Newest", old: "Oldest", large: 
 const ALL_CATEGORIES: Category[] = [...SPEND_CATEGORIES, "Income", "Salary", "Investments", "Transfer"];
 const DAY_PAGE = 60;
 const ENTRY_PAGE = 100;
-const ICON_BTN = "flex size-10 items-center justify-center rounded-full text-fg active:bg-surface";
+const ICON_BTN = "flex size-11 items-center justify-center rounded-full text-fg active:bg-surface";
 
 /** "YYYY-MM-DD" → local midnight */
 const dayOf = (k: string) => new Date(`${k}T00:00:00`);
 
-/** A link into the ledger, e.g. ledgerHref({ type: "expense", from, to }). Dates are inclusive. */
-export function ledgerHref(f: { type?: EntryKind; cat?: Category; from?: Date; to?: Date; acct?: string }, base = "/money") {
+/**
+ * A link into the ledger, e.g. ledgerHref({ type: "expense", from, to }). Dates are inclusive.
+ * `ids` pins the list to exactly those entries (the ones behind a claim), named by `label`.
+ */
+export function ledgerHref(f: { type?: EntryKind; cat?: Category; from?: Date; to?: Date; acct?: string; ids?: string[]; label?: string }, base = "/money") {
   const p = new URLSearchParams();
+  if (f.ids) p.set("ids", f.ids.join(","));
+  if (f.label) p.set("label", f.label);
   if (f.type) p.set("type", f.type);
   if (f.cat) p.set("cat", f.cat);
   if (f.acct) p.set("acct", f.acct);
@@ -79,7 +84,7 @@ function rangeLabel(from: string | null, to: string | null) {
 
 function Chip({ children, onRemove, onClick }: { children: string; onRemove?: () => void; onClick?: () => void }) {
   return (
-    <span className="flex h-10 flex-none items-center rounded-[20px] border border-line-strong text-[12.5px] whitespace-nowrap">
+    <span className="flex h-11 flex-none items-center rounded-[22px] text-[12.5px] ring-1 ring-line-strong ring-inset whitespace-nowrap">
       <button type="button" onClick={onClick} className="h-full pl-3.5 active:opacity-60" style={{ paddingRight: onRemove ? 6 : 14 }}>
         {children}
       </button>
@@ -113,6 +118,9 @@ export function LedgerList({ path, base, accountId }: { path: string; base: stri
   const from = params.get("from");
   const to = params.get("to");
   const sort = (["new", "old", "large"].includes(params.get("sort") ?? "") ? params.get("sort") : "new") as Sort;
+  const idsParam = params.get("ids");
+  const pinned = React.useMemo(() => (idsParam ? new Set(idsParam.split(",").filter(Boolean)) : null), [idsParam]);
+  const pinnedLabel = params.get("label") || "Selected entries";
 
   const setParams = (patch: Record<string, string | null>) => {
     const next = new URLSearchParams(path.split("?")[1] ?? "");
@@ -150,13 +158,14 @@ export function LedgerList({ path, base, accountId }: { path: string; base: stri
   const monthT = totals(monthList);
 
   // filters beyond the account an account page is pinned to
-  const filtering = q.trim() !== "" || kind !== null || cat !== null || from !== null || to !== null || (!accountId && accts.length > 0);
+  const filtering = pinned !== null || q.trim() !== "" || kind !== null || cat !== null || from !== null || to !== null || (!accountId && accts.length > 0);
 
   const matches = React.useMemo(() => {
     const needle = q.trim().toLowerCase();
     const a = from ? dayOf(from).getTime() : -Infinity;
     const b = to ? addDays(dayOf(to), 1).getTime() : Infinity;
     const list = scope.filter((e) => {
+      if (pinned && !pinned.has(e.id)) return false;
       const t = new Date(e.date).getTime();
       if (t < a || t >= b) return false;
       if (kind && entryKind(e) !== kind) return false;
@@ -175,7 +184,7 @@ export function LedgerList({ path, base, accountId }: { path: string; base: stri
     else sorted.sort((x, y) => y.date.localeCompare(x.date));
     return sorted;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scope, q, kind, cat, from, to, sort, accts.join(","), accountById]);
+  }, [scope, pinned, q, kind, cat, from, to, sort, accts.join(","), accountById]);
 
   const groups = React.useMemo(() => {
     const out: { key: string; heading: string | null; items: Entry[] }[] = [];
@@ -203,7 +212,7 @@ export function LedgerList({ path, base, accountId }: { path: string; base: stri
   const matchSum = matches.reduce((n, e) => n + e.amount, 0);
   const clearAll = () => {
     setText("");
-    setParams({ q: null, acct: null, cat: null, type: null, from: null, to: null });
+    setParams({ q: null, acct: null, cat: null, type: null, from: null, to: null, ids: null, label: null });
   };
   const setPeriod = (p: "month" | "year" | "all") => {
     if (p === "all") return setParams({ from: null, to: null });
@@ -278,13 +287,14 @@ export function LedgerList({ path, base, accountId }: { path: string; base: stri
 
       <div role="group" aria-label="Entry type" className="no-scrollbar mt-3 flex gap-1.5 overflow-x-auto px-6">
         {KINDS.map((k) => (
-          <Pill key={k.label} active={kind === k.id} className="min-h-10 flex-none px-4 text-[12.5px]" onClick={() => setParams({ type: k.id })}>
+          <Pill key={k.label} active={kind === k.id} className="min-h-11 flex-none px-4 text-[12.5px]" onClick={() => setParams({ type: k.id })}>
             {k.label}
           </Pill>
         ))}
       </div>
 
       <div className="no-scrollbar mt-2 flex gap-1.5 overflow-x-auto px-6">
+        {pinned ? <Chip onRemove={() => setParams({ ids: null, label: null })}>{pinnedLabel}</Chip> : null}
         {!accountId
           ? accts.map((id) => (
               <Chip key={id} onRemove={() => setParams({ acct: accts.filter((x) => x !== id).join(",") || null })}>
@@ -305,7 +315,7 @@ export function LedgerList({ path, base, accountId }: { path: string; base: stri
         <div className="px-6 pt-4">
           <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,6rem),1fr))] gap-y-3 rounded-md border border-line py-3.5">
             <Stat label="IN" value={<span className="text-success">{peso(monthT.in)}</span>} sub={`${monthT.deposits} deposit${monthT.deposits === 1 ? "" : "s"}`} />
-            <Stat label="OUT" value={<span className="text-danger">{peso(monthT.out)}</span>} sub={`${monthList.length} entries`} />
+            <Stat label="OUT" value={<span className="text-danger">{peso(monthT.out)}</span>} sub={`${monthT.outs} ${monthT.outs === 1 ? "entry" : "entries"}`} />
             <Stat label="NET" value={<span className={monthT.net < 0 ? "text-danger" : "text-success"}>{signed(monthT.net)}</span>} sub={monthName(now).slice(0, 3).toUpperCase()} />
           </div>
         </div>
@@ -352,7 +362,7 @@ export function LedgerList({ path, base, accountId }: { path: string; base: stri
             <Pill
               key={s}
               active={sort === s}
-              className="min-h-10 px-4 text-[13px]"
+              className="min-h-11 px-4 text-[13px]"
               onClick={() => {
                 setParams({ sort: s === "new" ? null : s });
                 setSortOpen(false);
@@ -376,7 +386,7 @@ export function LedgerList({ path, base, accountId }: { path: string; base: stri
                   ["all", "All time"],
                 ] as const
               ).map(([p, label]) => (
-                <Pill key={p} active={periodIs(p)} className="min-h-10 px-4 text-[13px]" onClick={() => setPeriod(p)}>
+                <Pill key={p} active={periodIs(p)} className="min-h-11 px-4 text-[13px]" onClick={() => setPeriod(p)}>
                   {label}
                 </Pill>
               ))}
@@ -392,7 +402,7 @@ export function LedgerList({ path, base, accountId }: { path: string; base: stri
                     <Pill
                       key={a.id}
                       active={on}
-                      className="min-h-10 max-w-full px-4 text-start text-[13px] whitespace-normal"
+                      className="min-h-11 max-w-full px-4 text-start text-[13px] whitespace-normal"
                       onClick={() => setParams({ acct: (on ? accts.filter((x) => x !== a.id) : [...accts, a.id]).join(",") || null })}
                     >
                       {a.name}
@@ -406,7 +416,7 @@ export function LedgerList({ path, base, accountId }: { path: string; base: stri
             <Eyebrow className="mb-3">CATEGORY</Eyebrow>
             <div className="flex flex-wrap gap-2">
               {ALL_CATEGORIES.map((c) => (
-                <Pill key={c} active={cat === c} className="min-h-10 px-4 text-[13px]" onClick={() => setParams({ cat: cat === c ? null : c })}>
+                <Pill key={c} active={cat === c} className="min-h-11 px-4 text-[13px]" onClick={() => setParams({ cat: cat === c ? null : c })}>
                   {c}
                 </Pill>
               ))}

@@ -1,7 +1,7 @@
 import * as React from "react";
 import { ActionButton, Cta, Eyebrow, Pill, Sheet } from "@/components/ledger/primitives";
 import { cn } from "@/lib/cn";
-import { goalLabel, monthName, peso } from "@/lib/format";
+import { goalLabel, monthName, monthShort, peso } from "@/lib/format";
 import { byCategory, FIXED, inRange, monthBounds, verdict } from "@/lib/selectors";
 import { newId, useLedger } from "@/lib/store";
 import type { Category, Goal } from "@/lib/types";
@@ -57,11 +57,14 @@ export function Plan() {
   const v = verdict(state, now);
   const [from, to] = monthBounds(now);
   const spentBy = new Map(byCategory(inRange(state.entries, from, to)));
-  const pace = now.getDate() / v.daysInMonth;
+  const pace = v.pace;
   // bills are due in full on their date; only the discretionary rest is paced
   const fixedSpent = FIXED.reduce((sum, c) => sum + (spentBy.get(c) ?? 0), 0);
-  const overPace = v.left < 0 || v.spent - fixedSpent > (v.budget - fixedSpent) * pace;
+  const overBudget = v.left < 0;
+  const overPace = overBudget || v.spent - fixedSpent > (v.budget - fixedSpent) * pace;
   const budgets = BUDGET_CATS.filter((c) => (profile.categoryBudgets[c] ?? 0) > 0);
+  const catTotal = budgets.reduce((n, c) => n + (profile.categoryBudgets[c] ?? 0), 0);
+  const catsOver = catTotal - v.fullBudget;
 
   const [catSheet, setCatSheet] = React.useState<{ cat: Category | null } | null>(null);
   const [totalOpen, setTotalOpen] = React.useState(false);
@@ -72,7 +75,7 @@ export function Plan() {
       <div className="px-6 pt-10">
         <div className="flex items-center justify-between">
           <Eyebrow>BUDGET · {monthName(now).toUpperCase()}</Eyebrow>
-          <button type="button" onClick={() => setTotalOpen(true)} className="flex h-10 items-center px-1 text-[13px] text-fg-muted active:opacity-60">
+          <button type="button" onClick={() => setTotalOpen(true)} className="flex h-11 min-w-11 items-center justify-center px-1 text-[13px] text-fg-muted active:opacity-60">
             Adjust
           </button>
         </div>
@@ -82,9 +85,14 @@ export function Plan() {
             <span className="text-fg-muted"> of {peso(v.budget)}</span>
           </span>
           <span className={cn("tnum text-[13px]", overPace ? "font-medium text-danger" : "text-fg-muted")}>
-            {overPace ? "Ahead of pace" : `${v.daysLeft} day${v.daysLeft === 1 ? "" : "s"} left`}
+            {overBudget ? `${peso(-v.left)} over budget` : overPace ? "Spending over pace" : `${v.daysLeft} day${v.daysLeft === 1 ? "" : "s"} left`}
           </span>
         </div>
+        {v.proratedFrom ? (
+          <p className="tnum mt-1 text-[12px] text-fg-muted">
+            First month: {peso(v.fullBudget)} prorated from {v.proratedFrom.getDate()} {monthShort(v.proratedFrom)}
+          </p>
+        ) : null}
         <div className="relative mt-2.5 h-1.5 rounded-full bg-fill">
           <div className={cn("h-full rounded-full", overPace ? "bg-danger" : "bg-accent")} style={{ width: `${v.budget > 0 ? Math.min(100, (v.spent / v.budget) * 100) : 0}%` }} />
           <div className="absolute -top-1 h-3.5 w-px bg-accent" style={{ left: `${pace * 100}%` }} aria-hidden />
@@ -94,10 +102,15 @@ export function Plan() {
       <div className="px-6 pt-8">
         <div className="flex items-center justify-between">
           <Eyebrow>CATEGORY BUDGETS</Eyebrow>
-          <button type="button" onClick={() => setCatSheet({ cat: null })} className="flex h-10 items-center px-1 text-[13px] text-fg-muted active:opacity-60">
+          <button type="button" onClick={() => setCatSheet({ cat: null })} className="flex h-11 min-w-11 items-center justify-center px-1 text-[13px] text-fg-muted active:opacity-60">
             Add
           </button>
         </div>
+        {catsOver > 0 ? (
+          <p role="status" className="tnum mt-2 rounded-md border border-warning px-3 py-2.5 text-[13px] leading-[1.45] text-gold-ink">
+            Category budgets add up to {peso(catTotal)}, {peso(catsOver)} more than your {peso(v.fullBudget)} monthly budget. Raise the total or trim a category.
+          </p>
+        ) : null}
         {budgets.length === 0 ? (
           <p className="py-3 text-[14px] text-fg-muted">No category budgets yet. Add one to see how you’re pacing.</p>
         ) : (
@@ -131,7 +144,7 @@ export function Plan() {
       <div className="px-6 pt-8">
         <div className="flex items-center justify-between">
           <Eyebrow>GOALS</Eyebrow>
-          <button type="button" onClick={() => setGoalSheet({ goal: null })} className="flex h-10 items-center px-1 text-[13px] font-medium active:opacity-60">
+          <button type="button" onClick={() => setGoalSheet({ goal: null })} className="flex h-11 min-w-11 items-center justify-center px-1 text-[13px] font-medium active:opacity-60">
             New
           </button>
         </div>
@@ -146,7 +159,8 @@ export function Plan() {
                   <button type="button" onClick={() => setGoalSheet({ goal: g })} className="block w-full py-3.5 text-left active:opacity-60">
                     <div className="flex items-baseline justify-between gap-3">
                       <span className="text-[14.5px] font-medium">{g.name}</span>
-                      <span className="tnum text-[14px] font-semibold text-info">{p}%</span>
+                      {/* saving past the target is fine; say it's reached rather than "133%" */}
+                      <span className="tnum text-[14px] font-semibold text-info">{p >= 100 ? "Reached" : `${p}%`}</span>
                     </div>
                     <div className="mt-2.5 h-1.5 rounded-full bg-fill">
                       <div className="h-full rounded-full bg-info" style={{ width: `${Math.min(100, p)}%` }} />
@@ -178,7 +192,8 @@ export function Plan() {
       />
       <TotalSheet
         open={totalOpen}
-        value={v.budget}
+        value={v.fullBudget}
+        catTotal={catTotal}
         onClose={() => setTotalOpen(false)}
         onSave={(n) => {
           dispatch({ type: "update-profile", patch: { monthlyBudget: n } });
@@ -225,7 +240,7 @@ function CategorySheet({
       {!editing && (
         <div className="mt-4 flex flex-wrap gap-2">
           {BUDGET_CATS.filter((c) => !taken.includes(c)).map((c) => (
-            <Pill key={c} active={cat === c} className="min-h-10" onClick={() => setCat(c)}>
+            <Pill key={c} active={cat === c} className="min-h-11" onClick={() => setCat(c)}>
               {c}
             </Pill>
           ))}
@@ -259,7 +274,7 @@ function CategorySheet({
   );
 }
 
-function TotalSheet({ open, value, onClose, onSave }: { open: boolean; value: number; onClose: () => void; onSave: (n: number) => void }) {
+function TotalSheet({ open, value, catTotal, onClose, onSave }: { open: boolean; value: number; catTotal: number; onClose: () => void; onSave: (n: number) => void }) {
   const [amt, setAmt] = React.useState(String(value));
   React.useEffect(() => {
     if (open) setAmt(String(value));
@@ -267,6 +282,11 @@ function TotalSheet({ open, value, onClose, onSave }: { open: boolean; value: nu
   return (
     <Sheet open={open} onOpenChange={(o) => !o && onClose()} title="Total monthly budget">
       <Field label="MONTHLY BUDGET" prefix="₱" value={amt} onChange={setAmt} inputMode="numeric" />
+      {num(amt) > 0 && num(amt) < catTotal ? (
+        <p role="status" className="tnum mt-2 text-[13px] leading-[1.45] text-gold-ink">
+          Your category budgets add up to {peso(catTotal)}, {peso(catTotal - num(amt))} more than this.
+        </p>
+      ) : null}
       <Cta className="mt-5" disabled={num(amt) <= 0} onClick={() => onSave(num(amt))}>
         Save budget
       </Cta>
@@ -297,13 +317,21 @@ function GoalSheet({
       <Field label="TARGET" prefix="₱" value={target} onChange={setTarget} inputMode="numeric" placeholder="0" />
       {g && <Field label="SAVED SO FAR" prefix="₱" value={saved} onChange={setSaved} inputMode="numeric" />}
       <label className="mt-4 block">
-        <Eyebrow>BY</Eyebrow>
+        <div className="flex items-center justify-between">
+          <Eyebrow>BY</Eyebrow>
+          {by && (
+            <button type="button" onClick={() => setBy("")} className="-my-3 py-3 text-[13px] font-medium text-fg-muted active:opacity-60">
+              No date
+            </button>
+          )}
+        </div>
         <input
           type="month"
           value={by}
           onChange={(e) => setBy(e.target.value)}
           className="mt-2 block h-11 w-full rounded-md border border-line-strong bg-bg px-3 text-[16px] text-fg outline-none focus:border-accent"
         />
+        {!by && <p className="mt-1.5 text-[12px] text-fg-muted">No date — saving at your own pace.</p>}
       </label>
       <div className="mt-5 flex flex-col gap-2.5">
         <Cta

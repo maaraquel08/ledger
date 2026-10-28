@@ -4,14 +4,14 @@
 import {
   applyGate, type CaptureContext, captureClock, captureIds, type EntryJson, type ParseOutput, planEntry, REFUND_REVIEW, summarize, toClientEntry,
 } from "../_shared/capture_core.ts";
-import { AiError, aiFailure, anthropic, type ContentBlockParam, MODEL, structured, system } from "../_shared/claude.ts";
+import { AiError, aiClient, aiFailure, type ContentBlockParam, MODEL, structured, system } from "../_shared/claude.ts";
 import { type Db, rpc, userClient, userId } from "../_shared/clients.ts";
 import { type GateResult, runGate } from "../_shared/gate.ts";
 import { body, error, guard, json, UUID_RE, validTz } from "../_shared/http.ts";
 import { type AccountRow, type AliasRow, buildKbBlock, type RecurringRow, type RuleRow } from "../_shared/kb.ts";
 import { PARSE_SYSTEM } from "../_shared/prompts.ts";
 import { PARSE_SCHEMA } from "../_shared/schemas.ts";
-import { openAiTranscriber } from "../_shared/stt.ts";
+import { transcriber } from "../_shared/stt.ts";
 import { localIso } from "../_shared/time.ts";
 
 interface CaptureBody {
@@ -50,7 +50,7 @@ Deno.serve(async (req) => {
   const uid = db ? await userId(db) : null;
   if (!db || !uid) return error(401, "unauthorized");
 
-  const claude = anthropic();
+  const claude = aiClient();
   if (!claude) return error(503, "ai_unconfigured");
 
   const b = await body<CaptureBody>(req);
@@ -96,7 +96,7 @@ Deno.serve(async (req) => {
     let sourceText = b.kind === "text" ? b.text!.slice(0, MAX_TEXT) : b.kind === "voice" && saved ? (prior?.transcript ?? "") : "";
     const content: ContentBlockParam[] = [];
     if (b.kind === "voice" && !saved) {
-      const stt = openAiTranscriber();
+      const stt = transcriber();
       if (!stt) return error(503, "stt_unconfigured", { raw_input_id: b.client_id });
       const { data: clip, error: dlErr } = await db.storage.from("voice").download(b.storage_path!);
       if (dlErr || !clip) return error(404, "clip_not_found", { raw_input_id: b.client_id });

@@ -60,12 +60,6 @@ const DAILY: Spend[] = [
   ["load", "Rent & bills", "a-gcash", 100, 300],
 ];
 
-const iso = (d: Date, h = 12, m = 0) => {
-  const x = new Date(d);
-  x.setHours(h, m, 0, 0);
-  return x.toISOString();
-};
-
 let n = 0;
 const id = () => `e${(++n).toString(36)}`;
 
@@ -76,6 +70,13 @@ export function buildDemo(today = new Date()): LedgerState {
   const between = (a: number, b: number) => Math.round((a + rand() * (b - a)) / 5) * 5;
   const entries: Entry[] = [];
   const push = (e: Omit<Entry, "id">) => entries.push({ id: id(), ...e });
+  // nothing is logged after "now": a time later today moves to a minute before it
+  let late = 0;
+  const iso = (d: Date, h = 12, m = 0) => {
+    const x = new Date(d);
+    x.setHours(h, m, 0, 0);
+    return (x.getTime() > today.getTime() ? new Date(today.getTime() - ++late * 60_000) : x).toISOString();
+  };
 
   const start = new Date(today.getFullYear(), 0, 1);
   const end = new Date(today);
@@ -93,7 +94,13 @@ export function buildDemo(today = new Date()): LedgerState {
     if (day === 15) push({ desc: "PLDT Fibr", accountId: "a-bpi", category: "Rent & bills", amount: -2099, date: iso(d, 7), auto: true });
     if (day === 18) push({ desc: "Netflix", accountId: "a-rcbc", category: "Subscriptions", amount: -549, date: iso(d, 6), auto: true });
     if (day === 22) push({ desc: "Spotify", accountId: "a-rcbc", category: "Subscriptions", amount: -194, date: iso(d, 6), auto: true });
-    if (day === 6) push({ desc: "VOO", accountId: "a-ibkr", category: "Investments", amount: -8000, date: iso(d, 21) });
+    if (day === 6) {
+      // an invest is a move: out of the payroll account, into the brokerage (D-0010)
+      const date = iso(d, 21);
+      const linkId = `l-voo-${d.getMonth() + 1}`;
+      push({ desc: "VOO", accountId: "a-bpi", category: "Investments", amount: -8000, date, linkId });
+      push({ desc: "VOO", accountId: "a-ibkr", category: "Investments", amount: 8000, date, linkId });
+    }
     if (day === 25 && rand() > 0.35)
       push({ desc: "Freelance · Studio K", accountId: "a-gcash", category: "Income", amount: 12000, date: iso(d, 16) });
     const count = isToday ? 0 : dow === 5 ? 3 : dow === 0 ? 1 : 2;

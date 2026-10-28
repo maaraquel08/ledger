@@ -12,6 +12,7 @@ import { MathSheet, ProfileSheet } from "@/screens/today-sheets";
 import { Plan } from "@/screens/plan";
 import { InsightsInbox, useInsights } from "@/screens/insights-inbox";
 import { cloud } from "@/lib/supabase";
+import { clearChatHistory } from "@/lib/chat-history";
 
 /*
  * Today: one M8 sentence and the month's number, today's number beside it,
@@ -34,12 +35,12 @@ function sentence(v: V, tb: TB, month: string): React.ReactNode {
   if (v.worst && v.worst.delta > 0)
     return (
       <>
-        You’re inside your budget, but <AiMark>{v.worst.category.toLowerCase()} is {peso(v.worst.delta)} ahead of pace</AiMark>.
+        You’re inside your budget, but <AiMark>{v.worst.category.toLowerCase()} is {peso(v.worst.delta)} over pace</AiMark>.
       </>
     );
   return (
     <>
-      Keep to <AiMark>{peso(v.perDay)} a day</AiMark> and {month} ends on budget.
+      Keep to <AiMark>{peso(tb.allowance)} a day</AiMark> and {month} ends on budget.
     </>
   );
 }
@@ -90,7 +91,7 @@ export function Today({ path }: { path: string }) {
         <span className="eyebrow">
           {dayName(now)} {now.getDate()} {monthName(now).slice(0, 3)}
         </span>
-        <button type="button" aria-label="Profile" onClick={() => setProfileOpen(true)} className="-mr-1.5 flex size-10 items-center justify-center">
+        <button type="button" aria-label="Profile" onClick={() => setProfileOpen(true)} className="-mr-[7px] flex size-11 items-center justify-center">
           <span className="flex size-[30px] items-center justify-center rounded-full border border-line-strong font-mono text-[10px] font-semibold">{state.profile.initials || "?"}</span>
         </button>
       </div>
@@ -108,7 +109,7 @@ export function Today({ path }: { path: string }) {
           type="button"
           onClick={() => tb.hasBudget && setMathOpen(true)}
           aria-label={`${todayValue} ${todaySub}. Show the math`}
-          className="mt-3 flex min-h-10 flex-wrap items-baseline gap-x-2 text-left active:opacity-60"
+          className="mt-3 flex min-h-11 flex-wrap items-baseline gap-x-2 text-left active:opacity-60"
         >
           <span className={cn("tnum text-[18px] font-semibold tracking-[-0.01em]", todayTone)}>{todayValue}</span>
           <span className="text-[14px] text-fg-subtle">{todaySub}</span>
@@ -133,7 +134,6 @@ export function Today({ path }: { path: string }) {
       <InsightsInbox items={insights.inbox} onDismiss={insights.dismiss} />
       <Analysis />
       <Plan />
-      <div className="h-20" aria-hidden />
 
       <MathSheet open={mathOpen} onOpenChange={setMathOpen} v={v} month={inRange(state.entries, mf, mt)} today={now} />
       <ProfileSheet
@@ -142,6 +142,7 @@ export function Today({ path }: { path: string }) {
         name={state.profile.name}
         onReset={() => {
           dispatch({ type: "reset" });
+          clearChatHistory();
           navigate("/");
         }}
       />

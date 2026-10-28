@@ -1,4 +1,5 @@
 import * as React from "react";
+import { canRefund } from "./entry-rules";
 import { localDay } from "./format";
 import { localStoragePhotoStore, localStorageRepository, type LedgerRepository } from "./persistence";
 import { buildDemo, EMPTY_STATE } from "./seed";
@@ -32,6 +33,16 @@ export type Action =
   | { type: "record-adjustment"; id: string; accountId: string }
   /** something said or typed offline that the phone couldn't read: the capture function files it later */
   | { type: "queue-capture"; id: string; text: string };
+
+/**
+ * Local mode's D-0014: the signed entry amount that brings an account's derived
+ * balance to what the Owner reported. Credit balances are amounts owed, so the
+ * sign flips (owing ₱800 less is +₱800 into the card). 0 when they already match.
+ */
+export function adjustmentAmount(account: Pick<Account, "balance" | "type">, reported: number) {
+  const gap = Math.round(reported) - Math.round(account.balance);
+  return account.type === "credit" ? 0 - gap : gap;
+}
 
 /** What an entry does to its account: nothing once refunded. */
 const effect = (e: Pick<Entry, "amount" | "refunded">) => (e.refunded ? 0 : e.amount);
@@ -69,6 +80,13 @@ export function reducer(s: LedgerState, a: Action): LedgerState {
       const prev = s.entries.find((e) => e.id === a.id);
       if (!prev) return s;
       const next = { ...prev, ...a.patch };
+      // only a plain expense can be refunded (QA A): a move leg or Adjustment would make money from nothing
+      if (next.refunded && !prev.refunded && !canRefund(next)) return s;
+      // a move's two legs sit in different accounts (QA B)
+      if (next.linkId != null && next.accountId != null && a.patch.accountId !== undefined) {
+        const twin = s.entries.find((e) => e.id !== prev.id && e.linkId === next.linkId);
+        if (twin?.accountId === next.accountId) return s;
+      }
       let accounts = applyBalance(s.accounts, prev.accountId, -effect(prev));
       accounts = applyBalance(accounts, next.accountId, effect(next));
       return { ...s, accounts, entries: s.entries.map((e) => (e.id === a.id ? next : e)) };

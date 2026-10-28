@@ -3,20 +3,22 @@ import { ArrowUpIcon, ChevronLeft, ChevronRight, CloseIcon, MicIcon, MoreIcon, S
 import { AiSummaryLabel, AiSummaryText } from "@/components/ui/ai-summary/ai-summary";
 import { AiEyebrow, AiMark, AiPanel, Cta, ProviderMark, Eyebrow, EntryRow, Screen, Sheet } from "@/components/ledger/primitives";
 import { cn } from "@/lib/cn";
-import { goalLabel, goalMonth, localDay, monthName, monthShort, peso, sameDay } from "@/lib/format";
+import { addDays, compact, goalLabel, goalMonth, localDay, monthName, monthShort, peso, sameDay, startOfDay } from "@/lib/format";
 import { back, navigate, query } from "@/lib/router";
-import { byCategory, inRange, isIncome, isSpend, monthBounds, netWorth, totals, verdict, weekBounds } from "@/lib/selectors";
+import { byCategory, inRange, isIncome, isSpend, monthBounds, netWorth, priorPeriod, spendParts, totals, verdict, weekBounds } from "@/lib/selectors";
 import { newId, useLedger } from "@/lib/store";
 import { todayBudget } from "@/lib/today";
 import { useVoice } from "@/lib/voice";
 import type { Category, Entry, LedgerState } from "@/lib/types";
 import { callFunction, timezone } from "@/lib/cloud/api";
 import { cloud } from "@/lib/supabase";
+import { useCloud } from "@/lib/cloud/provider";
+import { chatKey } from "@/lib/chat-history";
 
 /* ---------- the local responder (no network) -------------------------- */
 
 export interface Answer {
-  read: number; // transactions read
+  read: number; // entries read
   matched: { n: number; label: string };
   compareYear: number;
   text: string;
@@ -31,6 +33,67 @@ export interface Answer {
 }
 
 const DISCRETIONARY: Category[] = ["Food & drink", "Shopping", "Transport", "Subscriptions", "Gifts", "Other"];
+
+/** Words people use for a category. */
+const CATEGORY_WORDS: [RegExp, Category][] = [
+  [/food|drink|eating|meals?\b/, "Food & drink"],
+  [/grocer/, "Groceries"],
+  [/transport|commute|grab|taxi|fare/, "Transport"],
+  [/shopping|shopee|lazada/, "Shopping"],
+  [/rent|bills?\b|utilit/, "Rent & bills"],
+  [/subscription/, "Subscriptions"],
+  [/gifts?\b/, "Gifts"],
+  [/household/, "Household"],
+  [/health|medic|pharma/, "Health"],
+];
+
+/** The period a question is about: last month, this week, this year, or (by default) this month. */
+function periodOf(lower: string, today: Date) {
+  if (/\btoday\b|\btonight\b/.test(lower)) {
+    const from = startOfDay(today);
+    return { from, to: addDays(from, 1), label: "today", current: true };
+  }
+  if (/\byesterday\b/.test(lower)) {
+    const to = startOfDay(today);
+    return { from: addDays(to, -1), to, label: "yesterday", current: false };
+  }
+  if (/last week/.test(lower)) {
+    const [from] = weekBounds(today);
+    return { from: addDays(from, -7), to: from, label: "last week", current: false };
+  }
+  if (/last month/.test(lower)) {
+    const ref = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+    const [from, to] = monthBounds(ref);
+    return { from, to, label: `in ${monthName(ref)}`, current: false };
+  }
+  if (/\bweek\b/.test(lower)) {
+    const [from, to] = weekBounds(today);
+    return { from, to, label: "this week", current: true };
+  }
+  if (/\byear\b/.test(lower)) return { from: new Date(today.getFullYear(), 0, 1), to: new Date(today.getFullYear() + 1, 0, 1), label: "this year", current: true };
+  const [from, to] = monthBounds(today);
+  return { from, to, label: "this month", current: true };
+}
+
+/** "Am I on track for <goal>?" for the Owner's first goal; nothing when there are no goals. */
+const goalQuestion = (s: LedgerState) => (s.profile.goals[0] ? [`Am I on track for ${s.profile.goals[0].name}?`] : []);
+
+/** Goals the question names (any word of 4+ letters from the goal's name). */
+const goalsNamed = (s: LedgerState, lower: string) =>
+  s.profile.goals.filter((g) => g.name.toLowerCase().split(/[^a-z0-9]+/).some((w) => w.length >= 4 && lower.includes(w)));
+
+/** What to suggest in an empty chat: built from what this ledger actually has. */
+export function suggestionsFor(s: LedgerState): string[] {
+  const out: string[] = [];
+  if (s.entries.some(isIncome)) out.push("Where does my salary actually go?");
+  out.push(...goalQuestion(s));
+  if (s.entries.some(isSpend)) out.push("What should I cut first?", "How much did I spend this week?");
+  if (s.profile.monthlyBudget > 0 || s.profile.income > 0) out.push("Am I over budget?");
+  if (out.length < 2) out.push("How much did I spend today?");
+  return out.slice(0, 3);
+}
+
+const entriesWord = (n: number) => `${n} ${n === 1 ? "entry" : "entries"}`;
 
 export function respond(q: string, s: LedgerState, today = new Date()): Answer {
   const lower = q.toLowerCase();
@@ -111,12 +174,95 @@ export function respond(q: string, s: LedgerState, today = new Date()): Answer {
     return {
       ...base,
       matched: { n: spend.length, label: "spending entries" },
-      text: `${lead} A ${peso(price)} purchase against ${peso(Math.max(0, v.left))} left in this month’s budget and ${peso(cash)} in cash. It takes your buffer from ${nowMo.toFixed(1)} to ${afterMo.toFixed(1)} months of expenses${afterMo < 3 ? ", below your 3-month rule" : ""}.`,
+      text: `${lead} A ${peso(price)} purchase against ${v.left >= 0 ? `${peso(v.left)} left in` : `${peso(v.left)} over`} this month’s budget and ${peso(cash)} in cash. It takes your buffer from ${nowMo.toFixed(1)} to ${afterMo.toFixed(1)} months of expenses${afterMo < 3 ? ", below your 3-month rule" : ""}.`,
       marks: [`${afterMo.toFixed(1)} months of expenses`],
       compare: { title: "IF YOU BUY IT", now: nowMo, after: afterMo, unit: "mo" },
       ask: `Want me to set aside ${peso(price / 4)}/week for four weeks instead?`,
       offer: { label: "Yes, set it up", name: noun ? noun[0].toUpperCase() + noun.slice(1) : "Purchase", target: price, by },
-      followups: ["What should I cut first?", "Am I on track for the Japan trip?"],
+      followups: ["What should I cut first?", ...goalQuestion(s)],
+    };
+  }
+
+  if (/compar|versus|\bvs\b|than last month|against last month/.test(lower)) {
+    const [f, to] = monthBounds(today);
+    // like for like: this month so far against the same days of last month
+    const prior = priorPeriod("month", f, to, today);
+    const cur = inRange(s.entries, f, to).filter(isSpend);
+    const prev = inRange(s.entries, prior.from, prior.to).filter(isSpend);
+    const curOut = cur.reduce((a, e) => a - e.amount, 0);
+    const prevOut = prev.reduce((a, e) => a - e.amount, 0);
+    const last = monthName(prior.from);
+    const span = prior.partial ? `the same days of ${last}` : last;
+    if (!prevOut)
+      return {
+        ...base,
+        matched: { n: cur.length, label: `${monthName(today)} entries` },
+        text: `You’ve spent ${peso(curOut)} this month. Nothing was spent in ${span}, so there’s nothing to compare with yet.`,
+        sources: ids(cur),
+        followups: ["What’s my biggest category?"],
+      };
+    const ch = Math.round(((curOut - prevOut) / prevOut) * 100);
+    const prevBy = new Map(byCategory(prev));
+    const mover = byCategory(cur)
+      .map(([c, v]) => ({ c, d: v - (prevBy.get(c) ?? 0) }))
+      .concat([...prevBy.keys()].filter((c) => !cur.some((e) => spendParts(e).some((p) => p.category === c))).map((c) => ({ c, d: -(prevBy.get(c) ?? 0) })))
+      .sort((a, b) => Math.abs(b.d) - Math.abs(a.d))[0];
+    const headline = ch === 0 ? "the same as" : `${Math.abs(ch)}% ${ch > 0 ? "more" : "less"} than`;
+    return {
+      ...base,
+      matched: { n: cur.length + prev.length, label: "entries in both months" },
+      text: `So far this month you’ve spent ${peso(curOut)}, ${headline} the ${peso(prevOut)} you spent in ${span}.${mover && mover.d !== 0 ? ` The biggest change is ${mover.c.toLowerCase()}, ${mover.d > 0 ? "up" : "down"} ${peso(mover.d)}.` : ""}`,
+      marks: [`${headline} the ${peso(prevOut)}`],
+      bars: {
+        title: prior.partial ? "SPENT · SAME DAYS" : "SPENT",
+        kind: "share",
+        items: [
+          { label: monthShort(prior.from), value: prevOut, display: compact(prevOut) },
+          { label: monthShort(today), value: curOut, display: compact(curOut) },
+        ],
+      },
+      sources: ids(cur),
+      followups: ["What’s my biggest category?", "How much did I spend this month?"],
+    };
+  }
+
+  if (/(biggest|largest|top|most)\b.*(categor|spend|spent|expense|money)|categor.*(biggest|largest|most|top)/.test(lower)) {
+    const p = periodOf(lower, today);
+    const inPeriod = inRange(s.entries, p.from, p.to).filter(isSpend);
+    const cats = byCategory(inPeriod);
+    if (!cats.length) return { ...base, matched: { n: 0, label: "" }, text: `No spending logged ${p.label} yet.`, followups: [] };
+    const total = cats.reduce((a, [, v]) => a + v, 0);
+    const pct = (v: number) => Math.round((v / total) * 100);
+    const [c, v] = cats[0];
+    const m = inPeriod.filter((e) => spendParts(e).some((x) => x.category === c));
+    return {
+      ...base,
+      matched: { n: inPeriod.length, label: "spending entries" },
+      text: `${c} is your biggest category ${p.label}: ${peso(v)}, ${pct(v)}% of the ${peso(total)} you spent.${cats[1] ? ` Next is ${cats[1][0].toLowerCase()} at ${peso(cats[1][1])}.` : ""}`,
+      marks: [`${c} is your biggest category`],
+      bars: { title: "BY CATEGORY", kind: "share", items: cats.slice(0, 5).map(([label, value]) => ({ label, value, display: `${pct(value)}%` })) },
+      sources: ids(m),
+      followups: ["Compare to last month", "What should I cut first?"],
+    };
+  }
+
+  if (/spen[dt]|spending/.test(lower) && /how much|what did i|total|so far/.test(lower)) {
+    const p = periodOf(lower, today);
+    const cat = CATEGORY_WORDS.find(([re]) => re.test(lower))?.[1];
+    const inPeriod = inRange(s.entries, p.from, p.to).filter(isSpend);
+    const m = cat ? inPeriod.filter((e) => spendParts(e).some((x) => x.category === cat)) : inPeriod;
+    const sum = cat ? m.flatMap(spendParts).filter((x) => x.category === cat).reduce((a, x) => a + x.amount, 0) : m.reduce((a, e) => a - e.amount, 0);
+    const on = cat ? ` on ${cat.toLowerCase()}` : "";
+    const lead = p.current ? `You’ve spent ${peso(sum)}${on} ${p.label}` : `You spent ${peso(sum)}${on} ${p.label}`;
+    const tb = todayBudget(s, today);
+    const ofBudget = !cat && p.label === "this month" && tb.hasBudget ? ` That’s ${Math.round((sum / tb.budget) * 100)}% of your ${peso(tb.budget)} budget.` : "";
+    return {
+      ...base,
+      matched: { n: m.length, label: cat ? `${cat.toLowerCase()} entries` : "spending entries" },
+      text: m.length ? `${lead}, across ${entriesWord(m.length)}.${ofBudget}` : `Nothing spent${on} ${p.label} yet.`,
+      marks: m.length ? [`${peso(sum)}${on}`] : undefined,
+      sources: ids(m),
+      followups: ["Compare to last month", "What’s my biggest category?"],
     };
   }
 
@@ -155,8 +301,9 @@ export function respond(q: string, s: LedgerState, today = new Date()): Answer {
     };
   }
 
-  if (/japan|goal|track|trip/.test(lower)) {
-    const goals = /japan/.test(lower) ? s.profile.goals.filter((g) => /japan/i.test(g.name)) : s.profile.goals;
+  const named = goalsNamed(s, lower);
+  if (/goal|on track|trip|saving for/.test(lower) || named.length) {
+    const goals = named.length ? named : s.profile.goals;
     const capacity = Math.max(0, t.net / Math.max(1, elapsed));
     if (!goals.length)
       return { ...base, matched: { n: 0, label: "" }, text: "You haven’t set a matching goal yet. Add one from Insights and I’ll check your pace.", followups: ["What should I cut first?"] };
@@ -182,7 +329,7 @@ export function respond(q: string, s: LedgerState, today = new Date()): Answer {
       ...base,
       matched: { n: goals.length, label: goals.length === 1 ? "goal" : "goals" },
       text: `${on ? "Yes, you’re on track." : "Not quite yet."} ${lines
-        .map((l) => `${l.g.name}: ${peso(l.g.saved)} of ${peso(l.g.target)}, needs ${peso(l.need)} a month for ${l.monthsLeft} months`)
+        .map((l) => `${l.g.name}: ${peso(l.g.saved)} of ${peso(l.g.target)}, needs ${peso(l.need)} a month for ${l.monthsLeft} month${l.monthsLeft === 1 ? "" : "s"}`)
         .join("; ")}. You’re setting aside about ${peso(capacity)} a month${on ? "." : `, so you’re ${peso(need - capacity)} a month short.`}${skipped ? ` ${skipped}` : ""}`,
       marks: [on ? "Yes, you’re on track." : `${peso(need - capacity)} a month short`],
       followups: ["What should I cut first?", "Skip eating out?"],
@@ -201,7 +348,7 @@ export function respond(q: string, s: LedgerState, today = new Date()): Answer {
       text: `Your biggest flexible category is ${c}: ${peso(monthly)} a month. Trimming a quarter of it saves ${peso(monthly / 4)} a month. Rent and bills aren’t worth chasing.`,
       marks: [`${c}: ${peso(monthly)} a month`],
       sources: ids(m),
-      followups: ["Skip eating out?", "Am I on track for the Japan trip?"],
+      followups: ["Skip eating out?", ...goalQuestion(s)],
     };
   }
 
@@ -210,11 +357,24 @@ export function respond(q: string, s: LedgerState, today = new Date()): Answer {
     if (!tb.hasBudget) return { ...base, matched: { n: 0, label: "" }, text: "Set a budget first and I’ll show you the daily math.", followups: [] };
     const [f, to] = monthBounds(today);
     const month = inRange(s.entries, f, to).filter(isSpend);
+    const over = tb.spentMonth - tb.budget;
+    if (tb.budget - tb.spentBefore <= 0 || over > 0) {
+      // over budget: there is no daily allowance to spread, so no per-day line (QA F)
+      const lead = `You’re ${peso(Math.max(0, over))} over this month’s budget`;
+      return {
+        ...base,
+        matched: { n: month.length, label: `${monthName(today)} entries` },
+        text: `${lead}. You’ve spent ${peso(tb.spentMonth)} against ${peso(tb.budget)}${tb.spentToday ? `, ${peso(tb.spentToday)} of it today on day-to-day things` : ""}.`,
+        marks: [lead],
+        sources: ids(month),
+        followups: ["What should I cut first?", "What’s my biggest category?"],
+      };
+    }
     const end = tb.left >= 0 ? `${peso(tb.left)} is left today` : `you’re ${peso(tb.left)} over today; tomorrow drops to ${peso(tb.tomorrow)}`;
     return {
       ...base,
       matched: { n: month.length, label: `${monthName(today)} entries` },
-      text: `Your ${monthName(today)} budget is ${peso(tb.budget)}. Before today you’d spent ${peso(tb.spentBefore)}, leaving ${peso(tb.budget - tb.spentBefore)} over ${tb.daysLeft} days, about ${peso(tb.allowance)} a day. Today you’ve spent ${peso(tb.spentToday)} on day-to-day things, so ${end}.`,
+      text: `${/over budget|within budget|on budget/.test(lower) ? "No, you’re within budget. " : ""}Your ${monthName(today)} budget is ${peso(tb.budget)}. Before today you’d spent ${peso(tb.spentBefore)}, leaving ${peso(tb.budget - tb.spentBefore)} over ${tb.daysLeft} days, about ${peso(tb.allowance)} a day. Today you’ve spent ${peso(tb.spentToday)} on day-to-day things, so ${end}.`,
       marks: [end],
       sources: ids(month),
       followups: ["What should I cut first?"],
@@ -224,8 +384,8 @@ export function respond(q: string, s: LedgerState, today = new Date()): Answer {
   return {
     ...base,
     matched: { n: 0, label: "" },
-    text: "I’m not sure I can answer that yet. I can look at coffee and food spending, whether you can afford a purchase, where your salary goes, whether you’re on track for a goal, and what to cut first.",
-    followups: ["Where does my salary go?", "What should I cut first?", "Afford the laptop?"],
+    text: "I’m not sure I can answer that yet. I can tell you what you’ve spent this month, compare it with last month, find your biggest category, look at coffee and food spending, check whether you can afford a purchase, where your salary goes, whether you’re on track for a goal, and what to cut first.",
+    followups: ["How much did I spend this month?", "Compare to last month", "What’s my biggest category?"],
   };
 }
 
@@ -281,19 +441,17 @@ interface Msg {
   words?: number;
   ans?: Answer;
   offerDone?: boolean;
-  saved?: boolean;
 }
 
-const STORE = "ledger:chat";
 const MAX = 500;
 const STREAM_AT = 1200;
 const WORD_MS = 40;
 
 const wordsOf = (a: Answer) => a.text.split(" ");
 
-function load(): Msg[] {
+function load(key: string): Msg[] {
   try {
-    const raw = sessionStorage.getItem(STORE);
+    const raw = sessionStorage.getItem(key);
     if (!raw) return [];
     return (JSON.parse(raw) as Msg[]).map((m) =>
       m.status === "loading" || m.status === "streaming" ? { ...m, status: "done", words: m.ans ? wordsOf(m.ans).length : 0 } : m,
@@ -303,12 +461,13 @@ function load(): Msg[] {
   }
 }
 
-const SUGGESTIONS = ["Where does my salary actually go?", "Am I on track for the Japan trip?", "What should I cut first?"];
-const CHIPS = ["Skip eating out?", "Afford the laptop?", "Where does my salary go?"];
+const CHIPS = ["How much did I spend today?", "Am I over budget?", "Where does my salary go?"];
 
 export function Chat({ path }: { path: string }) {
   const { state, dispatch } = useLedger();
-  const [msgs, setMsgs] = React.useState<Msg[]>(load);
+  // cloud: one conversation per signed-in user; erase and sign-out clear it (lib/chat-history)
+  const store = chatKey(useCloud()?.uid);
+  const [msgs, setMsgs] = React.useState<Msg[]>(() => load(store));
   const [text, setText] = React.useState("");
   const [focused, setFocused] = React.useState(false);
   const [menu, setMenu] = React.useState(false);
@@ -322,11 +481,11 @@ export function Chat({ path }: { path: string }) {
 
   React.useEffect(() => {
     try {
-      sessionStorage.setItem(STORE, JSON.stringify(msgs));
+      sessionStorage.setItem(store, JSON.stringify(msgs));
     } catch {
       /* ignore */
     }
-  }, [msgs]);
+  }, [msgs, store]);
 
   // close the More menu on Escape or a tap outside it
   React.useEffect(() => {
@@ -476,7 +635,7 @@ export function Chat({ path }: { path: string }) {
   const showCounter = text.includes("\n") || text.length >= 80;
   const placeholder =
     active?.status === "loading"
-      ? "Reading your transactions…"
+      ? "Reading your entries…"
       : active
         ? "Answering…"
         : listening
@@ -556,11 +715,11 @@ export function Chat({ path }: { path: string }) {
             <div className="mx-auto flex size-12 items-center justify-center rounded-full border border-line-strong font-mono text-[18px] text-fg-muted">?</div>
             <h1 className="mt-4 text-center text-[20px] font-semibold tracking-[-0.01em]">Ask anything about your money</h1>
             <p className="mx-auto mt-2 max-w-[300px] text-center text-[13.5px] leading-[1.5] text-fg-muted">
-              I can see your transactions, budgets, goals and holdings. I never move money.
+              I can see your entries, budgets, goals and holdings. I never move money.
             </p>
             <Eyebrow className="mt-9">TRY ONE OF THESE</Eyebrow>
             <ul className="mt-2 flex flex-col gap-1">
-              {SUGGESTIONS.map((s) => (
+              {suggestionsFor(state).map((s) => (
                 <li key={s}>
                   <button type="button" onClick={() => send(s)} className="flex min-h-12 w-full items-center justify-between gap-3 py-3 text-left text-[14.5px] active:opacity-60">
                     {s}
@@ -615,7 +774,6 @@ export function Chat({ path }: { path: string }) {
                     m={m}
                     copied={copied === m.id}
                     onCopy={() => copy(m)}
-                    onSave={() => setMsgs((ms) => ms.map((x) => (x.id === m.id ? { ...x, saved: !x.saved } : x)))}
                     onSources={() => setSources(m.ans?.sources ?? [])}
                     onOffer={() => addGoal(m)}
                     onFollow={send}
@@ -630,10 +788,10 @@ export function Chat({ path }: { path: string }) {
 
       {/* composer */}
       <div className="sticky bottom-0 z-10 border-t border-line bg-bg px-4 pt-2.5 pb-[max(12px,env(safe-area-inset-bottom))]">
-        {focused && !text && !active ? (
+        {focused && !text && !active && !lastDone?.ans?.followups.length ? (
           <div className="no-scrollbar -mx-4 mb-2.5 flex gap-1.5 overflow-x-auto px-4" onPointerDown={(e) => e.preventDefault()}>
             {CHIPS.map((c) => (
-              <button key={c} type="button" onClick={() => send(c)} className="h-10 rounded-[18px] border border-line-strong px-3 text-[12px] whitespace-nowrap active:bg-surface">
+              <button key={c} type="button" onClick={() => send(c)} className="h-11 rounded-[22px] border border-line-strong px-3 text-[12px] whitespace-nowrap active:bg-surface">
                 {c}
               </button>
             ))}
@@ -673,13 +831,13 @@ export function Chat({ path }: { path: string }) {
                 setText("");
                 taRef.current?.focus();
               }}
-              className="flex size-10 flex-none items-center justify-center text-fg-subtle active:opacity-60"
+              className="hit flex size-10 flex-none items-center justify-center text-fg-subtle active:opacity-60"
             >
               <CloseIcon size={14} />
             </button>
           ) : null}
           {active ? (
-            <button type="button" aria-label="Stop answering" onClick={stop} className="flex size-10 flex-none items-center justify-center rounded-full bg-accent text-accent-fg active:bg-accent-hover">
+            <button type="button" aria-label="Stop answering" onClick={stop} className="hit flex size-10 flex-none items-center justify-center rounded-full bg-accent text-accent-fg active:bg-accent-hover">
               <span className="size-3 rounded-[2px] bg-current" />
             </button>
           ) : !text.trim() ? (
@@ -709,7 +867,7 @@ export function Chat({ path }: { path: string }) {
               }}
               onContextMenu={(e) => e.preventDefault()}
               className={cn(
-                "flex size-10 flex-none touch-none items-center justify-center rounded-full bg-highlight text-highlight-fg select-none [-webkit-touch-callout:none]",
+                "hit flex size-10 flex-none touch-none items-center justify-center rounded-full bg-highlight text-highlight-fg select-none [-webkit-touch-callout:none]",
                 listening && "shadow-[0_0_0_6px_color-mix(in_oklab,var(--color-highlight)_30%,var(--color-bg))]",
               )}
             >
@@ -720,7 +878,7 @@ export function Chat({ path }: { path: string }) {
               type="submit"
               aria-label="Send"
               disabled={!text.trim()}
-              className="flex size-10 flex-none items-center justify-center rounded-full bg-accent text-accent-fg active:bg-accent-hover disabled:bg-fill disabled:text-fg-subtle"
+              className="hit flex size-10 flex-none items-center justify-center rounded-full bg-accent text-accent-fg active:bg-accent-hover disabled:bg-fill disabled:text-fg-subtle"
             >
               <ArrowUpIcon />
             </button>
@@ -733,7 +891,15 @@ export function Chat({ path }: { path: string }) {
       <Sheet open={sources !== null} onOpenChange={(o) => !o && setSources(null)} title={<AiEyebrow>SOURCES · {sourceEntries.length}</AiEyebrow>}>
         <div className="flex flex-col gap-4 pt-5">
           {sourceEntries.slice(0, 60).map((e) => (
-            <EntryRow key={e.id} entry={e} account={state.accounts.find((a) => a.id === e.accountId)} />
+            <EntryRow
+              key={e.id}
+              entry={e}
+              account={state.accounts.find((a) => a.id === e.accountId)}
+              onClick={() => {
+                setSources(null);
+                navigate(`/activity/${e.id}`);
+              }}
+            />
           ))}
           {sourceEntries.length > 60 ? <p className="text-[12.5px] text-fg-muted">Showing the 60 most recent of {sourceEntries.length}.</p> : null}
         </div>
@@ -760,7 +926,6 @@ function AiMessage({
   m,
   copied,
   onCopy,
-  onSave,
   onSources,
   onOffer,
   onFollow,
@@ -769,7 +934,6 @@ function AiMessage({
   m: Msg;
   copied: boolean;
   onCopy: () => void;
-  onSave: () => void;
   onSources: () => void;
   onOffer: () => void;
   onFollow: (q: string) => void;
@@ -875,13 +1039,13 @@ function AiMessage({
               type="button"
               disabled={m.offerDone}
               onClick={onOffer}
-              className="h-10 rounded-[18px] bg-accent px-4 text-[12.5px] font-semibold text-accent-fg active:bg-accent-hover disabled:bg-fill disabled:text-fg-subtle"
+              className="h-11 rounded-[22px] bg-accent px-4 text-[12.5px] font-semibold text-accent-fg active:bg-accent-hover disabled:bg-fill disabled:text-fg-subtle"
             >
               {m.offerDone ? "Goal added" : a.offer.label}
             </button>
           ) : null}
           {a.followups.map((f) => (
-            <button key={f} type="button" disabled={busy} onClick={() => onFollow(f)} className="h-10 rounded-[18px] border border-line-strong px-3.5 text-[12.5px] active:bg-surface disabled:opacity-50">
+            <button key={f} type="button" disabled={busy} onClick={() => onFollow(f)} className="h-11 rounded-[22px] border border-line-strong px-3.5 text-[12.5px] active:bg-surface disabled:opacity-50">
               {f}
             </button>
           ))}
@@ -890,14 +1054,11 @@ function AiMessage({
 
       {m.status === "done" ? (
         <div className="mt-3 flex flex-wrap items-center gap-x-1 font-mono text-[10px] font-semibold tracking-[0.08em] text-fg-subtle">
-          <button type="button" onClick={onCopy} className="h-10 px-1.5 active:opacity-60">
+          <button type="button" onClick={onCopy} className="h-11 px-1.5 active:opacity-60">
             {copied ? "COPIED" : "COPY"}
           </button>
-          <button type="button" onClick={onSave} className="h-10 px-1.5 active:opacity-60">
-            {m.saved ? "SAVED" : "SAVE TO INSIGHTS"}
-          </button>
           {a.sources.length ? (
-            <button type="button" onClick={onSources} className="h-10 px-1.5 active:opacity-60">
+            <button type="button" onClick={onSources} className="h-11 px-1.5 active:opacity-60">
               SOURCES · {a.sources.length}
             </button>
           ) : null}

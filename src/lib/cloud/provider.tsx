@@ -3,6 +3,7 @@ import { EMPTY_STATE } from "../seed";
 import { Ctx, reducer, type Action } from "../store";
 import { sb } from "../supabase";
 import type { Entry, LedgerState } from "../types";
+import { chatKey, clearChatHistory } from "../chat-history";
 import { CloudError, eraseAccountData, loadBalances, loadState, retryAt, runCall } from "./api";
 import { callsFor, isCapture, overlay, Outbox, parkedEntry, readLocally, type Command } from "./outbox";
 
@@ -310,16 +311,21 @@ export function CloudLedgerProvider({ uid, email, children }: { uid: string; ema
     [ackServer, refreshBalances],
   );
 
+  // a different user signed in on this phone: no one else's conversation stays
+  React.useEffect(() => clearChatHistory(chatKey(uid)), [uid]);
+
   const signOut = React.useCallback(async () => {
     await sb().auth.signOut();
     outbox.clear();
     clearCache(uid);
+    clearChatHistory();
   }, [outbox, uid]);
 
   const eraseAll = React.useCallback(async () => {
     await eraseAccountData(uid);
     outbox.clear();
     clearCache(uid);
+    clearChatHistory();
     apply({ type: "hydrate", state: EMPTY_STATE });
   }, [apply, outbox, uid]);
 

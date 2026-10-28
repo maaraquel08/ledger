@@ -23,7 +23,7 @@ export function Screen({
 }: {
   children: React.ReactNode;
   className?: string;
-  /** reserve room for the tab bar + FAB */
+  /** reserve room for the tab bar + the Add FAB above it, so the last row scrolls clear of both */
   tabbed?: boolean;
 }) {
   return (
@@ -31,7 +31,8 @@ export function Screen({
       className={cn(
         "screen-in relative mx-auto flex min-h-dvh w-full max-w-[430px] flex-col bg-bg",
         "pt-[env(safe-area-inset-top)]",
-        tabbed && "pb-[calc(84px+env(safe-area-inset-bottom))]",
+        // tab bar (~65px) + 14px gap + 60px FAB + 16px air
+        tabbed && "pb-[calc(156px+env(safe-area-inset-bottom))]",
         className,
       )}
     >
@@ -47,7 +48,7 @@ export function BackBar({ label, right, onBack }: { label: string; right?: React
       <button
         type="button"
         onClick={onBack ?? (() => back())}
-        className="-ml-1 flex h-10 items-center gap-0.5 rounded-md pr-2 text-[15px] text-fg active:opacity-60"
+        className="-ml-1 flex h-11 items-center gap-0.5 rounded-md pr-2 text-[15px] text-fg active:opacity-60"
       >
         <ChevronLeft size={20} />
         {label}
@@ -183,7 +184,7 @@ export function Pill({
       type="button"
       aria-pressed={active}
       className={cn(
-        "rounded-[18px] border px-3 py-[7px] text-[11.5px] whitespace-nowrap transition-colors duration-fast",
+        "hit rounded-[18px] border px-3 py-[7px] text-[11.5px] whitespace-nowrap transition-colors duration-fast",
         active ? "border-accent bg-accent font-medium text-accent-fg" : "border-line-strong text-fg active:bg-surface",
         className,
       )}
@@ -236,7 +237,7 @@ export function Segmented<T extends string>({ value, options, onChange }: { valu
             key={o}
             value={o}
             className={cn(
-              "z-1 rounded-none py-2 text-[12px] font-normal text-fg normal-case data-active:bg-accent data-active:font-semibold data-active:text-accent-fg",
+              "z-1 min-h-11 rounded-none py-2 text-[12px] font-normal text-fg normal-case data-active:bg-accent data-active:font-semibold data-active:text-accent-fg",
               i > 0 && "border-l border-accent",
             )}
           >
@@ -313,7 +314,9 @@ export function StatGrid({ items }: { items: { label: string; value: React.React
   );
 }
 
-export function Delta({ value, invert }: { value: number; invert?: boolean }) {
+/** "+12%" / "−8%"; null = nothing to compare with (the category is new this period). */
+export function Delta({ value, invert }: { value: number | null; invert?: boolean }) {
+  if (value === null) return <span className="border border-line-strong px-[5px] py-px font-mono text-[10.5px] font-semibold text-fg-subtle">NEW</span>;
   const bad = invert ? value < 0 : value > 0;
   return (
     <span className={cn("border px-[5px] py-px font-mono text-[10.5px] font-semibold", value === 0 ? "border-line-strong text-fg-subtle" : bad ? "border-danger text-danger" : "border-success text-success")}>

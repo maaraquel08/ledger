@@ -17,7 +17,7 @@ export function Money({ path }: { path: string }) {
     <Screen tabbed>
       <PageTitle
         right={
-          <button type="button" onClick={() => setAdding({})} className="-mr-2 flex h-10 items-center px-2 text-[15px] font-medium active:opacity-60">
+          <button type="button" onClick={() => setAdding({})} className="-mr-2 flex h-11 items-center px-2 text-[15px] font-medium active:opacity-60">
             Add account
           </button>
         }

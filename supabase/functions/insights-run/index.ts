@@ -2,7 +2,7 @@
 // Called by private.invoke_insights (20261029000800_cron.sql): POST, JSON body {"kind": …},
 // Authorization: Bearer <service_role_key from Vault>. Runs once for every owner in profiles.
 // Deterministic triggers decide whether anything is worth saying; only then is Claude called.
-import { type Anthropic, anthropic, call, MODEL, parseJson, type MessageParam, system } from "../_shared/claude.ts";
+import { type AiClient, aiClient, call, MODEL, parseJson, type MessageParam, system } from "../_shared/claude.ts";
 import { type Db, isServiceRole, rpc, serviceClient } from "../_shared/clients.ts";
 import { factify, FactRegistry, renderProse, tidy } from "../_shared/facts.ts";
 import { body, error, guard, json } from "../_shared/http.ts";
@@ -36,7 +36,7 @@ Deno.serve(async (req) => {
   if (!kind) return error(400, "bad_request", { detail: "kind must be daily, weekly, monthly or alerts" });
 
   const svc = serviceClient();
-  const claude = anthropic();
+  const claude = aiClient();
   const now = new Date();
   const { data: owners, error: ownersErr } = await svc.from("profiles").select("user_id, timezone");
   if (ownersErr) return error(500, "internal", { detail: ownersErr.message });
@@ -76,7 +76,7 @@ async function notify(payload: Record<string, unknown>): Promise<unknown> {
   }
 }
 
-async function runFor(svc: Db, claude: Anthropic | null, kind: RunKind, user: string, tz: string, now: Date): Promise<Outcome[]> {
+async function runFor(svc: Db, claude: AiClient | null, kind: RunKind, user: string, tz: string, now: Date): Promise<Outcome[]> {
   const p_user = user;
   const { data: prior } = await svc.from("insights").select("kind, fingerprint, dismissed_at, created_at, narrative")
     .eq("user_id", user).gte("created_at", new Date(now.getTime() - 120 * 86_400_000).toISOString()).order("created_at", { ascending: false });
@@ -167,7 +167,7 @@ type Fact = { value: number | null; entry_ids: string[] };
 
 /** Claude writes the note with fact placeholders; validator; one re-ask; then the template. */
 async function narrate(
-  claude: Anthropic | null, tz: string, model: string, kind: string, packet: Record<string, unknown>, notes: string[], headlines: string[],
+  claude: AiClient | null, tz: string, model: string, kind: string, packet: Record<string, unknown>, notes: string[], headlines: string[],
   fallback: () => Narrative,
 ): Promise<Narrative> {
   if (!claude) return fallback();

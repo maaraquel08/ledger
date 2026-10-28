@@ -5,7 +5,7 @@ import { AiCard, AiMark, Cta, Delta, Eyebrow, Segmented } from "@/components/led
 import { cn } from "@/lib/cn";
 import { addDays, dayHeading, dayName, kilo, monthName, monthShort, peso, sameDay, signed, startOfDay } from "@/lib/format";
 import { navigate } from "@/lib/router";
-import { byCategory, daysLogged, entriesOnDay, FIXED, inRange, isSpend, monthBounds, totals, weekBounds } from "@/lib/selectors";
+import { daysLogged, entriesOnDay, FIXED, inRange, isSpend, monthBounds, monthBudget, patternWindow, priorPeriod, spendParts, totals, weekBounds } from "@/lib/selectors";
 import { useLedger } from "@/lib/store";
 import type { Category, Entry } from "@/lib/types";
 import { ledgerHref } from "@/screens/ledger-list";
@@ -32,6 +32,28 @@ function readPeriod(): Period {
 
 const spendOf = (entries: Entry[]) => totals(entries).out;
 const lastDay = (to: Date) => addDays(to, -1);
+const pctChange = (now: number, before: number) => (before > 0 ? Math.round(((now - before) / before) * 100) : null);
+
+type Bucket = Category | "Unfiled";
+
+/** Spend per category; an entry with no category is "Unfiled", one bucket, never also "Other". */
+function buckets(entries: Entry[]): [Bucket, number][] {
+  const m = new Map<Bucket, number>();
+  for (const e of entries) {
+    if (!isSpend(e)) continue;
+    for (const p of spendParts(e)) {
+      const k: Bucket = e.category == null && !e.split?.length ? "Unfiled" : p.category;
+      m.set(k, (m.get(k) ?? 0) + p.amount);
+    }
+  }
+  return [...m.entries()].sort((a, b) => b[1] - a[1]);
+}
+
+/** "1–29 September" for a like-for-like stretch, "September" for a whole month. */
+function stretchLabel(p: { from: Date; to: Date; partial: boolean }) {
+  const end = lastDay(p.to);
+  return p.partial ? `${p.from.getDate()}–${end.getDate()} ${monthName(end)}` : monthName(p.from);
+}
 
 /* ---------- the card ------------------------------------------------------ */
 
@@ -130,8 +152,10 @@ function Weekly({ off }: { off: number }) {
   const week = inRange(state.entries, from, to);
   const spends = week.filter(isSpend);
   const total = spendOf(week);
-  const prevTotal = spendOf(inRange(state.entries, addDays(from, -7), from));
-  const vs = prevTotal > 0 ? Math.round(((total - prevTotal) / prevTotal) * 100) : null;
+  // like for like: an unfinished week compares with the same days of the week before
+  const prior = priorPeriod("week", from, to, now);
+  const vs = pctChange(total, spendOf(inRange(state.entries, prior.from, prior.to)));
+  const than = prior.partial ? "than the same days last week" : "than the week before";
   const href = (o: { from?: Date; to?: Date; cat?: Category } = {}) =>
     ledgerHref({ type: "expense", from: o.from ?? from, to: o.to ?? lastDay(to), cat: o.cat });
 
@@ -144,14 +168,14 @@ function Weekly({ off }: { off: number }) {
   const avg = total / elapsed;
   const peak = days.reduce((a, b) => (b.v > a.v ? b : a), days[0]);
 
-  const cats = byCategory(week);
+  const cats = buckets(week);
   const top = cats.slice(0, 3);
   const rest = cats.slice(3).reduce((s, [, v]) => s + v, 0);
-  const unfiled = spends.filter((e) => !e.split?.length && e.category == null).reduce((n, e) => n - e.amount, 0);
 
-  // Weekday pattern over the 4 weeks ending with this one; fixed bills land on a date, not a habit.
-  const spanFrom = addDays(to, -28);
-  const span = inRange(state.entries, spanFrom, to).filter((e) => isSpend(e) && !FIXED.includes(e.category ?? "Other"));
+  // Weekday pattern over the last 4 completed occurrences of each weekday (never today);
+  // fixed bills land on a date, not a habit.
+  const [spanFrom, spanTo] = patternWindow(to, now);
+  const span = inRange(state.entries, spanFrom, spanTo).filter((e) => isSpend(e) && !FIXED.includes(e.category ?? "Other"));
   const byDow = new Map<number, number>();
   for (const e of span) {
     const k = new Date(e.date).getDay();
@@ -159,9 +183,14 @@ function Weekly({ off }: { off: number }) {
   }
   const worst = [...byDow.entries()].sort((a, b) => b[1] - a[1])[0];
   let insight: React.ReactNode = "Log a few more days and I’ll spot your pricey weekdays.";
+  // the claim's own entries: its count and its See entries link are exactly these
+  let behind = span;
+  let behindHref = ledgerHref({ type: "expense", from: spanFrom, to: lastDay(spanTo) });
   if (worst) {
     const dowName = dayName(new Date(2024, 0, 7 + worst[0])); // 7 Jan 2024 was a Sunday
-    const topCat = byCategory(span.filter((e) => new Date(e.date).getDay() === worst[0]))[0];
+    behind = span.filter((e) => new Date(e.date).getDay() === worst[0]);
+    behindHref = ledgerHref({ ids: behind.map((e) => e.id), label: `${dowName}s · last 4 weeks` });
+    const topCat = buckets(behind)[0];
     insight = (
       <>
         <AiMark>
@@ -180,7 +209,7 @@ function Weekly({ off }: { off: number }) {
         number={peso(total)}
         statement={
           <>
-            {vs === null ? `Daily average ${peso(avg)}.` : `${Math.abs(vs)}% ${vs <= 0 ? "less" : "more"} than the week before, ${peso(avg)} a day.`}
+            {vs === null ? `Daily average ${peso(avg)}.` : `${Math.abs(vs)}% ${vs <= 0 ? "less" : "more"} ${than}, ${peso(avg)} a day.`}
             {peak.v > 0 && avg > 0 ? ` ${dayName(peak.d)} was ${(peak.v / avg).toFixed(1)}× your average.` : ""}
           </>
         }
@@ -223,15 +252,14 @@ function Weekly({ off }: { off: number }) {
         {top.length ? (
           <div className="-my-1 divide-y divide-line">
             {top.map(([c, v]) => (
-              <CardRow key={c} label={c} value={peso(v)} onClick={() => navigate(href({ cat: c }))} />
+              <CardRow key={c} label={c} value={peso(v)} onClick={c === "Unfiled" ? undefined : () => navigate(href({ cat: c }))} />
             ))}
             {rest > 0 ? <CardRow label="Everything else" value={peso(rest)} /> : null}
-            {unfiled > 0 ? <CardRow label="Unfiled" value={`${peso(unfiled)} · ${Math.round((unfiled / total) * 100)}%`} /> : null}
           </div>
         ) : null}
       </AnalysisCard>
 
-      <AiAnalysis label={off === 0 ? "This week" : "That week"} count={span.length} to={ledgerHref({ type: "expense", from: spanFrom, to: lastDay(to) })}>
+      <AiAnalysis label={off === 0 ? "This week" : "That week"} count={behind.length} to={behindHref}>
         {insight}
       </AiAnalysis>
     </div>
@@ -261,10 +289,10 @@ function Monthly({ off }: { off: number }) {
   const now = new Date();
   const ref = new Date(now.getFullYear(), now.getMonth() - off, 1);
   const [from, to] = monthBounds(ref);
-  const [pf, pt] = monthBounds(new Date(ref.getFullYear(), ref.getMonth() - 1, 1));
   const month = inRange(state.entries, from, to);
   const t = totals(month);
-  const budget = state.profile.monthlyBudget;
+  // the month the ledger started in has a prorated budget (selectors.monthBudget)
+  const budget = monthBudget(state, off === 0 ? now : lastDay(to)).budget;
   const diff = budget - t.out;
   const rate = t.in > 0 ? Math.round((t.net / t.in) * 100) : 0;
   const range = { from, to: lastDay(to) };
@@ -277,16 +305,16 @@ function Monthly({ off }: { off: number }) {
   const max = Math.max(...cells.map((c) => c.v), 1);
   const lead = (from.getDay() + 6) % 7;
 
-  const cur = byCategory(month);
-  const prevMap = new Map(byCategory(inRange(state.entries, pf, pt)));
-  const change = (c: string, v: number) => {
-    const p = prevMap.get(c as never) ?? 0;
-    return p > 0 ? Math.round(((v - p) / p) * 100) : 0;
-  };
-  const mover = cur.slice(0, 6).reduce<{ c: string; d: number } | null>((best, [c, v]) => {
-    const d = change(c, v);
-    return !best || Math.abs(d) > Math.abs(best.d) ? { c, d } : best;
-  }, null);
+  // like for like: this month so far against the same days of last month
+  const prior = priorPeriod("month", from, to, now);
+  const prevEntries = inRange(state.entries, prior.from, prior.to);
+  const prevOut = spendOf(prevEntries);
+  const vs = pctChange(t.out, prevOut);
+  const cur = buckets(month);
+  const prevMap = new Map(buckets(prevEntries));
+  // null: nothing in that category last time, so it reads "new", not 0%
+  const change = (c: Bucket, v: number) => pctChange(v, prevMap.get(c) ?? 0);
+  const before = stretchLabel(prior);
   const spendCount = month.filter(isSpend).length;
   const name = monthName(ref);
 
@@ -340,13 +368,22 @@ function Monthly({ off }: { off: number }) {
       </AnalysisCard>
 
       <AnalysisCard
-        eyebrow="VS. LAST MONTH"
-        number={mover ? `${mover.d > 0 ? "+" : mover.d < 0 ? "−" : ""}${Math.abs(mover.d)}%` : "—"}
-        tone={mover && mover.d > 0 ? "danger" : mover && mover.d < 0 ? "success" : undefined}
-        statement={mover ? `${mover.c} moved most against ${monthName(pf)}.` : `No spending in ${name}.`}
+        eyebrow={prior.partial ? "VS. SAME DAYS LAST MONTH" : "VS. LAST MONTH"}
+        number={vs === null ? "—" : `${vs > 0 ? "+" : vs < 0 ? "−" : ""}${Math.abs(vs)}%`}
+        tone={vs !== null && vs > 0 ? "danger" : vs !== null && vs < 0 ? "success" : undefined}
+        statement={
+          t.out === 0
+            ? `No spending in ${name}.`
+            : vs === null
+              ? `${peso(t.out)} spent. Nothing was spent in ${before} to compare with.`
+              : `Total spending: ${peso(t.out)}, against ${peso(prevOut)} in ${before}.`
+        }
         count={spendCount}
         to={ledgerHref({ type: "expense", ...range })}
       >
+        {cur.length ? (
+          <Eyebrow className="mb-1">BY CATEGORY · VS. {before.toUpperCase()}</Eyebrow>
+        ) : null}
         {cur.length ? (
           <div className="-my-1 divide-y divide-line">
             {cur.slice(0, 6).map(([c, v]) => (
@@ -359,7 +396,7 @@ function Monthly({ off }: { off: number }) {
                     <Delta value={change(c, v)} />
                   </span>
                 }
-                onClick={() => navigate(ledgerHref({ type: "expense", cat: c, ...range }))}
+                onClick={c === "Unfiled" ? undefined : () => navigate(ledgerHref({ type: "expense", cat: c, ...range }))}
               />
             ))}
           </div>
@@ -393,6 +430,10 @@ function Yearly({ year }: { year: number }) {
   const range = { from: new Date(year, 0, 1), to: new Date(year, 11, 31) };
   const [bf, bt] = monthBounds(new Date(year, biggest.m, 1));
   const seg = (v: number) => ({ height: `${(v / max) * 100}%` });
+  // like for like: this year so far against the same dates last year
+  const priorY = priorPeriod("year", range.from, new Date(year + 1, 0, 1), now);
+  const yvs = pctChange(out, spendOf(inRange(state.entries, priorY.from, priorY.to)));
+  const yvsLine = yvs === null ? "" : ` Spending is ${Math.abs(yvs)}% ${yvs <= 0 ? "lower" : "higher"} than ${priorY.partial ? `the same days of ${year - 1}` : `in ${year - 1}`}.`;
 
   const line: React.ReactNode =
     inn === 0 ? (
@@ -410,7 +451,7 @@ function Yearly({ year }: { year: number }) {
         eyebrow={`NET SAVED IN ${year}`}
         number={net < 0 ? signed(net) : peso(net)}
         tone={net < 0 ? "danger" : undefined}
-        statement={`${rate}% savings rate: ${peso(inn)} in, ${peso(out)} out.`}
+        statement={`${rate}% savings rate: ${peso(inn)} in, ${peso(out)} out.${yvsLine}`}
         count={yearEntries.length}
         to={ledgerHref(range)}
       >

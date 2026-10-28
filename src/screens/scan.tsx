@@ -1,5 +1,5 @@
 import * as React from "react";
-import { ReceiptFrame } from "@/components/ledger/camera";
+import { CameraGate, ReceiptFrame } from "@/components/ledger/camera";
 import { fileToCanvas, useCamera } from "@/lib/camera";
 import { CloseIcon, Sparkle } from "@/components/ledger/icons";
 import { Pill, Sheet } from "@/components/ledger/primitives";
@@ -142,7 +142,8 @@ function Camera({
   onClose: () => void;
   onCapture: (c: HTMLCanvasElement) => void;
 }) {
-  const { video, error, torch, snap: frame, flash } = useCamera();
+  const { video, status, start, torch, snap: frame, flash } = useCamera();
+  const live = status === "live";
   const file = React.useRef<HTMLInputElement>(null);
 
   const snap = () => {
@@ -162,7 +163,7 @@ function Camera({
           type="button"
           onClick={onClose}
           aria-label={count ? "Done" : "Close"}
-          className={cn("flex h-9 items-center justify-center rounded-full bg-cam-ink/12", count ? "px-3.5 text-[13px] font-semibold" : "w-9")}
+          className={cn("relative flex h-9 items-center justify-center rounded-full bg-cam-ink/12 after:absolute after:-inset-1 after:content-['']", count ? "px-3.5 text-[13px] font-semibold" : "w-9")}
         >
           {count ? `Done · ${count}` : <CloseIcon size={14} />}
         </button>
@@ -171,12 +172,8 @@ function Camera({
       </div>
 
       <div className="relative flex flex-1 items-center justify-center overflow-hidden bg-[radial-gradient(ellipse_at_50%_40%,color-mix(in_oklab,var(--color-cam-muted)_35%,var(--color-cam))_0%,var(--color-cam)_75%)]">
-        <video ref={video} playsInline muted className={cn("absolute inset-0 size-full object-cover", error && "hidden")} />
-        {error ? (
-          <p className="relative max-w-[260px] text-center text-[14px] leading-[1.5] text-cam-ink/85">{error}</p>
-        ) : (
-          <ReceiptFrame />
-        )}
+        <video ref={video} playsInline muted className={cn("absolute inset-0 size-full object-cover", !live && "hidden")} />
+        {live ? <ReceiptFrame /> : <CameraGate status={status} onAllow={start} onChoose={() => file.current?.click()} />}
         {toast ? (
           <div role="status" className="absolute inset-x-5 bottom-4 flex items-center gap-3 rounded-[14px] bg-cam-sheet/95 px-4 py-3 screen-in">
             <Sparkle size={12} />
@@ -188,13 +185,13 @@ function Camera({
       </div>
 
       <div className="flex flex-col items-center gap-[18px] bg-cam px-8 pt-5 pb-[max(28px,env(safe-area-inset-bottom))]">
-        <p className="text-[13px] text-cam-ink/85">{error ? "Choose a photo of the receipt" : "Fit the whole receipt in the frame"}</p>
+        <p className="text-[13px] text-cam-ink/85">{live ? "Fit the whole receipt in the frame" : "Choose a photo of the receipt"}</p>
         <div className="flex w-full items-center justify-between">
           <button type="button" onClick={() => file.current?.click()} aria-label="Choose a photo" className="size-11 rounded-md bg-cam-line" />
           <button
             type="button"
-            onClick={error ? () => file.current?.click() : snap}
-            aria-label={error ? "Choose a photo" : "Take photo"}
+            onClick={live ? snap : () => file.current?.click()}
+            aria-label={live ? "Take photo" : "Choose a photo"}
             className="flex size-[76px] items-center justify-center rounded-full border-4 border-cam-ink transition-transform duration-fast ease-out motion-safe:active:scale-[0.96]"
           >
             <span className="block size-[60px] rounded-full bg-highlight" />
@@ -455,7 +452,7 @@ function Review({ draft, accounts, onRetake, onLog }: { draft: ReceiptDraft; acc
                 type="button"
                 onClick={() => setEditing(i)}
                 className={cn(
-                  "min-h-10 rounded-[6px] px-[7px] text-[10.5px] font-medium whitespace-nowrap",
+                  "hit min-h-10 rounded-[6px] px-[7px] text-[10.5px] font-medium whitespace-nowrap",
                   it.unsure ? "bg-highlight/20 text-gold-ink" : "bg-surface text-fg-muted",
                 )}
               >

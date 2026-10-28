@@ -41,7 +41,7 @@ export type Category =
   | "Investments"
   | "Transfer"
   | "Other"
-  /** cloud only: closes the gap between a reported and a derived balance (D-0014) */
+  /** closes the gap between a reported and a derived balance, once the Owner confirms (D-0014) */
   | "Adjustment";
 
 export interface Entry {

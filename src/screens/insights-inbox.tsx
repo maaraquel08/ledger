@@ -71,7 +71,7 @@ export function InsightsInbox({ items, onDismiss }: { items: Insight[]; onDismis
                 {i.stale ? "YOUR ENTRIES CHANGED SINCE · " : ""}
                 {stamp(i.created_at).toUpperCase()}
               </span>
-              <button type="button" onClick={() => onDismiss(i.id)} className="-mr-2 flex h-10 items-center px-2 text-[13px] font-medium text-fg-muted active:opacity-60">
+              <button type="button" onClick={() => onDismiss(i.id)} className="-mr-2 flex h-11 items-center px-2 text-[13px] font-medium text-fg-muted active:opacity-60">
                 Dismiss
               </button>
             </div>

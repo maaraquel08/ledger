@@ -20,8 +20,11 @@ applies and the write RPCs act for that Owner only. Only `insights-run` and `not
   rendering, digit validator), `answer.ts` (`Answer` assembly + fallback template), `kb.ts`
   (byte-stable knowledge-base block), `capture_core.ts` (parse → `post_entries` payloads, rules,
   exact alias resolution, client `Entry` mapping), `chat_tools.ts` (the nine read-only chat tools),
-  `notify_policy.ts`, `triggers.ts`, `narrate.ts`, `schemas.ts`, `prompts.ts`, `time.ts`.
-- Deno-only: `clients.ts` (Supabase), `claude.ts` (Anthropic SDK), `stt.ts` (OpenAI transcription),
+  `notify_policy.ts`, `triggers.ts`, `narrate.ts`, `schemas.ts`, `prompts.ts`, `time.ts`,
+  `ai_config.ts` (provider, models and STT from env), `openai_compat.ts` (the Groq / OpenAI-compatible
+  adapter: message and tool translation, strict schemas, validation, retries, error mapping).
+- Deno-only: `clients.ts` (Supabase), `claude.ts` (the model facade: `aiClient`, `call`, `structured`,
+  `parseJson`, `aiFailure`; Anthropic SDK or the adapter), `stt.ts` (OpenAI-compatible transcription),
   `push.ts` (`npm:web-push`), `http.ts`.
 - `_shared/vendor/` is a **generated** copy of `src/lib/{types,providers,parse,receipt}.ts` (Deno needs
   `.ts` import extensions). After changing those files run
@@ -33,9 +36,30 @@ applies and the write RPCs act for that Owner only. Only `insights-run` and `not
 
 ## Secrets
 
+The model provider is either Anthropic (Claude) or any OpenAI-compatible API, Groq by default. One
+Groq key covers parsing, receipt vision, chat, insights and voice transcription.
+
+### Groq (free tier)
+
+1. Create a key at [console.groq.com](https://console.groq.com) → API Keys.
+2. In Settings → Data Controls, turn on **Zero Data Retention** (receipts and money questions are
+   personal data).
+3. Set the secrets:
+
+```sh
+supabase secrets set AI_PROVIDER=openai_compat AI_API_KEY=gsk_...
+```
+
+### Anthropic
+
 ```sh
 supabase secrets set ANTHROPIC_API_KEY=sk-ant-...        # capture, chat, insights-run
 supabase secrets set OPENAI_API_KEY=sk-...               # voice transcription (capture kind "voice")
+```
+
+### Other secrets
+
+```sh
 supabase secrets set VAPID_PUBLIC_KEY=... VAPID_PRIVATE_KEY=... VAPID_SUBJECT=mailto:you@example.com
 supabase secrets set CHAT_DAILY_LIMIT=100                # optional; default 100 questions per local day
 supabase secrets set CAPTURE_DAILY_LIMIT=200             # optional; default 200 captures per local day
@@ -46,7 +70,7 @@ The Vault secret `service_role_key` used by the cron (see `../README.md` §5) mu
 service role key: `insights-run` and `notify` compare the bearer with `SUPABASE_SERVICE_ROLE_KEY`.
 
 `capture` and `chat` check the caller's JWT first (`401 unauthorized`), then configuration.
-Without `ANTHROPIC_API_KEY`, they answer `503 {"error":"ai_unconfigured"}` (the app
+Without a configured provider (see the table below), they answer `503 {"error":"ai_unconfigured"}` (the app
 falls back to its local regex parser and canned chat) and `insights-run` writes template notes.
 Without VAPID keys `notify` answers `503 {"error":"push_unconfigured"}` and pending pushes wait.
 
@@ -62,7 +86,57 @@ supabase functions deploy notify
 Keep JWT verification on (the default) for all four. Type-check locally:
 `npx -y deno check --config supabase/functions/deno.json supabase/functions/*/index.ts`.
 
+### Provider environment
+
+| variable | default | meaning |
+|---|---|---|
+| `AI_PROVIDER` | `anthropic` if `ANTHROPIC_API_KEY` is set, else `openai_compat` if `AI_API_KEY` is set, else unconfigured | `anthropic` or `openai_compat`; any other value is unconfigured |
+| `ANTHROPIC_API_KEY` | — | Claude key (provider `anthropic`) |
+| `AI_BASE_URL` | `https://api.groq.com/openai/v1` | OpenAI-compatible base URL |
+| `AI_API_KEY` | — | key for `AI_BASE_URL` |
+| `AI_MODEL_PARSE` | `openai/gpt-oss-20b` | text and voice parsing |
+| `AI_MODEL_VISION` | `qwen/qwen3.8-27b` | receipt photos |
+| `AI_MODEL_CHAT` | `openai/gpt-oss-120b` | chat |
+| `AI_MODEL_SUMMARY` | `openai/gpt-oss-120b` | daily one-liner, alert notes, weekly and monthly reviews |
+| `AI_MAX_TOKENS` | `4096` | completion cap per call (keeps requests inside Groq's per-minute token budget) |
+| `STT_BASE_URL` | Groq when the provider is `openai_compat`, else `https://api.openai.com/v1` | transcription base URL |
+| `STT_API_KEY` | `AI_API_KEY` on Groq, `OPENAI_API_KEY` on OpenAI (an explicit `STT_BASE_URL` tries `AI_API_KEY`, then `OPENAI_API_KEY`) | transcription key |
+| `STT_MODEL` | `whisper-large-v3` (Groq), `gpt-4o-mini-transcribe` (OpenAI) | transcription model; no `language` is sent (Taglish) |
+
+Without an STT key, voice captures answer `503 stt_unconfigured`.
+
 ## Models
+
+### openai_compat (Groq)
+
+Job → role: text/voice parsing → `AI_MODEL_PARSE`; receipt photos → `AI_MODEL_VISION`; chat →
+`AI_MODEL_CHAT`; daily, alert and review narratives → `AI_MODEL_SUMMARY` (the Haiku/Sonnet split
+becomes a 20b/120b split, with all narratives on the larger model). The adapter keeps the same
+`call`/`structured`/`parseJson` interface, so the functions do not know which provider answered:
+
+- System blocks become one system message; cache hints are dropped (no prompt caching).
+- Every final answer uses `response_format: json_schema` with `strict: true`. Schemas are made
+  strict-compatible (all properties required, optional ones nullable, `additionalProperties:false`),
+  the output is validated against the schema in code and re-asked once if invalid, then nulls for
+  originally-optional fields are removed.
+- Groq does not combine structured outputs with tools, so chat runs its tool loop without
+  `response_format`; when the model stops calling tools, a final strict-JSON call with no tools
+  (tool history as text) produces the answer, unless the tool-round answer already validates.
+- Receipt images go as `image_url` data URLs; at most 3 images and 20MB per request.
+- 429 / 498 / 503 → `ai_busy`; network errors, timeouts and other 5xx → `ai_unreachable`; 401/403 →
+  `ai_unconfigured`. Short `retry-after` waits (≤ 8 s) and transient errors are retried twice first.
+- gpt-oss calls send `reasoning_effort` (the function's effort) with reasoning hidden; Qwen calls
+  send `reasoning_format: hidden`.
+
+Trade-offs against Claude: free, but per-model limits are small (on the order of 30 requests and
+8K tokens per minute, 1K requests per day; check console.groq.com/settings/limits for your
+account), so a burst of captures or a long chat can hit `ai_busy`. No prompt caching, so every
+call resends the system prompt and knowledge base. Chat's final answer costs one extra call. Strict
+JSON is enforced by Groq and by our validator, but open models follow the number rule (`{{fN}}`
+placeholders) less reliably, so more answers fall back to the template, and receipt reading on
+Qwen is weaker than Sonnet. Groq's Whisper bills a 10-second minimum per clip.
+
+### anthropic
 
 `claude-haiku-5-5`: text/voice parsing, the daily one-liner, alert notes. `claude-sonnet-5-5`:
 receipt vision, chat, weekly and monthly reviews. Every call uses a JSON-schema structured output

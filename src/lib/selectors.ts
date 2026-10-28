@@ -82,21 +82,46 @@ export function suggestedBudget(monthly: number) {
   return Math.round((monthly * 0.656) / 1000) * 1000;
 }
 
-/** The verdict: what you can spend per day for the rest of the month. */
+/** The day the ledger starts: its earliest entry, or today when nothing earlier is logged. */
+export function ledgerStart(s: LedgerState, now = new Date()) {
+  let t = startOfDay(now).getTime();
+  for (const e of s.entries) {
+    const x = new Date(e.date).getTime();
+    if (x < t) t = x;
+  }
+  return startOfDay(new Date(t));
+}
+
+/**
+ * The budget for the month containing `now`. The month the ledger starts in is
+ * partial: its budget is the monthly budget prorated by the days from the start
+ * to the end of the month, so onboarding on the 29th doesn't spread a whole
+ * month over three days. Mirrored by SQL today_budget().
+ */
+export function monthBudget(s: LedgerState, now = new Date()) {
+  const full = s.profile.monthlyBudget || suggestedBudget(monthlyIncome(s));
+  const [from, to] = monthBounds(now);
+  const start = ledgerStart(s, now);
+  if (!full || start <= from || start >= to) return { budget: full, full, proratedFrom: null as Date | null };
+  const days = Math.round((to.getTime() - from.getTime()) / 86400000);
+  const active = Math.round((to.getTime() - start.getTime()) / 86400000);
+  return { budget: Math.round((full * active) / days), full, proratedFrom: start as Date | null };
+}
+
+/** The verdict: where the month stands. The daily figure is todayBudget().allowance (lib/today.ts), only. */
 export function verdict(s: LedgerState, today = new Date()) {
   const [from, to] = monthBounds(today);
   const month = inRange(s.entries, from, to);
   const t = totals(month);
-  const budget = s.profile.monthlyBudget || suggestedBudget(monthlyIncome(s));
+  const mb = monthBudget(s, today);
+  const budget = mb.budget;
   const left = budget - t.out;
   const daysInMonth = Math.round((to.getTime() - from.getTime()) / 86400000);
   const daysLeft = Math.max(1, daysInMonth - today.getDate() + 1);
-  const perDay = Math.max(0, Math.floor(left / daysLeft));
-
-  const [pf, pt] = monthBounds(new Date(today.getFullYear(), today.getMonth() - 1, 15));
-  const prev = totals(inRange(s.entries, pf, pt));
-  const prevDays = Math.round((pt.getTime() - pf.getTime()) / 86400000);
-  const prevPerDay = Math.max(0, Math.floor((budget - prev.out * (today.getDate() / prevDays)) / daysLeft));
+  // share of the budget period gone by the end of today; a prorated first month starts on the ledger's first day
+  const periodFrom = mb.proratedFrom ?? from;
+  const periodDays = Math.max(1, Math.round((to.getTime() - periodFrom.getTime()) / 86400000));
+  const pace = Math.min(1, (Math.round((startOfDay(today).getTime() - periodFrom.getTime()) / 86400000) + 1) / periodDays);
 
   const over = byCategory(month)
     .map(([c, v]) => ({ category: c, spent: v, budget: s.profile.categoryBudgets[c] ?? 0 }))
@@ -108,7 +133,7 @@ export function verdict(s: LedgerState, today = new Date()) {
   const income = month.filter(isIncome);
   const savedRate = t.in > 0 ? Math.round((t.net / t.in) * 100) : 0;
 
-  return { budget, spent: t.out, left, daysLeft, daysInMonth, perDay, prevPerDay, worst: over[0], income, savedRate, totals: t };
+  return { budget, fullBudget: mb.full, proratedFrom: mb.proratedFrom, spent: t.out, left, daysLeft, daysInMonth, pace, worst: over[0], income, savedRate, totals: t };
 }
 
 export function entriesOnDay(entries: Entry[], d: Date) {
@@ -123,4 +148,38 @@ export function daysLogged(entries: Entry[]) {
 export function accountLabel(a: Account | undefined) {
   if (!a) return "ACCOUNT?";
   return `${a.providerLabel.toUpperCase()}${a.last4 ? ` ·${a.last4}` : ""}`;
+}
+
+export type PeriodKind = "week" | "month" | "year";
+
+/**
+ * The stretch of the previous period to compare [from, to) with, like for like.
+ * A finished period compares with the whole previous one. The current, unfinished
+ * one compares with the same elapsed days of the previous period: Monday–Thursday
+ * with last Monday–Thursday, 1–29 October with 1–29 September (clamped to its end),
+ * 1 January–29 October with the same dates last year.
+ */
+export function priorPeriod(kind: PeriodKind, from: Date, to: Date, now = new Date()) {
+  const pf =
+    kind === "week" ? addDays(from, -7) : kind === "month" ? new Date(from.getFullYear(), from.getMonth() - 1, 1) : new Date(from.getFullYear() - 1, 0, 1);
+  const full = kind === "week" ? from : kind === "month" ? new Date(pf.getFullYear(), pf.getMonth() + 1, 1) : new Date(pf.getFullYear() + 1, 0, 1);
+  const partial = now >= from && now < to && addDays(startOfDay(now), 1).getTime() < to.getTime();
+  if (!partial) return { from: pf, to: full, partial: false };
+  const day = startOfDay(now);
+  let end: Date;
+  if (kind === "week") end = addDays(pf, Math.round((day.getTime() - from.getTime()) / 86400000) + 1);
+  else if (kind === "month") end = new Date(pf.getFullYear(), pf.getMonth(), day.getDate() + 1);
+  else end = new Date(pf.getFullYear(), day.getMonth(), day.getDate() + 1);
+  return { from: pf, to: end.getTime() > full.getTime() ? full : end, partial: true };
+}
+
+/**
+ * The window a weekday pattern reads: the 28 days before `to` or before today,
+ * whichever is earlier. Exactly the last four completed occurrences of every
+ * weekday; today (still going) and later days are never in it.
+ */
+export function patternWindow(to: Date, now = new Date()) {
+  const today = startOfDay(now);
+  const end = to.getTime() < today.getTime() ? to : today;
+  return [addDays(end, -28), end] as const;
 }

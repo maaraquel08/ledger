@@ -13,6 +13,7 @@ Format: `- kind — what, in one sentence — files`
 ## 2026
 
 ### 2026-10-29
+- changed — Daily allowance prorates the first, partial month from the ledger's start; over-budget wording is "over pace" / "₱X over budget" — `rules/rule-daily-allowance.md`, `glossary.md`
 - changed — Copy no longer promises the photo stays on the phone: receipt-scan permissions, add-entry Camera label and onboarding copy now say it stays only in local mode and is uploaded in cloud mode — `features/receipt-scan.md`, `features/add-entry.md`, `features/onboarding.md`
 - changed — Brain re-pointed at the CFO direction: principle 2 is now "Every number is provable", non-goals drop backend / real AI / cloud accounts (bank sync stays out), users lose "cannot call a network", constraints add Supabase, Edge Functions, Claude, push and local vs cloud mode, system map gains the planned cloud objects, events, EC-011–012 and three-tab navigation, and each affected feature gets a "Planned" section — `product.md`, `users.md`, `constraints.md`, `system-map.md`, `rules/rule-signed-money.md`, `features/{home,accounts,activity,review,insights,budgets-and-goals,chat,add-entry,receipt-scan,onboarding}.md`
 - changed — Glossary adds Synced, Cloud mode, Local mode, Snapshot, Adjustment, Move, Insight, Fact, Raw input, Rule (learned rule), Today, Money; Account, Review, Receipt, Queued and M8 updated — `glossary.md`

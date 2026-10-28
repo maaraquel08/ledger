@@ -4,7 +4,7 @@
 // come from a fact is re-asked once, then replaced by a deterministic template.
 import { type Answer, buildAnswer, fallbackAnswer, type ModelAnswer } from "../_shared/answer.ts";
 import { CHAT_TOOLS, type LedgerReader, runTool } from "../_shared/chat_tools.ts";
-import { AiError, aiFailure, anthropic, call, type MessageParam, MODEL, parseJson, system, type ToolParam } from "../_shared/claude.ts";
+import { AiError, aiClient, aiFailure, call, type MessageParam, MODEL, parseJson, system, type ToolParam } from "../_shared/claude.ts";
 import { type Db, rpc, userClient, userId } from "../_shared/clients.ts";
 import { FactRegistry, userNumbers } from "../_shared/facts.ts";
 import { body, error, guard, json, validTz } from "../_shared/http.ts";
@@ -32,7 +32,7 @@ Deno.serve(async (req) => {
   const uid = db ? await userId(db) : null;
   if (!db || !uid) return error(401, "unauthorized");
 
-  const claude = anthropic();
+  const claude = aiClient();
   if (!claude) return error(503, "ai_unconfigured");
 
   const b = await body<ChatBody>(req);

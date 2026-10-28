@@ -16,12 +16,14 @@ import {
   Screen,
   Sheet,
 } from "@/components/ledger/primitives";
+import { UndoToast, type UndoNote } from "@/components/ledger/undo-toast";
 import { cn } from "@/lib/cn";
-import { monthName, peso, signed, stamp } from "@/lib/format";
+import { inputDateTime, monthName, parseWholePesos, peso, signed, stamp, wholePesos } from "@/lib/format";
+import { canRefund, categoriesFor, fixedCategory } from "@/lib/entry-rules";
 import { SPEND_CATEGORIES, suggestCategory } from "@/lib/providers";
 import { splitOf } from "@/lib/receipt";
 import { back, navigate } from "@/lib/router";
-import { accountLabel, byCategory, inRange, monthBounds } from "@/lib/selectors";
+import { accountLabel, byCategory, inRange, isSpend, monthBounds } from "@/lib/selectors";
 import { needsReview } from "@/screens/ledger-list";
 import { newId, useLedger } from "@/lib/store";
 import { cloud } from "@/lib/supabase";
@@ -31,7 +33,8 @@ import type { Account, Category, Entry } from "@/lib/types";
 
 const FIELD =
   "h-11 w-full rounded-md border border-line-strong bg-bg px-3 text-[16px] text-fg outline-none placeholder:text-fg-subtle focus:border-accent";
-const ALL_CATEGORIES: Category[] = [...SPEND_CATEGORIES, "Income", "Salary", "Investments", "Transfer"];
+/** Text buttons in a bar: at least 44×44 to hit. */
+const EDIT_HIT = "flex h-11 min-w-11 items-center justify-center px-1 text-[15px] active:opacity-60";
 
 /* ====================================================================== */
 /*  Entry detail                                                           */
@@ -71,9 +74,16 @@ export function ActivityDetail({ id }: { id: string }) {
   const [mf, mt] = monthBounds(entryDate);
   const monthEntries = inRange(state.entries, mf, mt);
 
+  const other = entry.linkId ? state.entries.find((e) => e.id !== entry.id && e.linkId === entry.linkId) : undefined;
+  const nameOf = (e: Entry) => state.accounts.find((a) => a.id === e.accountId)?.name ?? "no account";
+  const [outLeg, inLeg] = other ? (entry.amount < 0 ? [entry, other] : [other, entry]) : [];
+  const move = entry.category === "Transfer" || entry.category === "Investments";
+
   // budget status for this entry's category in its month
   let budgetLine = "No budget for this";
-  if (entry.category) {
+  if (entry.category === "Adjustment") budgetLine = "Not spending or income";
+  else if (move) budgetLine = entry.category === "Investments" ? "Investing · not spending" : "Transfer · not spending";
+  else if (entry.category) {
     const budget = state.profile.categoryBudgets[entry.category];
     if (budget) {
       const spent = byCategory(monthEntries).find(([c]) => c === entry.category)?.[1] ?? 0;
@@ -87,7 +97,27 @@ export function ActivityDetail({ id }: { id: string }) {
   const sameYear = state.entries.filter((e) => e.desc.trim().toLowerCase() === key && new Date(e.date).getFullYear() === entryDate.getFullYear());
   const rank = sameYear.filter((e) => e.date <= entry.date).length;
   let note: React.ReactNode;
-  if (sameYear.length >= 5 && entry.amount < 0) {
+  if (entry.refunded) {
+    note = (
+      <>
+        Refunded. <AiMark>{peso(entry.amount)}</AiMark> is out of your {monthName(entryDate)} spending{account ? ` and back in ${account.name}` : ""}.
+      </>
+    );
+  } else if (entry.category === "Adjustment") {
+    note = (
+      <>
+        An adjustment you confirmed so {account?.name ?? "this account"} matches the balance you reported. It isn’t <AiMark>spending or income</AiMark>.
+      </>
+    );
+  } else if (outLeg && inLeg) {
+    note = <MoveNote out={outLeg} into={inLeg} accounts={state.accounts} />;
+  } else if (move) {
+    note = (
+      <>
+        {entry.amount < 0 ? "Sent" : "Received"} <AiMark>{peso(entry.amount)}</AiMark>{entry.amount < 0 ? ` from ${account?.name ?? "your account"}` : ` into ${account?.name ?? "your account"}`}. Not counted as spending or income.
+      </>
+    );
+  } else if (sameYear.length >= 5 && isSpend(entry)) {
     note = (
       <>
         Your <AiMark>{ordinal(rank)} {entry.desc}</AiMark> this year, {peso(sameYear.reduce((n, e) => n + Math.abs(e.amount), 0))} so far.
@@ -95,11 +125,16 @@ export function ActivityDetail({ id }: { id: string }) {
       </>
     );
   } else if (entry.amount > 0) {
-    note = (
-      <>
-        Money in. <AiMark>{peso(entry.amount)}</AiMark> added to {account?.name ?? "your account"}.
-      </>
-    );
+    note =
+      account?.type === "credit" ? (
+        <>
+          Money in. <AiMark>{peso(entry.amount)}</AiMark> off what you owe on {account.name}.
+        </>
+      ) : (
+        <>
+          Money in. <AiMark>{peso(entry.amount)}</AiMark> added to {account?.name ?? "your account"}.
+        </>
+      );
   } else if (entry.category) {
     const spent = byCategory(monthEntries).find(([c]) => c === entry.category)?.[1] ?? 0;
     const part = entry.split?.find((x) => x.category === entry.category)?.amount ?? Math.abs(entry.amount);
@@ -117,10 +152,6 @@ export function ActivityDetail({ id }: { id: string }) {
     );
   }
 
-  const other = entry.linkId ? state.entries.find((e) => e.id !== entry.id && e.linkId === entry.linkId) : undefined;
-  const nameOf = (e: Entry) => state.accounts.find((a) => a.id === e.accountId)?.name ?? "no account";
-  const [outLeg, inLeg] = other ? (entry.amount < 0 ? [entry, other] : [other, entry]) : [];
-
   const rows: [string, string][] = [
     ["Date", stamp(entry.date)],
     ...(entry.raw ? ([["Entered as", `“${entry.raw}”`]] as [string, string][]) : []),
@@ -137,7 +168,7 @@ export function ActivityDetail({ id }: { id: string }) {
         label="Back"
         onBack={() => back("/money")}
         right={
-          <button type="button" onClick={() => setEditing(true)} className="flex h-10 items-center px-1 text-[15px] active:opacity-60">
+          <button type="button" onClick={() => setEditing(true)} className={EDIT_HIT}>
             Edit
           </button>
         }
@@ -230,7 +261,7 @@ export function ActivityDetail({ id }: { id: string }) {
                 Edit split
               </ActionButton>
             ) : (
-              entry.amount > 0 ? null : (
+              !canRefund(entry) && !entry.refunded ? null : (
                 <div className="min-w-0 flex-1">
                   <ActionButton variant="secondary" className="min-h-12 w-full" onClick={() => dispatch({ type: "update-entry", id: entry.id, patch: { refunded: !entry.refunded } })}>
                     {entry.refunded ? "Unmark refunded" : "Mark as refunded"}
@@ -250,7 +281,7 @@ export function ActivityDetail({ id }: { id: string }) {
         )}
       </div>
 
-      <EditEntrySheet open={editing} onOpenChange={setEditing} entry={entry} accounts={state.accounts} />
+      <EditEntrySheet open={editing} onOpenChange={setEditing} entry={entry} other={other} accounts={state.accounts} />
       {entry.receipt?.image ? (
         <Sheet open={photo} onOpenChange={setPhoto} title="Receipt">
           <img src={entry.receipt.image} alt={`Receipt from ${entry.desc}`} className="mt-4 w-full rounded-md border border-line" />
@@ -261,32 +292,99 @@ export function ActivityDetail({ id }: { id: string }) {
   );
 }
 
-function EditEntrySheet({ open, onOpenChange, entry, accounts }: { open: boolean; onOpenChange: (o: boolean) => void; entry: Entry; accounts: Account[] }) {
+/** A move told as one sentence, in owed-language when a card is involved (D-0007, D-0010). */
+function MoveNote({ out, into, accounts }: { out: Entry; into: Entry; accounts: Account[] }) {
+  const from = accounts.find((a) => a.id === out.accountId);
+  const to = accounts.find((a) => a.id === into.accountId);
+  const fromName = from?.name ?? "an account";
+  const toName = to?.name ?? "an account";
+  const amount = <AiMark>{peso(into.amount)}</AiMark>;
+  if (to?.type === "credit")
+    return (
+      <>
+        Paid {amount} off {toName} from {fromName}. Not spending: the card’s purchases already counted.
+      </>
+    );
+  if (into.category === "Investments")
+    return (
+      <>
+        Invested {amount} from {fromName} into {toName}. Not spending.
+      </>
+    );
+  return (
+    <>
+      Moved {amount} from {fromName} to {toName}
+      {from?.type === "credit" ? `, so you owe ${peso(into.amount)} more on ${fromName}` : ""}. Not spending.
+    </>
+  );
+}
+
+type Direction = "out" | "in";
+
+function EditEntrySheet({
+  open,
+  onOpenChange,
+  entry,
+  other,
+  accounts,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  entry: Entry;
+  /** the other leg of a move: amount and date stay in step with this one */
+  other?: Entry;
+  accounts: Account[];
+}) {
   const { dispatch } = useLedger();
+  const shown = String(wholePesos(entry.amount));
   const [desc, setDesc] = React.useState(entry.desc);
-  const [amount, setAmount] = React.useState(String(Math.abs(entry.amount)));
+  const [amount, setAmount] = React.useState(shown);
+  const [dir, setDir] = React.useState<Direction>(entry.amount > 0 ? "in" : "out");
   const [cat, setCat] = React.useState<Category | null>(entry.category);
   const [acct, setAcct] = React.useState<string | null>(entry.accountId);
+  const [when, setWhen] = React.useState(inputDateTime(new Date(entry.date)));
+  const [now, setNow] = React.useState(() => new Date());
 
   React.useEffect(() => {
     if (open) {
       setDesc(entry.desc);
-      setAmount(String(Math.abs(entry.amount)));
+      setAmount(String(wholePesos(entry.amount)));
+      setDir(entry.amount > 0 ? "in" : "out");
       setCat(entry.category);
       setAcct(entry.accountId);
+      setWhen(inputDateTime(new Date(entry.date)));
+      setNow(new Date());
     }
   }, [open, entry]);
 
-  const value = Number(amount.replace(/,/g, ""));
-  const valid = desc.trim() !== "" && Number.isFinite(value) && value > 0;
-  const linked = entry.linkId != null;
-  const sign = linked ? (entry.amount >= 0 ? 1 : -1) : cat === "Income" || cat === "Salary" ? 1 : cat === "Transfer" || cat === "Investments" ? (entry.amount >= 0 ? 1 : -1) : -1;
+  // a leg of a move or an Adjustment keeps its category and its sign
+  const fixed = fixedCategory(entry);
+  const sign: 1 | -1 = fixed ? (entry.amount >= 0 ? 1 : -1) : dir === "in" ? 1 : -1;
+  const options = categoriesFor(sign, entry.category);
+
+  // whole pesos only, like the keypad; untouched, the stored amount stays as it was
+  const untouched = amount.trim() === shown;
+  const value = untouched ? Math.abs(entry.amount) : parseWholePesos(amount);
+  const date = when ? new Date(when) : null;
+  const future = !!date && date.getTime() > now.getTime() + 60_000;
+  const dateOk = !!date && !Number.isNaN(date.getTime()) && !future;
+  const valid = desc.trim() !== "" && value != null && dateOk && (fixed || cat == null || options.includes(cat)) && !(other && acct != null && acct === other.accountId);
   const flips = valid && sign !== (entry.amount >= 0 ? 1 : -1);
   const acctName = accounts.find((a) => a.id === acct)?.name;
 
+  const pickDir = (d: Direction) => {
+    setDir(d);
+    // income categories don't fit money out, and the other way round
+    if (cat && !categoriesFor(d === "in" ? 1 : -1, entry.category).includes(cat)) setCat(null);
+  };
+
   const save = () => {
-    if (!valid) return;
-    dispatch({ type: "update-entry", id: entry.id, patch: { desc: desc.trim(), amount: sign * value, category: cat, accountId: acct } });
+    if (!valid || value == null || !date) return;
+    const iso = untouchedDate(entry.date, when) ? entry.date : date.toISOString();
+    const signedValue = sign * value;
+    dispatch({ type: "update-entry", id: entry.id, patch: { desc: desc.trim(), amount: signedValue, category: fixed ? entry.category : cat, accountId: acct, date: iso } });
+    // both legs of a move carry the same amount and moment, or the accounts drift apart
+    if (other && (other.amount !== -signedValue || other.date !== iso)) dispatch({ type: "update-entry", id: other.id, patch: { amount: -signedValue, date: iso } });
     onOpenChange(false);
   };
 
@@ -303,38 +401,83 @@ function EditEntrySheet({ open, onOpenChange, entry, accounts }: { open: boolean
           <Eyebrow className="mb-2">DESCRIPTION</Eyebrow>
           <input value={desc} onChange={(e) => setDesc(e.target.value)} className={FIELD} enterKeyHint="next" />
         </label>
+        {fixed ? null : (
+          <div>
+            <Eyebrow className="mb-2.5">MONEY</Eyebrow>
+            <div className="flex gap-2">
+              <Pill active={dir === "out"} className="min-h-10 flex-1 px-3.5 text-[12.5px]" onClick={() => pickDir("out")}>
+                Out · spent
+              </Pill>
+              <Pill active={dir === "in"} className="min-h-10 flex-1 px-3.5 text-[12.5px]" onClick={() => pickDir("in")}>
+                In · got
+              </Pill>
+            </div>
+          </div>
+        )}
         <label className="block">
           <Eyebrow className="mb-2">AMOUNT (₱)</Eyebrow>
           <div className="flex items-center gap-3">
-            <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" className={cn(FIELD, "min-w-0 flex-1 font-mono")} />
-            {valid ? <span className={cn("tnum flex-none text-[15px] font-semibold", sign > 0 ? "text-success" : "text-fg")}>{signed(sign * value)}</span> : null}
+            <input
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              inputMode="numeric"
+              aria-invalid={value == null}
+              className={cn(FIELD, "min-w-0 flex-1 font-mono", value == null && amount.trim() !== "" && "border-danger")}
+            />
+            {value != null ? <span className={cn("tnum flex-none text-[15px] font-semibold", sign > 0 ? "text-success" : "text-fg")}>{signed(sign * value)}</span> : null}
           </div>
+          {value == null && amount.trim() !== "" ? (
+            <p role="alert" className="mt-1.5 text-[12.5px] text-danger">
+              Whole pesos only, up to ₱9,999,999.
+            </p>
+          ) : null}
+          {other ? (
+            <p className="mt-1.5 text-[12.5px] text-fg-subtle">
+              The other leg changes with it.
+            </p>
+          ) : null}
+        </label>
+        <label className="block">
+          <Eyebrow className="mb-2">DATE AND TIME</Eyebrow>
+          <input
+            type="datetime-local"
+            value={when}
+            max={inputDateTime(now)}
+            onChange={(e) => setWhen(e.target.value)}
+            aria-invalid={!dateOk}
+            className={cn(FIELD, !dateOk && "border-danger")}
+          />
+          {future ? <p role="alert" className="mt-1.5 text-[12.5px] text-danger">That’s in the future. Pick a time up to now.</p> : null}
         </label>
         <div>
           <Eyebrow className="mb-2.5">CATEGORY</Eyebrow>
-          {linked ? (
-            <p className="text-[14px] text-fg-muted">{cat ?? "Transfer"} · linked</p>
+          {fixed ? (
+            <p className="text-[14px] text-fg-muted">
+              {entry.category === "Adjustment" ? "Adjustment · closes a reported-balance gap" : `${entry.category ?? "Transfer"} · linked to ${other ? accounts.find((a) => a.id === other.accountId)?.name ?? "another account" : "another entry"}`}
+            </p>
           ) : (
             <div className="flex flex-wrap gap-2">
-              {(cat && !ALL_CATEGORIES.includes(cat) ? [...ALL_CATEGORIES, cat] : ALL_CATEGORIES).map((c) => (
+              {options.map((c) => (
                 <Pill key={c} active={cat === c} className="min-h-10 px-3.5 text-[12.5px]" onClick={() => setCat(c)}>
                   {c}
                 </Pill>
               ))}
             </div>
           )}
+          {!fixed ? <p className="mt-2 text-[12.5px] leading-[1.45] text-fg-subtle">Moving money between your own accounts? Use Transfer on the account, so both sides are logged.</p> : null}
         </div>
         <div>
           <Eyebrow className="mb-2.5">ACCOUNT</Eyebrow>
           <div className="flex flex-wrap gap-2">
-            {accounts.map((a) => (
+            {/* a leg of a move can't land in the other leg's account */}
+            {accounts.filter((a) => !other || a.id !== other.accountId).map((a) => (
               <Pill key={a.id} active={acct === a.id} className="min-h-10 max-w-full px-3.5 text-start text-[12.5px] whitespace-normal" onClick={() => setAcct(a.id)}>
                 {a.name}
               </Pill>
             ))}
           </div>
         </div>
-        {flips ? (
+        {flips && value != null ? (
           <p className="text-[13px] leading-[1.5] text-fg-muted" role="status">
             This becomes money {sign > 0 ? "in" : "out"}{acctName ? ` and moves ${acctName} by ${peso(value)}` : ` of ${peso(value)}`}.
           </p>
@@ -347,6 +490,9 @@ function EditEntrySheet({ open, onOpenChange, entry, accounts }: { open: boolean
   );
 }
 
+/** The datetime field still shows the stored moment (to the minute): keep its seconds. */
+const untouchedDate = (iso: string, field: string) => inputDateTime(new Date(iso)) === field;
+
 /* ====================================================================== */
 /*  Review queue                                                           */
 /* ====================================================================== */
@@ -356,6 +502,8 @@ const QUICK: Category[] = ["Food & drink", "Gifts", "Groceries", "Other"];
 export function Review() {
   const { state, dispatch } = useLedger();
   const [leaving, setLeaving] = React.useState<Set<string>>(new Set());
+  const [accepted, setAccepted] = React.useState<{ ids: string[]; note: UndoNote } | null>(null);
+  const closeToast = React.useCallback(() => setAccepted(null), []);
   const timers = React.useRef<number[]>([]);
   React.useEffect(() => () => timers.current.forEach(clearTimeout), []);
 
@@ -389,11 +537,23 @@ export function Review() {
   };
 
   const acceptAll = () => {
+    const ids: string[] = [];
     for (const e of queue) {
-      if (e.category != null) continue;
+      if (e.category != null || leaving.has(e.id)) continue;
+      ids.push(e.id);
       file(e, { category: suggestCategory(e.desc) ?? "Other" });
     }
+    if (ids.length) setAccepted({ ids, note: { label: "Suggestions accepted", amount: `${ids.length} ${ids.length === 1 ? "entry" : "entries"}`, where: "Filed by M8’s suggestions" } });
   };
+  // the entries go back to Review without a category, as they were
+  const undoAccept = () => {
+    if (!accepted) return;
+    timers.current.forEach(clearTimeout);
+    timers.current = [];
+    setLeaving(new Set());
+    for (const id of accepted.ids) dispatch({ type: "update-entry", id, patch: { category: null } });
+  };
+  const toast = <UndoToast note={accepted?.note ?? null} onClose={closeToast} onUndo={undoAccept} />;
 
   if (queue.length === 0 && gaps.list.length === 0) {
     return (
@@ -406,6 +566,7 @@ export function Review() {
             See your money
           </Cta>
         </div>
+        {toast}
       </Screen>
     );
   }
@@ -455,7 +616,7 @@ export function Review() {
                     </div>
                   ) : null}
                   {e.category == null ? (
-                    <div className="no-scrollbar mt-3.5 -mr-6 flex gap-1.5 overflow-x-auto pr-6 pl-[56px]">
+                    <div className="mt-3.5 flex flex-wrap gap-1.5 pl-[56px]">
                       {options.map((c) => {
                         const ai = c === suggestion;
                         return (
@@ -468,9 +629,9 @@ export function Review() {
                     </div>
                   ) : null}
                   {e.accountId == null ? (
-                    <div className="no-scrollbar mt-3 -mr-6 flex gap-1.5 overflow-x-auto pr-6 pl-[56px]">
+                    <div className="mt-3 flex flex-wrap gap-1.5 pl-[56px]">
                       {state.accounts.map((a) => (
-                        <Pill key={a.id} className="min-h-10 max-w-full flex-none px-3.5 text-start whitespace-normal" onClick={() => file(e, { accountId: a.id })}>
+                        <Pill key={a.id} className="min-h-10 max-w-full px-3.5 text-start whitespace-normal" onClick={() => file(e, { accountId: a.id })}>
                           {a.name}
                         </Pill>
                       ))}
@@ -484,6 +645,7 @@ export function Review() {
       </div>
 
       <div className="h-16" aria-hidden />
+      {toast}
     </Screen>
   );
 }

@@ -45,6 +45,8 @@ function redirect(path: string): string | null {
 function routeName(base: string) {
   const seg = base.split("/")[1];
   if (seg === "activity") return "Entry";
+  if (seg === "money" && base !== "/money") return "Account";
+  if (seg === "data") return "Your data";
   return seg ? seg.charAt(0).toUpperCase() + seg.slice(1) : "Welcome";
 }
 
@@ -153,6 +155,9 @@ function SignedOut() {
   React.useEffect(() => {
     if (!known) navigate("/", { replace: true });
   }, [known]);
+  React.useEffect(() => {
+    document.title = `${base === "/sign-in" ? "Sign in" : "Welcome"} · Ledger`;
+  }, [base]);
   if (base === "/sign-in") return <SignIn />;
   return known ? <Welcome /> : null;
 }
@@ -170,6 +175,9 @@ function CloudGate() {
 
 function CloudApp() {
   const { loading, session } = useSession();
+  React.useEffect(() => {
+    if (loading) document.title = "Opening · Ledger";
+  }, [loading]);
   if (loading) return <Opening label="Opening Ledger…" />;
   if (!session) return <SignedOut />;
   return (

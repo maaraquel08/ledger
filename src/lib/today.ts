@@ -1,5 +1,5 @@
 import { addDays, sameDay, startOfDay } from "./format";
-import { FIXED, inRange, isSpend, monthBounds, monthlyIncome, spendParts, suggestedBudget } from "./selectors";
+import { FIXED, inRange, isSpend, monthBounds, monthBudget, spendParts } from "./selectors";
 import type { Category } from "./types";
 import type { LedgerState } from "./types";
 
@@ -7,13 +7,15 @@ import type { LedgerState } from "./types";
  * Today's number. The month's budget left at the start of today, spread
  * over the days remaining, minus what today has already spent. Bills land
  * on a date, not a habit, and groceries come from the monthly budget —
- * so neither touches today; both come out of the pool from tomorrow.
+ * so neither touches today; both come out of the pool from tomorrow. The
+ * month the ledger starts in has a prorated budget (selectors.monthBudget).
  */
 const MONTHLY: Category[] = [...FIXED, "Groceries", "Household"];
 
 export function todayBudget(s: LedgerState, now = new Date()) {
-  const budget = s.profile.monthlyBudget || suggestedBudget(monthlyIncome(s));
-  if (!budget) return { hasBudget: false as const };
+  // the first month is prorated from the ledger's first day (selectors.monthBudget)
+  const { budget, full, proratedFrom } = monthBudget(s, now);
+  if (!full) return { hasBudget: false as const };
   const [from, to] = monthBounds(now);
   const today = startOfDay(now);
   const month = inRange(s.entries, from, to).filter(isSpend);
@@ -31,6 +33,8 @@ export function todayBudget(s: LedgerState, now = new Date()) {
   return {
     hasBudget: true as const,
     budget,
+    fullBudget: full,
+    proratedFrom,
     left,
     allowance: Math.round(allowance),
     tomorrow,
@@ -38,6 +42,11 @@ export function todayBudget(s: LedgerState, now = new Date()) {
     // the rows The math shows — the same formula as the number it explains
     spentBefore: Math.round(before),
     spentToday: Math.round(spentToday),
+    /** everything spent this month, today included: what the over-budget math subtracts */
+    spentMonth: Math.round(spentAll),
     daysLeft: Math.max(1, daysLeft),
+    daysInMonth: Math.round((to.getTime() - from.getTime()) / 86400000),
+    /** days the month's budget covers: the whole month, or from the ledger's first day */
+    budgetDays: Math.round((to.getTime() - (proratedFrom ?? from).getTime()) / 86400000),
   };
 }

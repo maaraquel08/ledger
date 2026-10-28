@@ -12,13 +12,14 @@ import {
   Screen,
   Sheet,
 } from "@/components/ledger/primitives";
+import { UndoToast, type UndoNote } from "@/components/ledger/undo-toast";
 import { cn } from "@/lib/cn";
 import { balance, monthShort, peso, signed } from "@/lib/format";
 import { PROVIDERS, providerMeta, TYPE_KIND, TYPE_LABEL } from "@/lib/providers";
 import { back, navigate } from "@/lib/router";
 import { netWorth } from "@/lib/selectors";
 import { LedgerList } from "@/screens/ledger-list";
-import { newId, useLedger } from "@/lib/store";
+import { adjustmentAmount, newId, useLedger } from "@/lib/store";
 import { cloud } from "@/lib/supabase";
 import type { Account, AccountType, Provider } from "@/lib/types";
 
@@ -31,6 +32,18 @@ const kindLine = (a: Account) => {
   return `${same ? "" : `${a.providerLabel} · `}${a.kind}${a.last4 ? ` ·${a.last4}` : ""}`.toUpperCase();
 };
 const num = (s: string) => Number(s.replace(/,/g, ""));
+
+/** What to suggest as a name, by account type: "Wallet cash", "Main card"… */
+export const NAME_HINT: Record<AccountType, string> = {
+  bank: "Payroll account",
+  ewallet: "Daily wallet",
+  cash: "Wallet cash",
+  credit: "Main card",
+  investments: "Brokerage",
+};
+
+/** The Edit text button in a BackBar: 40px to see, 48px to hit. */
+export const EDIT_HIT = "flex h-11 min-w-11 items-center justify-center px-1 text-[15px] active:opacity-60";
 
 function dueText(iso?: string) {
   if (!iso) return null;
@@ -222,7 +235,7 @@ export function AddAccountSheet({ open, onOpenChange, initialProvider }: { open:
           <>
             <label className="block">
               <Eyebrow className="mb-2">NAME</Eyebrow>
-              <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Daily wallet" className={FIELD} enterKeyHint="next" />
+              <input value={name} onChange={(e) => setName(e.target.value)} placeholder={NAME_HINT[type]} className={FIELD} enterKeyHint="next" />
             </label>
             <div>
               <Eyebrow className="mb-2.5">TYPE</Eyebrow>
@@ -264,6 +277,8 @@ export function AccountDetail({ id, path }: { id: string; path: string }) {
   const [editing, setEditing] = React.useState(false);
   const [reporting, setReporting] = React.useState(false);
   const [transfer, setTransfer] = React.useState(false);
+  const [adjusted, setAdjusted] = React.useState<{ entryId: string; note: UndoNote } | null>(null);
+  const closeToast = React.useCallback(() => setAdjusted(null), []);
   const account = state.accounts.find((a) => a.id === id);
 
   if (!account) {
@@ -282,11 +297,16 @@ export function AccountDetail({ id, path }: { id: string; path: string }) {
   }
 
   // cloud mode: report_balance snapshot. The balance stays derived from entries (D-0014); a gap
-  // shows in Review, closed only by an Adjustment the Owner records. Local mode sets it directly.
-  const reportBalance = (value: number) =>
-    cloud
-      ? dispatch({ type: "report-balance", id: newId("s"), accountId: account.id, reported: value })
-      : dispatch({ type: "upsert-account", account: { ...account, balance: value } });
+  // shows in Review, closed only by an Adjustment the Owner records.
+  // Local mode: the sheet shows the gap and the Owner confirms one Adjustment entry here.
+  const reportBalance = (value: number) => {
+    if (cloud) return dispatch({ type: "report-balance", id: newId("s"), accountId: account.id, reported: value });
+    const amount = adjustmentAmount(account, value);
+    if (!amount) return;
+    const entry = { id: newId("e"), desc: "Balance adjustment", accountId: account.id, category: "Adjustment" as const, amount, date: new Date().toISOString() };
+    dispatch({ type: "add-entry", entry });
+    setAdjusted({ entryId: entry.id, note: { label: "Adjustment recorded", amount: signed(amount), where: `${account.name} now matches ${balance(value)}` } });
+  };
 
   return (
     <Screen className="pb-[max(32px,env(safe-area-inset-bottom))]">
@@ -294,7 +314,7 @@ export function AccountDetail({ id, path }: { id: string; path: string }) {
         label="Money"
         onBack={() => back("/money")}
         right={
-          <button type="button" onClick={() => setEditing(true)} className="flex h-10 items-center px-1 text-[15px] active:opacity-60">
+          <button type="button" onClick={() => setEditing(true)} className={EDIT_HIT}>
             Edit
           </button>
         }
@@ -305,7 +325,7 @@ export function AccountDetail({ id, path }: { id: string; path: string }) {
         <div className="mt-1.5 font-mono text-[10.5px] font-medium tracking-[0.05em] text-fg-subtle">{kindLine(account)}</div>
         <div className={cn("tnum mt-5 text-[40px] leading-[1.1] font-semibold tracking-[-0.025em]", account.balance < 0 && "text-danger")}>{balance(account.balance)}</div>
         {account.type === "credit" ? <div className="mt-1.5 font-mono text-[10.5px] tracking-[0.05em] text-fg-subtle">OWED{account.dueDate ? ` · ${dueText(account.dueDate)?.toUpperCase()}` : ""}</div> : null}
-        <button type="button" onClick={() => setReporting(true)} className="mt-2 flex min-h-10 items-center px-2 text-[13px] text-fg-muted underline underline-offset-4 active:opacity-60">
+        <button type="button" onClick={() => setReporting(true)} className="mt-2 flex min-h-11 items-center px-2 text-[13px] text-fg-muted underline underline-offset-4 active:opacity-60">
           Report balance
         </button>
       </div>
@@ -332,6 +352,7 @@ export function AccountDetail({ id, path }: { id: string; path: string }) {
       />
       <ReportBalanceSheet open={reporting} onOpenChange={setReporting} account={account} onReport={reportBalance} />
       <TransferSheet open={transfer} onOpenChange={setTransfer} from={account} />
+      <UndoToast note={adjusted?.note ?? null} onClose={closeToast} onUndo={() => adjusted && dispatch({ type: "delete-entry", id: adjusted.entryId })} />
     </Screen>
   );
 }
@@ -402,16 +423,24 @@ function EditAccountSheet({ open, onOpenChange, account, onRemove }: { open: boo
   );
 }
 
-/** What the account shows right now, as the Owner reads it off the app or card. */
+/**
+ * What the account shows right now, as the Owner reads it off the app or card.
+ * D-0014: the report never changes the balance. Cloud stores it as a snapshot and
+ * the gap waits in Review; local mode shows the gap here and records an Adjustment
+ * only when the Owner confirms it.
+ */
 function ReportBalanceSheet({ open, onOpenChange, account, onReport }: { open: boolean; onOpenChange: (o: boolean) => void; account: Account; onReport: (value: number) => void }) {
   const [value, setValue] = React.useState("");
   React.useEffect(() => {
     if (open) setValue("");
   }, [open]);
   const n = num(value);
-  const valid = value.trim() !== "" && Number.isFinite(n);
-  const gap = valid ? n - account.balance : 0;
+  const valid = value.trim() !== "" && Number.isFinite(n) && n >= 0;
+  const gap = valid ? Math.round(n) - Math.round(account.balance) : 0;
   const credit = account.type === "credit";
+  // "less" / "more" in the Owner's terms: what's in the account, or what's owed on the card
+  const gapLine = gap === 0 ? null : `${peso(gap)} ${gap < 0 ? "less" : "more"}${credit ? " owed" : ""}`;
+  const local = !cloud;
   return (
     <Sheet open={open} onOpenChange={onOpenChange} title="Report balance">
       <form
@@ -419,25 +448,42 @@ function ReportBalanceSheet({ open, onOpenChange, account, onReport }: { open: b
         onSubmit={(e) => {
           e.preventDefault();
           if (!valid) return;
+          if (local && gap === 0) return onOpenChange(false);
           onReport(n);
           onOpenChange(false);
         }}
       >
         <p className="text-[14px] leading-[1.5] text-fg-muted">
-          {credit ? "How much do you owe on" : "What does"} {account.name} {credit ? "right now?" : "show right now?"} Ledger has {balance(account.balance)}.
+          {credit ? "How much do you owe on" : "What does"} {account.name} {credit ? "right now?" : "show right now?"} Ledger has {balance(account.balance)}
+          {credit ? " owed" : ""}.
         </p>
         <label className="block">
           <Eyebrow className="mb-2">{credit ? "OWED NOW (₱)" : "BALANCE NOW (₱)"}</Eyebrow>
-          <input value={value} onChange={(e) => setValue(e.target.value)} inputMode="decimal" placeholder={String(Math.round(account.balance))} className={cn(FIELD, "font-mono")} autoFocus />
+          <input value={value} onChange={(e) => setValue(e.target.value)} inputMode="numeric" placeholder={String(Math.round(account.balance))} className={cn(FIELD, "font-mono")} autoFocus />
         </label>
-        {valid && Math.round(gap) !== 0 ? (
+        {valid && local ? (
+          <div role="status" className="rounded-md border border-line px-3.5 py-3">
+            {gapLine ? (
+              <>
+                <p className="tnum text-[14px] leading-[1.5]">
+                  Ledger expects {peso(account.balance)} · you reported {peso(n)} · <span className="font-semibold">{gapLine}</span>
+                </p>
+                <p className="mt-1.5 text-[12.5px] leading-[1.45] text-fg-subtle">
+                  An adjustment entry closes the gap. It isn’t spending or income. Missing an entry instead? Log it and the gap closes on its own.
+                </p>
+              </>
+            ) : (
+              <p className="text-[14px] leading-[1.5]">That matches what Ledger has. Nothing to adjust.</p>
+            )}
+          </div>
+        ) : null}
+        {valid && !local && gap !== 0 ? (
           <p role="status" className="tnum text-[13px] text-fg-muted">
-            {signed(gap)} from what Ledger has.
-            {cloud ? " Ledger keeps its balance from your entries; the difference waits in Review, where you can record an adjustment." : null}
+            {signed(gap)} from what Ledger has. Ledger keeps its balance from your entries; the difference waits in Review, where you can record an adjustment.
           </p>
         ) : null}
         <Cta type="submit" disabled={!valid}>
-          Report balance
+          {local ? (valid && gap !== 0 ? `Record ${peso(gap)} adjustment` : "Done") : "Report balance"}
         </Cta>
       </form>
     </Sheet>

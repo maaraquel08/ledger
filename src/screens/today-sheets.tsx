@@ -2,7 +2,7 @@ import * as React from "react";
 import { AiSummaryText } from "@/components/ui/ai-summary/ai-summary";
 import { AiMark, AiPanel, Cta, Eyebrow, Sheet } from "@/components/ledger/primitives";
 import { cn } from "@/lib/cn";
-import { peso, signed } from "@/lib/format";
+import { monthShort, peso } from "@/lib/format";
 import { navigate } from "@/lib/router";
 import { byCategory, FIXED, inRange, verdict } from "@/lib/selectors";
 import { todayBudget } from "@/lib/today";
@@ -58,8 +58,9 @@ export function MathSheet({
   }, [open]);
 
   const tb = todayBudget(state, today);
+  const pool = tb.hasBudget ? tb.budget - tb.spentBefore : 0;
   const spent = new Map(byCategory(month));
-  const frac = today.getDate() / v.daysInMonth;
+  const frac = v.pace;
   const lines = Object.entries(state.profile.categoryBudgets)
     .filter(([, b]) => (b ?? 0) > 0)
     .map(([c, b]) => ({ c, b: b as number, s: spent.get(c as never) ?? 0 }));
@@ -71,7 +72,7 @@ export function MathSheet({
           {[100, 85, 92, 70, 60].map((w, i) => (
             <div key={i} className="skeleton mb-3.5 h-5 rounded-md" style={{ width: `${w}%` }} />
           ))}
-          <p className="mt-2 font-mono text-[11px] text-fg-subtle">Reading {state.entries.length} transactions…</p>
+          <p className="mt-2 font-mono text-[11px] text-fg-subtle">Reading {state.entries.length} {state.entries.length === 1 ? "entry" : "entries"}…</p>
         </div>
       ) : (
         <div className="pt-5">
@@ -79,31 +80,42 @@ export function MathSheet({
             <div className="mt-3.5 flex flex-col gap-2.5 text-[14.5px]">
               {tb.hasBudget ? (
                 <>
-                  <MathRow label="Budget" value={peso(tb.budget)} />
-                  <MathRow label="− Spent before today" value={peso(tb.spentBefore)} />
-                  <MathRow
-                    label={`÷ ${tb.daysLeft} days left`}
-                    value={<AiMark>{peso(tb.allowance)} a day</AiMark>}
-                    strong
-                  />
-                  <MathRow label="− Spent today on day-to-day" value={peso(tb.spentToday)} />
-                  <MathRow
-                    label="= Left today"
-                    value={
-                      tb.left < 0 ? (
-                        <span className="text-danger">−{peso(-tb.left)} over today</span>
-                      ) : (
-                        `${peso(tb.left)} left today`
-                      )
-                    }
-                    strong
-                  />
+                  {tb.proratedFrom ? (
+                    <>
+                      <MathRow label="Monthly budget" value={peso(tb.fullBudget)} />
+                      <MathRow
+                        label={`× ${tb.budgetDays} of ${tb.daysInMonth} days, from ${tb.proratedFrom.getDate()} ${monthShort(tb.proratedFrom)}`}
+                        value={peso(tb.budget)}
+                      />
+                    </>
+                  ) : (
+                    <MathRow label="Budget" value={peso(tb.budget)} />
+                  )}
+                  {pool > 0 ? (
+                    <>
+                      <MathRow label="− Spent before today" value={peso(tb.spentBefore)} />
+                      <MathRow label="= Left of the budget" value={peso(pool)} strong />
+                      <MathRow label={`÷ ${tb.daysLeft} day${tb.daysLeft === 1 ? "" : "s"} left`} value={<AiMark>{peso(tb.allowance)} a day</AiMark>} />
+                      <MathRow label="− Spent today on day-to-day" value={peso(tb.spentToday)} />
+                      <MathRow label="= Today" value={tb.left < 0 ? `${peso(tb.left)} over today` : `${peso(tb.left)} left today`} strong />
+                    </>
+                  ) : (
+                    <>
+                      {/* over budget: no allowance to divide, so no fake subtraction (QA C) */}
+                      <MathRow label="− Spent this month" value={peso(tb.spentMonth)} />
+                      <MathRow label="= Over budget by" value={<AiMark>{peso(tb.spentMonth - tb.budget)}</AiMark>} strong />
+                      <p className="mt-1 text-[13px] leading-[1.5] text-bg/80">
+                        Today you’ve spent {peso(tb.spentToday)} on day-to-day things. The month’s budget is used up, so there’s no daily allowance until next month.
+                      </p>
+                    </>
+                  )}
                 </>
               ) : null}
             </div>
             <AiSummaryText className="mt-4 text-[13.5px]/[1.65]">
-              What was left of your monthly budget this morning, spread evenly over the {tb.hasBudget ? tb.daysLeft : v.daysLeft} days remaining including
-              today, minus what you’ve spent today on day-to-day things. Rent, bills, groceries and household come out of the pool from tomorrow.
+              {pool > 0
+                ? `What was left of your monthly budget this morning, spread evenly over the ${tb.hasBudget ? tb.daysLeft : v.daysLeft} days remaining including today, minus what you’ve spent today on day-to-day things. Rent, bills, groceries and household come out of the pool from tomorrow.`
+                : "Everything you’ve spent this month, against the month’s budget."}{" "}
               Investments and transfers between your accounts don’t count as spending.
             </AiSummaryText>
           </AiPanel>
@@ -122,7 +134,7 @@ export function MathSheet({
                         <span className="tnum block text-fg-subtle">{peso(l.s)} of {peso(l.b)}</span>
                       </span>
                       <span className={cn("tnum flex-none font-semibold", diff > 0 ? "text-danger" : "text-success")}>
-                        {diff > 0 ? `${signed(-diff)} over pace` : `${peso(-diff)} under`}
+                        {diff > 0 ? `${peso(diff)} over pace` : `${peso(-diff)} under pace`}
                       </span>
                     </li>
                   );

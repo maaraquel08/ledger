@@ -1,7 +1,28 @@
 const nf = new Intl.NumberFormat("en-PH", { maximumFractionDigits: 0 });
 
-/** ₱18,900 — always unsigned. */
-export const peso = (n: number) => `₱${nf.format(Math.abs(Math.round(n)))}`;
+/** Whole pesos, half away from zero: 1000.5 and −1000.5 both read 1,001. */
+export const wholePesos = (n: number) => Math.round(Math.abs(n));
+
+/** ₱18,900 — always unsigned, whole pesos. */
+export const peso = (n: number) => `₱${nf.format(wholePesos(n))}`;
+
+/** The most one entry can hold: seven digits on the keypad. */
+export const MAX_AMOUNT = 9_999_999;
+
+/**
+ * A typed amount in whole pesos ("1,250" → 1250). null when it isn't a whole
+ * number above zero, or is over MAX_AMOUNT; Ledger has no centavos.
+ */
+export function parseWholePesos(s: string): number | null {
+  const t = s.trim().replace(/,/g, "");
+  if (!/^\d+$/.test(t)) return null;
+  const n = Number(t);
+  return n > 0 && n <= MAX_AMOUNT ? n : null;
+}
+
+/** A Date as the value of an <input type="datetime-local">, in local time. */
+export const inputDateTime = (d: Date) =>
+  `${localDay(d)}T${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 
 /** ₱18,900 or −₱1,200 — a balance keeps its sign when it goes under. */
 export const balance = (n: number) => `${n < 0 ? "−" : ""}${peso(n)}`;

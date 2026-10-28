@@ -162,10 +162,18 @@ export function KindPanel({ value, onPick, noInvestAccount }: { value: Kind; onP
 
 const KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "next", "0", "⌫"];
 
-/** Whole pesos only; "Next" moves on to the first empty part. */
-export function KeypadPanel({ onKey, onNext, canNext }: { onKey: (k: string) => void; onNext: () => void; canNext: boolean }) {
+/**
+ * Whole pesos only; "Next" moves on to the first empty part. `note` says why a
+ * key did nothing (the seven-digit cap). Keys carry data-keypad so a physical
+ * Enter on a focused key saves instead of pressing it again.
+ */
+export function KeypadPanel({ onKey, onNext, canNext, note }: { onKey: (k: string) => void; onNext: () => void; canNext: boolean; note?: string }) {
   return (
-    <PickerPanel className="grid grid-cols-3 gap-1.5">
+    <PickerPanel>
+      <p role="status" className="min-h-6 pb-1.5 text-[12.5px] leading-[1.4] text-gold-ink">
+        {note}
+      </p>
+      <div className="grid grid-cols-3 gap-1.5">
       {KEYS.map((k) =>
         k === "next" ? (
           <button
@@ -173,7 +181,8 @@ export function KeypadPanel({ onKey, onNext, canNext }: { onKey: (k: string) => 
             type="button"
             onClick={onNext}
             disabled={!canNext}
-            className="h-[66px] rounded-md bg-accent text-[15px] font-semibold text-accent-fg active:bg-accent-hover disabled:bg-fill disabled:text-fg-subtle"
+            data-keypad
+            className="h-[62px] rounded-md bg-accent text-[15px] font-semibold text-accent-fg active:bg-accent-hover disabled:bg-fill disabled:text-fg-subtle"
           >
             Next
           </button>
@@ -183,17 +192,19 @@ export function KeypadPanel({ onKey, onNext, canNext }: { onKey: (k: string) => 
             type="button"
             aria-label={k === "⌫" ? "Delete" : k}
             onClick={() => onKey(k)}
-            className="h-[66px] rounded-md border border-line bg-surface text-[22px] font-medium active:bg-fill"
+            data-keypad
+            className="h-[62px] rounded-md border border-line bg-surface text-[22px] font-medium active:bg-fill"
           >
             {k}
           </button>
         ),
       )}
+      </div>
     </PickerPanel>
   );
 }
 
-/** Ranked category tiles, label anchored to the bottom of each card. */
+/** Ranked category tiles, short enough that four rows (all ten spend categories) fit the panel. */
 export function CategoryPanel({ options, value, onPick }: { options: Category[]; value: Category | null; onPick: (c: Category) => void }) {
   return (
     <PickerPanel className="grid grid-cols-3 gap-2">
@@ -204,7 +215,7 @@ export function CategoryPanel({ options, value, onPick }: { options: Category[];
           aria-pressed={value === c}
           onClick={() => onPick(c)}
           className={cn(
-            "flex h-20 items-end rounded-md border px-2.5 pb-2.5 text-left text-[13px] font-medium transition-colors duration-fast",
+            "flex h-16 items-center rounded-md border px-2.5 text-left text-[13px] leading-[1.25] font-medium transition-colors duration-fast",
             value === c ? "border-accent bg-surface" : "border-line-strong active:bg-surface",
           )}
         >

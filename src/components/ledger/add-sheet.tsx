@@ -1,8 +1,9 @@
 import * as React from "react";
 import { cn } from "@/lib/cn";
 import { fileToCanvas, useCamera } from "@/lib/camera";
-import { addDays, balance, dayName, monthShort, peso } from "@/lib/format";
+import { addDays, balance, dayName, MAX_AMOUNT, monthShort, peso } from "@/lib/format";
 import { recognize, warmUp } from "@/lib/ocr";
+import { INCOME_CATEGORIES, isUnusualAmount } from "@/lib/entry-rules";
 import { isQuestion, parseEntry, parseSpoken, splitEntries, type Parsed } from "@/lib/parse";
 import { SPEND_CATEGORIES } from "@/lib/providers";
 import { compressImage, draftToEntry, parseReceipt, splitOf, type ReceiptDraft } from "@/lib/receipt";
@@ -14,7 +15,7 @@ import { useVoice, type VoiceError } from "@/lib/voice";
 import { capture, dataUrlToBlob, undoEvent, upload, type CaptureResult } from "@/lib/cloud/api";
 import { useCloud } from "@/lib/cloud/provider";
 import { extFor, recorderSupported, useRecorder } from "@/lib/recorder";
-import { ReceiptFrame } from "./camera";
+import { CameraGate, ReceiptFrame } from "./camera";
 import {
   AccountPanel,
   CategoryPanel,
@@ -30,6 +31,7 @@ import {
 import { CheckIcon, MicIcon } from "./icons";
 import { Orb } from "./orb";
 import { CategoryChip, Cta, EntryRow, Segmented, Sheet } from "./primitives";
+import { TOAST_DOCK, useToastPresence } from "./undo-toast";
 
 /*
  * Add entry, three ways in: Manual (the draft row over one swapping picker),
@@ -52,7 +54,6 @@ type CamStage =
 type FixPart = "amount" | "category" | "account";
 type Fix = { i: number; part: FixPart } | null;
 
-const INCOME_CATS: Category[] = ["Salary", "Income"];
 const KIND_WORD: Record<Kind, string> = { Expense: "Spent", Income: "Got", Invest: "Moved" };
 const HOLD_MS = 280; // shorter than this is a tap, not a hold
 
@@ -150,6 +151,10 @@ export function AddSheet({
   const [toAcc, setToAcc] = React.useState<string | undefined>(undefined);
   // the part being edited; null = draft complete
   const [part, setPart] = React.useState<Part | null>("amount");
+  // the keypad's seven digits are full
+  const [capped, setCapped] = React.useState(false);
+  // "That's ₱X — is that right?" once, for an amount far outside the usual; holds only for that draft
+  const [askedFor, setAskedFor] = React.useState<string | null>(null);
 
   // Voice and Camera drafts
   const [voiceStage, setVoiceStage] = React.useState<VoiceStage>({ k: "idle" });
@@ -194,12 +199,32 @@ export function AddSheet({
   });
   const cancelVoice = voice.cancel;
 
-  // Fresh sheet each time it opens, prefilled from the caller.
+  // An entry left half-done stays until it's saved or started over; closing never drops it.
+  const hasDraft = React.useRef(false);
+  const savedNow = React.useRef(false);
+  const keep = React.useRef(false);
+  const [kept, setKept] = React.useState(false);
+  const [restart, setRestart] = React.useState(0);
+
+  // Fresh sheet each time it opens, prefilled from the caller, unless a draft was kept.
   React.useEffect(() => {
     if (!open) {
       cancelVoice();
+      keep.current = !savedNow.current && hasDraft.current;
       return;
     }
+    savedNow.current = false;
+    setCapped(false);
+    setAskedFor(null);
+    if (keep.current && !accountId && !initialText && !initialDate) {
+      keep.current = false;
+      setKept(true);
+      setVoiceStage((s) => (s.k === "heard" ? s : { k: "idle" }));
+      setCamStage((s) => (s.k === "read" ? s : { k: "viewfinder" }));
+      return;
+    }
+    keep.current = false;
+    setKept(false);
     receiptPath.current = undefined;
     const p = initialText?.trim() ? parseEntry(initialText, accountsRef.current) : null;
     setMode("Manual");
@@ -214,7 +239,7 @@ export function AddSheet({
     setVoiceStage({ k: "idle" });
     setCamStage({ k: "viewfinder" });
     setFix(null);
-  }, [open, accountId, initialText, initialDate, cancelVoice]);
+  }, [open, accountId, initialText, initialDate, cancelVoice, restart]);
 
   // the toast holds while focus is inside it, so Undo can't vanish under a keyboard user
   React.useEffect(() => {
@@ -237,6 +262,10 @@ export function AddSheet({
   const investAccounts = accounts.filter((a) => a.type === "investments" && a.id !== acc);
   const toAccount = kind === "Invest" ? (investAccounts.find((a) => a.id === toAcc) ?? investAccounts[0]) : undefined;
   const signedAmount = abs == null ? null : kind === "Income" ? abs : -abs;
+  const draftNow = abs != null || note.trim() !== "" || voiceStage.k === "heard" || camStage.k === "read";
+  React.useLayoutEffect(() => {
+    hasDraft.current = draftNow;
+  });
 
   // first required part still empty, after the change just made
   const missing = (o: { amt?: boolean; cat?: boolean; acc?: boolean } = {}): Part | null => {
@@ -256,20 +285,25 @@ export function AddSheet({
     }
     return {
       spend: rankBy(SPEND_CATEGORIES, cats),
-      income: rankBy(INCOME_CATS, cats),
+      income: rankBy(INCOME_CATEGORIES, cats),
       accounts: rankBy(accounts, new Map(accounts.map((x) => [x, accs.get(x.id) ?? 0]))),
     };
   }, [state.entries, accounts]);
 
-  // whole pesos only: the row reads like the list does
-  const keyInto = (set: React.Dispatch<React.SetStateAction<string>>) => (k: string) =>
-    set((s) => {
-      if (k === "⌫") return s.slice(0, -1);
-      if (s.length >= 7) return s;
-      return s === "0" ? k : s + k;
-    });
+  // whole pesos only: the row reads like the list does. Seven digits is the cap, and it says so.
+  const keyInto = (value: string, set: React.Dispatch<React.SetStateAction<string>>) => (k: string) => {
+    if (k === "⌫") {
+      setCapped(false);
+      return set(value.slice(0, -1));
+    }
+    if (value.length >= String(MAX_AMOUNT).length) return setCapped(true);
+    set(value === "0" ? k : value + k);
+  };
+  const capNote = capped ? `${peso(MAX_AMOUNT)} is the most one entry can hold.` : undefined;
 
   const done = (s: Omit<Saved, "offline">) => {
+    savedNow.current = true;
+    setKept(false);
     setSaved({ ...s, offline: !navigator.onLine });
     onOpenChange(false);
   };
@@ -327,8 +361,13 @@ export function AddSheet({
   };
   const acctName = (id: string | null | undefined) => accounts.find((a) => a.id === id)?.name ?? "No account";
 
+  const unusual = signedAmount != null && isUnusualAmount(signedAmount, category, state.entries);
+  const draftKey = `${signedAmount}|${category}`;
+  const confirmBig = askedFor === draftKey;
+
   const saveManual = () => {
     if (signedAmount == null) return;
+    if (unusual && !confirmBig) return setAskedFor(draftKey);
     const when = date !== todayInput() ? new Date(`${date}T12:00:00`).toISOString() : new Date().toISOString();
     const entry: Entry = {
       id: newId("e"),
@@ -541,7 +580,8 @@ export function AddSheet({
     if (fix.part === "amount")
       return (
         <KeypadPanel
-          onKey={keyInto(setFixAmount)}
+          onKey={keyInto(fixAmount, setFixAmount)}
+          note={capNote}
           canNext={!!fixAmount && parseFloat(fixAmount) > 0}
           onNext={() => next({ amount: -parseFloat(fixAmount) })}
         />
@@ -615,7 +655,7 @@ export function AddSheet({
               }}
             />
           ) : part === "amount" ? (
-            <KeypadPanel onKey={keyInto(setAmountStr)} canNext={abs != null} onNext={() => setPart(missing({ amt: true }))} />
+            <KeypadPanel onKey={keyInto(amountStr, setAmountStr)} note={capNote} canNext={abs != null} onNext={() => setPart(missing({ amt: true }))} />
           ) : part === "desc" ? (
             <DescPanel
               value={note}
@@ -675,10 +715,34 @@ export function AddSheet({
       </>
     );
     cta = {
-      label: `${saveLabel(kind)}${abs != null ? ` · ${amountOf(abs, kind).text}` : ""}`,
+      label: confirmBig ? `Yes, save ${amountOf(abs, kind).text}` : `${saveLabel(kind)}${abs != null ? ` · ${amountOf(abs, kind).text}` : ""}`,
       disabled: signedAmount == null,
       onClick: saveManual,
     };
+    if (confirmBig && abs != null)
+      body = (
+        <>
+          {body}
+          <p role="alert" className="mt-3 text-[14px] leading-[1.5]">
+            That’s <span className="tnum font-semibold">{peso(abs)}</span>. Is that right?{" "}
+            <button type="button" onClick={() => { setAskedFor(null); setPart("amount"); }} className="relative font-medium underline underline-offset-4 after:absolute after:-inset-3 after:content-[''] active:opacity-60">
+              Change it
+            </button>
+          </p>
+        </>
+      );
+    if (kept)
+      body = (
+        <>
+          <div className="mb-3 flex min-h-11 items-center justify-between gap-3 text-[13px] text-fg-muted" role="status">
+            <span>Your unsaved entry is still here.</span>
+            <button type="button" onClick={() => { setKept(false); setRestart((n) => n + 1); }} className="relative flex-none font-medium text-fg underline underline-offset-4 after:absolute after:-inset-3 after:content-[''] active:opacity-60">
+              Start over
+            </button>
+          </div>
+          {body}
+        </>
+      );
   } else if (mode === "Voice") {
     if (heard && fix) {
       const item = heard.items[fix.i];
@@ -865,7 +929,7 @@ export function AddSheet({
               onOpenChange(false);
               navigate("/scan");
             }}
-            className="mt-1 h-10 text-[13px] font-medium text-fg-muted underline underline-offset-4 active:opacity-60"
+            className="mt-1 h-11 text-[13px] font-medium text-fg-muted underline underline-offset-4 active:opacity-60"
           >
             Scan several receipts
           </button>
@@ -878,6 +942,35 @@ export function AddSheet({
       onClick: saveReceipt,
     };
   }
+
+  // A physical keyboard drives the keypad: digits and Backspace while it shows, Enter saves.
+  const keyboard = React.useRef<{ key?: (k: string) => void; save?: () => void }>({});
+  const keypadKey =
+    mode === "Manual" && part === "amount" ? keyInto(amountStr, setAmountStr) : fix?.part === "amount" ? keyInto(fixAmount, setFixAmount) : undefined;
+  React.useLayoutEffect(() => {
+    keyboard.current = { key: keypadKey, save: cta.disabled ? undefined : cta.onClick };
+  });
+  React.useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented) return;
+      const t = e.target as HTMLElement | null;
+      if (t?.closest("input, textarea, select, [contenteditable='true']")) return;
+      const { key, save } = keyboard.current;
+      if (/^[0-9]$/.test(e.key) && key) {
+        e.preventDefault();
+        key(e.key);
+      } else if (e.key === "Backspace" && key) {
+        e.preventDefault();
+        key("⌫");
+      } else if (e.key === "Enter" && !e.repeat && save && (!t?.closest("button, a, [role='button']") || t.closest("[data-keypad]"))) {
+        e.preventDefault();
+        save();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
 
   // D-0012: "Synced" only once the server has acknowledged every entry in the toast
   const synced = !!toast.shown && toast.shown.ids.every((id) => {
@@ -896,7 +989,7 @@ export function AddSheet({
           </Cta>
         </div>
       </Sheet>
-      <div role="status" className="pointer-events-none fixed inset-x-0 top-[max(12px,env(safe-area-inset-top))] z-[100] mx-auto w-full max-w-[430px] px-4">
+      <div role="status" className={TOAST_DOCK}>
         {toast.shown ? (
           <div
             className={cn("t-toast pointer-events-auto rounded-[18px] bg-accent px-4 pt-3.5 pb-3 text-accent-fg shadow-overlay", toast.open && "is-open")}
@@ -981,7 +1074,7 @@ function ListRow({ onClick, children }: { onClick?: () => void; children: React.
 
 function BackLink({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
   return (
-    <button type="button" onClick={onClick} className="mt-2 h-10 text-[13px] font-medium text-fg-muted underline underline-offset-4">
+    <button type="button" onClick={onClick} className="mt-2 h-11 text-[13px] font-medium text-fg-muted underline underline-offset-4">
       {children}
     </button>
   );
@@ -989,13 +1082,15 @@ function BackLink({ onClick, children }: { onClick: () => void; children: React.
 
 /** The receipt viewfinder inside the sheet; the stream stops when it unmounts. */
 function SheetCamera({ onCapture }: { onCapture: (c: HTMLCanvasElement) => void }) {
-  const { video, error, snap } = useCamera();
+  const { video, status, start, snap } = useCamera();
   const file = React.useRef<HTMLInputElement>(null);
+  const live = status === "live";
+  const choose = () => file.current?.click();
   return (
     <div className="flex flex-col gap-3">
       <div className="relative flex h-[232px] items-center justify-center overflow-hidden rounded-lg bg-cam text-cam-ink">
-        <video ref={video} playsInline muted className={cn("absolute inset-0 size-full object-cover", error && "hidden")} />
-        {error ? <p className="relative max-w-[240px] text-center text-[13px] leading-[1.5] text-cam-ink/85">{error}</p> : <ReceiptFrame className="h-[84%] w-[48%]" corner={24} />}
+        <video ref={video} playsInline muted className={cn("absolute inset-0 size-full object-cover", !live && "hidden")} />
+        {live ? <ReceiptFrame className="h-[84%] w-[48%]" corner={24} /> : <CameraGate status={status} onAllow={start} onChoose={choose} />}
       </div>
       <div className="flex items-center gap-4">
         <p className="min-w-0 flex-1 text-[12.5px] leading-[1.45] text-fg-muted">
@@ -1006,11 +1101,11 @@ function SheetCamera({ onCapture }: { onCapture: (c: HTMLCanvasElement) => void 
         </p>
         <button
           type="button"
-          aria-label={error ? "Choose a photo" : "Take photo"}
+          aria-label={live ? "Take photo" : "Choose a photo"}
           onClick={() => {
-            const c = error ? null : snap();
+            const c = live ? snap() : null;
             if (c) onCapture(c);
-            else file.current?.click();
+            else choose();
           }}
           className="flex size-14 flex-none items-center justify-center rounded-full border-[3px] border-accent transition-transform duration-fast ease-out motion-safe:active:scale-[0.96]"
         >
@@ -1020,25 +1115,4 @@ function SheetCamera({ onCapture }: { onCapture: (c: HTMLCanvasElement) => void 
       <input ref={file} type="file" accept="image/*" className="hidden" onChange={(e) => e.target.files?.[0] && fileToCanvas(e.target.files[0], onCapture)} />
     </div>
   );
-}
-
-/**
- * transitions.dev 22-toast presence: keeps the last value mounted while the close
- * transition runs, and flips `open` a frame after mount so the enter transition plays.
- */
-function useToastPresence<T>(value: T | null) {
-  const [shown, setShown] = React.useState<T | null>(value);
-  const [open, setOpen] = React.useState(false);
-  React.useEffect(() => {
-    if (value) {
-      setShown(value);
-      const f = requestAnimationFrame(() => setOpen(true));
-      return () => cancelAnimationFrame(f);
-    }
-    setOpen(false);
-    const ms = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--toast-close")) || 250;
-    const t = setTimeout(() => setShown(null), ms);
-    return () => clearTimeout(t);
-  }, [value]);
-  return { shown, open };
 }

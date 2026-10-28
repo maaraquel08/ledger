@@ -1,4 +1,5 @@
 import { beforeAll, describe, expect, test } from "vitest";
+import { localDay } from "../../src/lib/format";
 import { buildDemo } from "../../src/lib/seed";
 import { byCategory, inRange, monthBounds, netWorth, totals } from "../../src/lib/selectors";
 import { todayBudget } from "../../src/lib/today";
@@ -189,6 +190,9 @@ describe("today_budget parity with src/lib/today.ts", () => {
     ["first of month", new Date(2026, 9, 1, 8, 0)],
     ["last day of month", new Date(2026, 9, 31, 22, 0)],
     ["just after midnight", new Date(2026, 9, 15, 0, 5)],
+    // the ledger starts with the 20 Sept entry: September's budget is prorated
+    ["first month, prorated from the first entry", new Date(2026, 8, 25, 12, 0)],
+    ["first month, before the first entry (prorated from today)", new Date(2026, 8, 10, 9, 0)],
   ];
   for (const [label, now] of cases) {
     test(`fixture, ${label}`, async () => {
@@ -205,12 +209,26 @@ describe("today_budget parity with src/lib/today.ts", () => {
         spentBefore: sql.spent_before.value,
         spentToday: sql.spent_today.value,
         daysLeft: sql.days_left,
+        fullBudget: sql.full_budget,
+        proratedFrom: sql.prorated_from,
       }).toEqual({
         budget: ts.budget, left: ts.left, allowance: ts.allowance, tomorrow: ts.tomorrow,
         spentBefore: ts.spentBefore, spentToday: ts.spentToday, daysLeft: ts.daysLeft,
+        fullBudget: ts.fullBudget, proratedFrom: ts.proratedFrom ? localDay(ts.proratedFrom) : null,
       });
     });
   }
+
+  test("the first month is prorated: September from the 20th is 11 of 30 days", async () => {
+    await db.as(U1);
+    const now = new Date(2026, 8, 25, 12, 0);
+    const sql = await db.one("select public.today_budget($1)", [now.toISOString()]);
+    expect(sql.budget).toBe(Math.round((63_000 * 11) / 30));
+    expect(sql.full_budget).toBe(63_000);
+    expect(sql.prorated_from).toBe("2026-09-20");
+    // October is a full month
+    expect((await db.one("select public.today_budget($1)", [NOW.toISOString()])).budget).toBe(63_000);
+  });
 
   test("fixture mid-month cites the entries behind today's spend", async () => {
     await db.as(U1);

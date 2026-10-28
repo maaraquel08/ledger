@@ -21,7 +21,7 @@ Use the first column everywhere: UI, specs, decisions, code names. Words in "Don
 | Today's number | What you can still spend today | Daily budget, allowance | Home hero; "left today" / "over today" / "no budget yet" |
 | The math | The sheet that shows how today's number was reached | Breakdown, details | "Show the math", "How I got the number" |
 | Budget | Monthly spending cap, total or per category | Limit, cap | Set under Insights › Budgets |
-| Pace | Budget spent so far vs. what the day of month allows | Burn rate | "over pace", "Spending ahead of pace" |
+| Pace | Budget spent so far vs. what the day of month allows | Burn rate | "over pace", "₱X over budget" (never "ahead of pace", which reads as good news) |
 | Goal | A named amount to save by a month (`YYYY-MM`) or with no date | Target, fund | Not linked to any account |
 | Transfer | Money moved between your own accounts (two linked legs), or paid to a person; never a merchant or bill (D-0007); not spending | Payment | "TRANSFER · NOT SPENDING" |
 | Investments | Money put into holdings; not spending | Savings | Excluded from spend and income totals |

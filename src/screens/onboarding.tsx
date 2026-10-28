@@ -7,6 +7,7 @@ import { PROVIDERS, TYPE_KIND, TYPE_LABEL, providerMeta } from "@/lib/providers"
 import { navigate } from "@/lib/router";
 import { suggestedBudget } from "@/lib/selectors";
 import { newId, useLedger } from "@/lib/store";
+import { NAME_HINT } from "@/screens/accounts";
 import type { Account, AccountType, Frequency, Goal, Provider, SideIncome } from "@/lib/types";
 
 /* ---------- draft store (survives route remounts via sessionStorage) ---- */
@@ -87,8 +88,8 @@ function fmtInput(v: string) {
 const FIELD =
   "w-full rounded-md border border-transparent bg-transparent text-fg outline-none transition-colors duration-fast placeholder:text-fg-subtle focus:border-accent focus:bg-surface";
 
-const accountLine = (a: Account) =>
-  `${a.providerLabel.toUpperCase()}${a.type === "ewallet" ? "" : ` · ${a.kind}`}${a.last4 ? ` ·${a.last4}` : ""}`;
+/** "<Provider> · <KIND>" for every account type: "GCash · WALLET", "BPI · SAVINGS". */
+const accountLine = (a: Account) => `${a.providerLabel} · ${a.kind || TYPE_KIND[a.type]}${a.last4 ? ` ·${a.last4}` : ""}`;
 
 /* ---------- chrome ------------------------------------------------------ */
 
@@ -101,7 +102,7 @@ function TopBar({ step, onSkip }: { step: (typeof STEPS)[number]; onSkip: () => 
           <span key={s} className={cn("h-[3px] rounded-[2px] motion-safe:transition-[width,background-color] duration-fast", i === idx ? "w-[22px] bg-accent" : "w-3.5 bg-fill")} />
         ))}
       </div>
-      <button type="button" onClick={onSkip} className="-mr-3 flex h-10 items-center px-3 text-[12px] text-fg-muted active:opacity-60">
+      <button type="button" onClick={onSkip} className="-mr-3 flex h-11 items-center px-3 text-[12px] text-fg-muted active:opacity-60">
         Skip
       </button>
     </div>
@@ -172,7 +173,7 @@ function AccountForm({ target, onDone }: { target: NonNullable<Target>; onDone: 
         autoFocus
         value={name}
         onChange={(e) => setName(e.target.value)}
-        placeholder="Payroll account"
+        placeholder={NAME_HINT[type]}
         className={cn(FIELD, "-mx-3 mt-1.5 h-11 w-[calc(100%+24px)] px-3 text-[18px] font-medium tracking-[-0.01em]")}
       />
       </label>
@@ -234,8 +235,11 @@ function AccountsStep() {
   const d = useDraft();
   const [target, setTarget] = React.useState<Target>(null);
   const [open, setOpen] = React.useState(false);
+  // a fresh form every time, even for a second account from the same provider
+  const [nonce, setNonce] = React.useState(0);
   const show = (t: NonNullable<Target>) => {
     setTarget(t);
+    setNonce((n) => n + 1);
     setOpen(true);
   };
   const has = d.accounts.length > 0;
@@ -260,7 +264,7 @@ function AccountsStep() {
                     <div className="truncate text-[14.5px]">{a.name}</div>
                     <div className="mt-1 truncate font-mono text-[10.5px] tracking-[0.05em] text-fg-subtle">{accountLine(a)}</div>
                   </div>
-                  <button type="button" onClick={() => show({ provider: a.provider, edit: a })} className="flex h-10 items-center px-2 text-[12px] text-fg-muted active:opacity-60">
+                  <button type="button" onClick={() => show({ provider: a.provider, edit: a })} className="flex h-11 min-w-11 items-center justify-center px-2 text-[12px] text-fg-muted active:opacity-60">
                     Edit
                   </button>
                   <button
@@ -270,25 +274,18 @@ function AccountsStep() {
                       const { [a.id]: _gone, ...rest } = d.balances;
                       setDraft({ accounts: d.accounts.filter((x) => x.id !== a.id), balances: rest });
                     }}
-                    className="-mr-2 flex size-10 items-center justify-center text-fg-subtle active:opacity-60"
+                    className="-mr-2 flex size-11 items-center justify-center text-fg-subtle active:opacity-60"
                   >
                     <CloseIcon size={13} />
                   </button>
                 </li>
               ))}
             </ul>
-            <button
-              type="button"
-              onClick={() => show({ provider: "other" })}
-              className="mt-3 flex h-12 w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-line-strong text-[13px] text-fg-muted active:bg-surface"
-            >
-              Add another <PlusIcon size={14} />
-            </button>
           </div>
-        ) : (
-          <>
+        ) : null}
+        {/* the grid stays after the first account: adding a second is as quick as the first */}
             <div className="mt-[26px]">
-              <Eyebrow>COMMON IN PH</Eyebrow>
+              <Eyebrow>{has ? "ADD ANOTHER" : "COMMON IN PH"}</Eyebrow>
             </div>
             <div className="mt-[13px] grid grid-cols-3 gap-[9px]">
               {PROVIDERS.map((p) => (
@@ -310,8 +307,6 @@ function AccountsStep() {
             >
               Something else? Type its name <PlusIcon size={14} />
             </button>
-          </>
-        )}
       </div>
       <Footer>
         <Cta disabled={!has} onClick={() => navigate("/onboarding/balances")}>
@@ -319,7 +314,7 @@ function AccountsStep() {
         </Cta>
       </Footer>
       <Sheet open={open} onOpenChange={setOpen} title={target ? (target.edit ? `Edit ${target.edit.providerLabel}` : target.provider === "other" ? "Add account" : `Add ${providerMeta(target.provider).label}`) : undefined}>
-        {target ? <AccountForm key={target.edit?.id ?? target.provider} target={target} onDone={() => setOpen(false)} /> : null}
+        {target ? <AccountForm key={`${target.edit?.id ?? target.provider}-${nonce}`} target={target} onDone={() => setOpen(false)} /> : null}
       </Sheet>
     </Screen>
   );
@@ -348,7 +343,7 @@ function BalancesStep() {
                 <div className="min-w-0 flex-1">
                   <div className="text-[14.5px] break-words">{a.name}</div>
                   <div className="mt-1 truncate font-mono text-[10.5px] tracking-[0.05em] text-fg-subtle">
-                    {a.type === "credit" ? `${a.providerLabel.toUpperCase()} · OWED${a.last4 ? ` ·${a.last4}` : ""}` : accountLine(a)}
+                    {a.type === "credit" ? `${a.providerLabel} · OWED${a.last4 ? ` ·${a.last4}` : ""}` : accountLine(a)}
                   </div>
                 </div>
                 <span className="flex items-center gap-1 text-fg-muted">
@@ -478,7 +473,7 @@ function IncomeStep() {
                 type="button"
                 aria-label={`Remove ${s.label}`}
                 onClick={() => setDraft({ side: d.side.filter((x) => x.id !== s.id) })}
-                className="flex size-10 items-center justify-center text-fg-subtle active:opacity-60"
+                className="flex size-11 items-center justify-center text-fg-subtle active:opacity-60"
               >
                 <CloseIcon size={13} />
               </button>

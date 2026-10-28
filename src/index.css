@@ -329,3 +329,16 @@ html { scroll-padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
 @media (prefers-reduced-motion: reduce) {
   .skeleton, .screen-in, [data-tape] { animation: none !important; }
 }@keyframes ledger-wave { from { transform: scaleY(.45) } to { transform: scaleY(1) } }
+/* A touch target of at least 44×44 without changing what you see: the ::after
+   grows the hit area around a smaller visual (pills, round icon buttons). */
+@utility hit {
+    position: relative;
+  &::after {
+    content: "";
+    position: absolute;
+    top: min(0px, calc((100% - 44px) / 2));
+    bottom: min(0px, calc((100% - 44px) / 2));
+    left: min(0px, calc((100% - 44px) / 2));
+    right: min(0px, calc((100% - 44px) / 2));
+    }
+}
