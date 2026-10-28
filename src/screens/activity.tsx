@@ -23,7 +23,7 @@ import { canRefund, categoriesFor, fixedCategory } from "@/lib/entry-rules";
 import { SPEND_CATEGORIES, suggestCategory } from "@/lib/providers";
 import { splitOf } from "@/lib/receipt";
 import { back, navigate } from "@/lib/router";
-import { accountLabel, byCategory, inRange, isSpend, monthBounds } from "@/lib/selectors";
+import { accountLabel, byCategory, canSpendFrom, inRange, isSpend, monthBounds } from "@/lib/selectors";
 import { needsReview } from "@/screens/ledger-list";
 import { newId, useLedger } from "@/lib/store";
 import { cloud } from "@/lib/supabase";
@@ -632,7 +632,7 @@ export function Review() {
                   ) : null}
                   {e.accountId == null ? (
                     <div className="mt-3 flex flex-wrap gap-1.5 pl-[56px]">
-                      {state.accounts.map((a) => (
+                      {state.accounts.filter((a) => e.amount >= 0 || !!e.linkId || canSpendFrom(a)).map((a) => (
                         <Pill key={a.id} className="min-h-10 max-w-full px-3.5 text-start whitespace-normal" onClick={() => file(e, { accountId: a.id })}>
                           {a.name}
                         </Pill>

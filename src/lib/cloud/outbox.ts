@@ -78,22 +78,34 @@ export function readLocally(c: Command, accounts: Account[], question?: string):
   });
 }
 
-/** The Review draft for a capture nobody could read: the words kept, the amount to fill in. */
-export function parkedEntry(c: Command, reason: string): Entry {
+/** The Review draft for a capture nobody could read: the words (or the photo) kept, the amount to fill in. */
+export function parkedEntry(c: Command, reason: string, from: { kind?: "voice" | "photo"; storagePath?: string } = {}): Entry {
   const text = c.action.type === "queue-capture" ? c.action.text : "";
+  const photo = from.kind === "photo";
   return {
     id: c.id,
-    desc: text || "Voice note",
+    desc: text || (photo ? "Receipt photo" : "Voice note"),
     accountId: null,
     category: null,
     amount: 0,
     date: new Date(c.at).toISOString(),
     raw: text,
-    source: "voice",
+    source: photo ? "receipt" : "voice",
     status: "review",
     reviewQuestion: reason,
     queued: true,
+    ...(photo && from.storagePath ? { receipt: { items: [], path: from.storagePath } } : {}),
   };
+}
+
+/**
+ * A capture the server answered with a question and no entries ("review", nothing filed): parked
+ * as a Review draft that keeps the words or the photo's Storage path and the question. Filling in
+ * the amount posts it; discarding it drops the draft (and the photo). It is never sent.
+ */
+export function parkCapture(p: { id: string; at: number; kind: "voice" | "photo"; text?: string; storagePath?: string; question: string }): Command {
+  const c: Command = { id: p.id, at: p.at, action: { type: "queue-capture", id: p.id, text: p.text ?? "" }, calls: [], done: 0, tries: 0 };
+  return { ...c, parked: { reason: "review_without_entries", entry: parkedEntry(c, p.question, p) } };
 }
 
 /** Entry ids a command will write: they stay "Saved on this phone" until it is acknowledged. */

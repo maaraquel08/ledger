@@ -5,6 +5,7 @@ import {
   type AMessage,
   compatCall,
   type CompatClient,
+  compatText,
   FINAL_JSON_NUDGE,
   flattenToolHistory,
   fromOpenAi,
@@ -251,6 +252,48 @@ describe("chat two-phase flow", () => {
     const m = await compatCall(client, chatOpts([{ role: "user", content: "hi" }]));
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(JSON.parse((m.content[0] as { text: string }).text)).toEqual(answer);
+  });
+});
+
+describe("chat: tool round that fails after tool results (live QA, gpt-oss-120b)", () => {
+  const toolUse = { body: { choices: [{ finish_reason: "tool_calls", message: { content: null, tool_calls: [{ id: "call_1", type: "function", function: { name: "today_budget", arguments: "{}" } }] } }] } };
+  const jsonTool = { status: 400, body: { error: { message: "Tool call validation failed: attempted to call tool 'json' which was not in request.tools", code: "tool_use_failed" } } };
+  const withResults: AMessage[] = [
+    { role: "user", content: "how much can I spend today?" },
+    { role: "assistant", content: [{ type: "tool_use", id: "call_1", name: "today_budget", input: {} }] } as AMessage,
+    { role: "user", content: [{ type: "tool_result", tool_use_id: "call_1", content: '{"left":"{{f1}}"}' }] } as AMessage,
+  ];
+
+  test("the model calling a made-up 'json' tool goes straight to the final strict-JSON call", async () => {
+    const { client, fetch, bodies } = mockClient([jsonTool, text(JSON.stringify(answer))]);
+    const m = await compatCall(client, chatOpts(withResults));
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(bodies[1].tools).toBeUndefined();
+    expect(bodies[1].response_format).toMatchObject({ type: "json_schema" });
+    expect(bodies[1].messages.at(-1)).toEqual({ role: "user", content: FINAL_JSON_NUDGE });
+    expect(JSON.parse((m.content[0] as { text: string }).text)).toEqual(answer);
+  });
+
+  test("before any tool ran, a failed round is retried with the tools", async () => {
+    const { client, fetch, bodies } = mockClient([jsonTool, toolUse]);
+    const m = await compatCall(client, chatOpts([{ role: "user", content: "how much can I spend today?" }]));
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(bodies[1].tools).toHaveLength(CHAT_TOOLS.length);
+    expect(m.stop_reason).toBe("tool_use");
+  });
+});
+
+describe("plain-text calls (receipt reading)", () => {
+  test("no response_format, no tools; the text comes back trimmed; truncation throws", async () => {
+    const img = { type: "image", source: { type: "base64", media_type: "image/jpeg", data: "QQ==" } };
+    const { client, bodies } = mockClient([text("  QA TEST STORE\nTOTAL 5.00 \n")]);
+    const o = { model: "qwen/qwen3.8-27b", system: [{ type: "text" as const, text: "read" }], messages: [{ role: "user", content: [img, { type: "text", text: "Transcribe this receipt." }] } as AMessage] };
+    expect(await compatText(client, o)).toBe("QA TEST STORE\nTOTAL 5.00");
+    expect(bodies[0].response_format).toBeUndefined();
+    expect(bodies[0].tools).toBeUndefined();
+    expect(bodies[0].messages[1].content[0]).toEqual({ type: "image_url", image_url: { url: "data:image/jpeg;base64,QQ==" } });
+    const cut = mockClient([{ body: { choices: [{ finish_reason: "length", message: { content: "QA" } }] } }]);
+    await expect(compatText(cut.client, o)).rejects.toMatchObject({ code: "truncated" });
   });
 });
 

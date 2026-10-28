@@ -52,6 +52,7 @@ export function Today({ path }: { path: string }) {
   const { state, dispatch } = useLedger();
   const online = useOnline();
   const [mathOpen, setMathOpen] = React.useState(false);
+  const [ask, setAsk] = React.useState("");
   const [profileOpen, setProfileOpen] = React.useState(false);
   const insights = useInsights(); // cloud only; empty in local mode
 
@@ -125,17 +126,29 @@ export function Today({ path }: { path: string }) {
       </div>
 
       <div className="px-6 pt-4">
-        <button
-          type="button"
-          onClick={() => navigate("/chat")}
-          className="flex h-[50px] w-full items-center gap-2.5 rounded-[26px] border border-line-strong pr-1.5 pl-[18px] text-left active:bg-surface"
+        {/* a real field: what's typed here is carried into the chat as the question (/chat?q=) */}
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            const q = ask.trim();
+            navigate(q ? `/chat?q=${encodeURIComponent(q)}` : "/chat");
+          }}
+          className="flex h-[50px] w-full items-center gap-2.5 rounded-[26px] border border-line-strong pr-1.5 pl-[18px] focus-within:border-accent"
         >
           <Sparkle size={13} className="flex-none text-gold-ink" />
-          <span className="min-w-0 flex-1 truncate text-[15px] text-fg-subtle">Ask M8 about your money</span>
-          <span className="flex size-[38px] flex-none items-center justify-center rounded-full bg-accent text-accent-fg" aria-hidden>
+          <input
+            value={ask}
+            onChange={(e) => setAsk(e.target.value)}
+            maxLength={500}
+            enterKeyHint="send"
+            placeholder="Ask M8 about your money"
+            aria-label="Ask M8 about your money"
+            className="min-w-0 flex-1 bg-transparent text-[16px] outline-none placeholder:text-fg-subtle"
+          />
+          <button type="submit" aria-label="Ask M8" className="flex size-[38px] flex-none items-center justify-center rounded-full bg-accent text-accent-fg active:opacity-80">
             <ArrowUpIcon size={16} />
-          </span>
-        </button>
+          </button>
+        </form>
       </div>
 
       <div className="px-6 pt-7">

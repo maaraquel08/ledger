@@ -4,8 +4,8 @@ import { Ctx, reducer, type Action } from "../store";
 import { sb } from "../supabase";
 import type { Entry, LedgerState } from "../types";
 import { chatKey, clearChatHistory } from "../chat-history";
-import { CloudError, eraseAccountData, loadBalances, loadState, retryAt, runCall } from "./api";
-import { callsFor, isCapture, overlay, Outbox, parkedEntry, readLocally, type Command } from "./outbox";
+import { CloudError, eraseAccountData, loadBalances, loadState, removeObject, retryAt, runCall } from "./api";
+import { callsFor, isCapture, overlay, Outbox, parkCapture, parkedEntry, readLocally, type Command } from "./outbox";
 
 /*
  * Cloud mode's LedgerProvider (D-0012). Screens keep using useLedger(): the reducer still
@@ -32,6 +32,8 @@ export interface CloudInfo {
   reload: () => Promise<void>;
   /** entries the capture function or undo_event already wrote */
   applyServer: (r: { entries: Entry[]; removed: string[] }) => void;
+  /** a capture the server asked about without filing anything: keep it in Review (parkCapture) */
+  park: (p: Parameters<typeof parkCapture>[0] & { image?: string }) => void;
   signOut: () => Promise<void>;
   eraseAll: () => Promise<void>;
 }
@@ -239,6 +241,8 @@ export function CloudLedgerProvider({ uid, email, children }: { uid: string; ema
         if (a.type === "delete-entry") {
           outbox.remove(a.id);
           apply(a);
+          // a discarded photo draft takes its photo with it
+          if (held.entry.receipt?.path) void removeObject("receipts", held.entry.receipt.path);
           return;
         }
         if (a.type === "update-entry") {
@@ -311,6 +315,17 @@ export function CloudLedgerProvider({ uid, email, children }: { uid: string; ema
     [ackServer, refreshBalances],
   );
 
+  const park = React.useCallback(
+    ({ image, ...p }: Parameters<typeof parkCapture>[0] & { image?: string }) => {
+      const c = parkCapture(p);
+      // the photo itself stays out of the outbox (localStorage); this session shows it
+      outbox.push(c);
+      const entry = c.parked!.entry;
+      apply({ type: "add-entry", entry: image && entry.receipt ? { ...entry, receipt: { ...entry.receipt, image } } : entry });
+    },
+    [apply, outbox],
+  );
+
   // a different user signed in on this phone: no one else's conversation stays
   React.useEffect(() => clearChatHistory(chatKey(uid)), [uid]);
 
@@ -343,10 +358,11 @@ export function CloudLedgerProvider({ uid, email, children }: { uid: string; ema
       tick,
       reload: load,
       applyServer,
+      park,
       signOut,
       eraseAll,
     }),
-    [uid, email, status, loadError, pending, syncing, syncError, tick, load, applyServer, signOut, eraseAll],
+    [uid, email, status, loadError, pending, syncing, syncError, tick, load, applyServer, park, signOut, eraseAll],
   );
 
   return (

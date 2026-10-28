@@ -4,12 +4,12 @@
 import {
   applyGate, type CaptureContext, captureClock, captureIds, type EntryJson, type ParseOutput, planEntry, REFUND_REVIEW, summarize, toClientEntry,
 } from "../_shared/capture_core.ts";
-import { AiError, aiClient, aiFailure, type ContentBlockParam, MODEL, structured, system } from "../_shared/claude.ts";
+import { AiError, aiClient, aiFailure, type ContentBlockParam, MODEL, structured, system, text } from "../_shared/claude.ts";
 import { type Db, rpc, userClient, userId } from "../_shared/clients.ts";
 import { type GateResult, runGate } from "../_shared/gate.ts";
 import { body, error, guard, json, UUID_RE, validTz } from "../_shared/http.ts";
 import { type AccountRow, type AliasRow, buildKbBlock, type RecurringRow, type RuleRow } from "../_shared/kb.ts";
-import { PARSE_SYSTEM } from "../_shared/prompts.ts";
+import { PARSE_SYSTEM, RECEIPT_READ_SYSTEM } from "../_shared/prompts.ts";
 import { PARSE_SCHEMA } from "../_shared/schemas.ts";
 import { transcriber } from "../_shared/stt.ts";
 import { localIso } from "../_shared/time.ts";
@@ -93,7 +93,11 @@ Deno.serve(async (req) => {
 
   try {
     // ---- the source ------------------------------------------------------------------------
-    let sourceText = b.kind === "text" ? b.text!.slice(0, MAX_TEXT) : b.kind === "voice" && saved ? (prior?.transcript ?? "") : "";
+    let sourceText = b.kind === "text" ? b.text!.slice(0, MAX_TEXT) : saved ? (prior?.transcript ?? "") : "";
+    // openai_compat reads a receipt photo to text first, then parses the text: in one strict-JSON
+    // vision call the model emits `entries` before it has transcribed `receipt` and often commits to
+    // none (QA: a clean "TOTAL 5.00" receipt came back with zero entries). Claude parses the image directly.
+    const readFirst = b.kind === "photo" && claude.provider === "openai_compat";
     const content: ContentBlockParam[] = [];
     if (b.kind === "voice" && !saved) {
       const stt = transcriber();
@@ -108,7 +112,17 @@ Deno.serve(async (req) => {
       const { data: img, error: dlErr } = await db.storage.from("receipts").download(b.storage_path!);
       if (dlErr || !img) return error(404, "image_not_found", { raw_input_id: b.client_id });
       if (img.size > MAX_IMAGE_BYTES) return error(413, "image_too_large", { raw_input_id: b.client_id });
-      content.push({ type: "image", source: { type: "base64", media_type: imageType(img.type, b.storage_path!), data: base64(new Uint8Array(await img.arrayBuffer())) } });
+      const image: ContentBlockParam = { type: "image", source: { type: "base64", media_type: imageType(img.type, b.storage_path!), data: base64(new Uint8Array(await img.arrayBuffer())) } };
+      if (readFirst) {
+        sourceText = (await text(claude, {
+          model: MODEL.parsePhoto,
+          system: system(RECEIPT_READ_SYSTEM),
+          messages: [{ role: "user", content: [image, { type: "text", text: "Transcribe this receipt." }] }],
+          maxTokens: 2000,
+        })).slice(0, MAX_TEXT);
+        await check(db.from("raw_inputs").update({ transcript: sourceText }).eq("id", b.client_id));
+        if (!sourceText) return json(emptyResult(b.client_id, "I couldn’t read that receipt. How much was it?"));
+      } else content.push(image);
     }
 
     // ---- knowledge base (cached system prefix) ---------------------------------------------
@@ -121,22 +135,25 @@ Deno.serve(async (req) => {
     const kb = buildKbBlock({ accounts, aliases, rules, recurring });
 
     // ---- parse with Claude -------------------------------------------------------------------
-    const fenced = b.kind === "photo" ? "The receipt is the image above." : sourceText.replaceAll("</captured_input", "</captured-input");
+    const fenced = b.kind === "photo" && !readFirst
+      ? "The receipt is the image above."
+      : sourceText.replaceAll("</captured_input", "</captured-input");
     content.push({
       type: "text",
       text: `<context>\nnow: ${localIso(now, tz)}\ntimezone: ${tz}\n</context>\n<captured_input kind="${b.kind}">\n${fenced}\n</captured_input>`,
     });
-    const model = saved ? String(prior?.model ?? "") : b.kind === "photo" ? MODEL.parsePhoto : MODEL.parseText;
+    const model = saved ? String(prior?.model ?? "") : b.kind === "photo" && !readFirst ? MODEL.parsePhoto : MODEL.parseText;
     const parsed = saved ?? (await structured<ParseOutput>(claude, {
       model,
       system: system(PARSE_SYSTEM, kb),
       messages: [{ role: "user", content }],
       schema: PARSE_SCHEMA,
-      effort: b.kind === "photo" ? "medium" : "low",
+      effort: b.kind === "photo" && !readFirst ? "medium" : "low",
       maxTokens: 8000,
     })).value;
-    if (b.kind === "photo") sourceText = parsed.receipt?.text ?? "";
-    if (!saved) await check(db.from("raw_inputs").update({ model, parsed }).eq("id", b.client_id));
+    // the gate checks the amount against the receipt text: our own reading when there is one
+    if (b.kind === "photo" && !sourceText) sourceText = parsed.receipt?.text ?? "";
+    if (!saved) await check(db.from("raw_inputs").update({ model: readFirst ? `${MODEL.parsePhoto} → ${model}` : model, parsed }).eq("id", b.client_id));
 
     // ---- plan, gate, post --------------------------------------------------------------------
     const ctx: CaptureContext = {

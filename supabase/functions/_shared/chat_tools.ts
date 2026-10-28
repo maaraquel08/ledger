@@ -210,3 +210,26 @@ export async function runTool(name: string, input: Record<string, unknown>, ctx:
       throw new Error(`unknown tool ${name}`);
   }
 }
+
+export interface ChatTurn {
+  role: "user" | "assistant";
+  text: string;
+}
+
+/**
+ * The request's turns, tolerant of shape: each message is {role, text} (the contract) or
+ * {role, content} with string content (OpenAI style). Unknown roles and empty turns are dropped;
+ * the last `max` remain.
+ */
+export function chatTurns(messages: unknown, max: number): ChatTurn[] {
+  if (!Array.isArray(messages)) return [];
+  const out: ChatTurn[] = [];
+  for (const m of messages) {
+    if (!m || typeof m !== "object") continue;
+    const { role, text, content } = m as { role?: unknown; text?: unknown; content?: unknown };
+    if (role !== "user" && role !== "assistant") continue;
+    const t = typeof text === "string" ? text : typeof content === "string" ? content : "";
+    if (t.trim()) out.push({ role, text: t });
+  }
+  return out.slice(-max);
+}

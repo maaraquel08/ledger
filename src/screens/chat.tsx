@@ -395,13 +395,28 @@ const NO_ANSWER: Answer = { read: 0, matched: { n: 0, label: "" }, compareYear: 
 
 type CloudReply = { kind: "answer"; ans: Answer } | { kind: "local" } | { kind: "error"; text: string };
 
+/**
+ * The chat function's request turns ({role, text}, supabase/functions/README.md). Only answered
+ * exchanges are history: a reply that failed or was stopped (no answer) is never sent as an
+ * assistant turn, and the question it left unanswered is dropped with it. The last question is
+ * always kept.
+ */
+export function chatMessages(history: Pick<Msg, "role" | "text" | "ans">[]): { role: "user" | "assistant"; text: string }[] {
+  const out: { role: "user" | "assistant"; text: string }[] = [];
+  history.forEach((m, i) => {
+    if (m.role !== "user" || !m.text?.trim()) return;
+    const reply = history[i + 1];
+    const last = i === history.length - 1;
+    const answer = reply?.role === "ai" ? reply.ans?.text?.trim() : undefined;
+    if (!last && !answer) return;
+    out.push({ role: "user", text: m.text });
+    if (!last && answer) out.push({ role: "assistant", text: answer });
+  });
+  return out.slice(-12);
+}
+
 async function askCloud(history: Msg[]): Promise<CloudReply> {
-  const messages = history
-    .flatMap((m) => {
-      const content = m.role === "user" ? m.text : (m.ans?.text ?? m.text);
-      return content ? [{ role: m.role === "user" ? "user" : "assistant", content }] : [];
-    })
-    .slice(-12);
+  const messages = chatMessages(history);
   if (!navigator.onLine) return { kind: "local" };
   let res;
   try {

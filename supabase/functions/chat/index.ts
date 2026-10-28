@@ -3,7 +3,7 @@
 // Every number in the answer is a fact rendered by the server; prose with a digit that did not
 // come from a fact is re-asked once, then replaced by a deterministic template.
 import { type Answer, buildAnswer, fallbackAnswer, type ModelAnswer } from "../_shared/answer.ts";
-import { CHAT_TOOLS, type LedgerReader, runTool } from "../_shared/chat_tools.ts";
+import { CHAT_TOOLS, chatTurns, type LedgerReader, runTool } from "../_shared/chat_tools.ts";
 import { AiError, aiClient, aiFailure, call, type MessageParam, MODEL, parseJson, system, type ToolParam } from "../_shared/claude.ts";
 import { type Db, rpc, userClient, userId } from "../_shared/clients.ts";
 import { FactRegistry, userNumbers } from "../_shared/facts.ts";
@@ -13,7 +13,8 @@ import { CHAT_ANSWER_SCHEMA } from "../_shared/schemas.ts";
 import { localIso, localParts } from "../_shared/time.ts";
 
 interface ChatBody {
-  messages: { role: "user" | "assistant"; text: string }[];
+  /** {role, text}; `content` (string) is accepted too, see chatTurns */
+  messages: unknown;
   tz: string;
 }
 
@@ -36,9 +37,7 @@ Deno.serve(async (req) => {
   if (!claude) return error(503, "ai_unconfigured");
 
   const b = await body<ChatBody>(req);
-  const turns = Array.isArray(b?.messages)
-    ? b!.messages.filter((m) => (m.role === "user" || m.role === "assistant") && typeof m.text === "string" && m.text.trim()).slice(-MAX_TURNS)
-    : [];
+  const turns = chatTurns(b?.messages, MAX_TURNS);
   if (!turns.length || turns.at(-1)!.role !== "user") return error(400, "bad_request", { detail: "messages must end with a user message" });
   const tz = validTz(b!.tz) ?? "Asia/Manila";
   const now = new Date();

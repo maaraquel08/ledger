@@ -18,9 +18,10 @@ export function ReceiptFrame({ className, corner = 30 }: { className?: string; c
 /**
  * What the viewfinder shows until frames arrive: never a black box. Asking →
  * one button that opens the browser's prompt; denied → how to turn it back on;
- * no camera → a photo instead. Every state keeps "Choose a photo instead".
+ * no camera → a photo instead. Every state keeps "Choose a photo instead". `cloud`: the photo
+ * is uploaded and read by M8's AI (add sheet, signed in and online), so the copy says so.
  */
-export function CameraGate({ status, onAllow, onChoose }: { status: CameraStatus; onAllow: () => void; onChoose: () => void }) {
+export function CameraGate({ status, onAllow, onChoose, cloud = false }: { status: CameraStatus; onAllow: () => void; onChoose: () => void; /** the photo is uploaded and read by M8's AI */ cloud?: boolean }) {
   if (status === "live") return null;
   const btn = "flex min-h-11 items-center justify-center rounded-md px-4 text-[13.5px] font-semibold active:opacity-80";
   const title =
@@ -32,7 +33,9 @@ export function CameraGate({ status, onAllow, onChoose }: { status: CameraStatus
         ? "This browser or device can’t open a camera. Choose a photo of the receipt."
         : status === "waiting"
           ? "Your browser is asking. Tap Allow to see the viewfinder."
-          : "Ledger reads the photo on your phone. Nothing is recorded until you save.";
+          : cloud
+            ? "The photo is uploaded to your account and M8 reads it with AI. You can undo anything it files."
+            : "Ledger reads the photo on your phone. Nothing is recorded until you save.";
   return (
     <div className="relative flex max-w-[280px] flex-col items-center gap-3 px-4 text-center" role="status">
       <span className="text-[15px] font-semibold text-cam-ink">{title}</span>

@@ -225,6 +225,15 @@ export async function upload(bucket: "receipts" | "voice", uid: string, blob: Bl
   return path;
 }
 
+/** Remove one object from the Owner's folder; best effort (a leftover photo is harmless). */
+export async function removeObject(bucket: "receipts" | "voice", path: string): Promise<void> {
+  try {
+    await sb().storage.from(bucket).remove([path]);
+  } catch {
+    /* kept: the Owner's folder is removed whole on erase */
+  }
+}
+
 export function dataUrlToBlob(dataUrl: string): Blob {
   const [head, b64] = dataUrl.split(",");
   const type = head.match(/data:([^;]+)/)?.[1] ?? "application/octet-stream";

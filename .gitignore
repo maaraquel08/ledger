@@ -33,3 +33,5 @@ dist-ds/
 
 # nested design-sync repo (has its own .git)
 design-ledger/
+.vercel
+.env*

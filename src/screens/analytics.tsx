@@ -27,7 +27,7 @@ import {
 import { cn } from "@/lib/cn";
 import { addDays, balance, compact, dayName, monthName, monthShort, peso, stamp } from "@/lib/format";
 import { navigate, query } from "@/lib/router";
-import { FIXED, byCategory, inRange, isIncome, isSpend, ledgerStart, monthBudget, type PeriodKind } from "@/lib/selectors";
+import { FIXED, budgetPace, byCategory, inRange, isIncome, isSpend, ledgerStart, monthBudget, type PeriodKind } from "@/lib/selectors";
 import { useLedger } from "@/lib/store";
 import { cloud } from "@/lib/supabase";
 import type { Entry } from "@/lib/types";
@@ -316,7 +316,7 @@ function FindingCard({ f, all }: { f: Finding; all: Entry[] }) {
 const THRESHOLD: Record<PeriodKind, number> = { week: 500, month: 1000, year: 5000 };
 
 /** Three to five plain conclusions, each a fixed template over the selectors. */
-function findings(o: {
+export function findings(o: {
   kind: PeriodKind;
   from: Date;
   to: Date;
@@ -326,7 +326,8 @@ function findings(o: {
   list: Entry[];
   prevList: Entry[];
   all: Entry[];
-  budget: { budget: number; current: boolean };
+  /** pace: share of the budget period gone (selectors.budgetPace; prorated in the first month) */
+  budget: { budget: number; current: boolean; pace: number };
 }): Finding[] {
   const { kind, from, to, now, label, h, list, prevList, all } = o;
   const out: Finding[] = [];
@@ -407,8 +408,7 @@ function findings(o: {
       const fixed = byCategory(list)
         .filter(([c]) => FIXED.includes(c))
         .reduce((s, [, v]) => s + v, 0);
-      const days = Math.round((to.getTime() - from.getTime()) / 86400000);
-      const pace = Math.min(1, now.getDate() / days);
+      const pace = o.budget.pace;
       const allowed = fixed + (b - fixed) * pace;
       const projected = fixed + (spent - fixed) / pace;
       const diff = allowed - spent;
@@ -717,8 +717,9 @@ export function Analytics({ path }: { path: string }) {
   const list = inRange(all, from, to);
   const prevList = inRange(all, h.prior.from, h.prior.to);
   const points = trendSeries(all, kind, from, now, start);
-  const mb = kind === "month" ? monthBudget(state, current ? now : lastDay(to)).budget : 0;
-  const cards = findings({ kind, from, to, now, label, h, list, prevList, all, budget: { budget: mb, current } });
+  const mb = kind === "month" ? monthBudget(state, current ? now : lastDay(to)) : null;
+  const budget = { budget: mb?.budget ?? 0, current, pace: mb && current ? budgetPace(mb, now) : 1 };
+  const cards = findings({ kind, from, to, now, label, h, list, prevList, all, budget });
   const empty = !list.some((e) => isSpend(e) || isIncome(e));
   const prevLabel = priorLabel(kind, h.prior);
 

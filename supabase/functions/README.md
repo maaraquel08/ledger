@@ -109,7 +109,9 @@ Without an STT key, voice captures answer `503 stt_unconfigured`.
 
 ### openai_compat (Groq)
 
-Job → role: text/voice parsing → `AI_MODEL_PARSE`; receipt photos → `AI_MODEL_VISION`; chat →
+Job → role: text/voice parsing → `AI_MODEL_PARSE`; receipt photos → `AI_MODEL_VISION` reads the
+photo to text (plain call, no schema), then `AI_MODEL_PARSE` parses that text (in one strict-JSON
+vision call the model wrote `entries` before reading the receipt and often returned none); chat →
 `AI_MODEL_CHAT`; daily, alert and review narratives → `AI_MODEL_SUMMARY` (the Haiku/Sonnet split
 becomes a 20b/120b split, with all narratives on the larger model). The adapter keeps the same
 `call`/`structured`/`parseJson` interface, so the functions do not know which provider answered:
@@ -199,6 +201,7 @@ Errors: `400 bad_request`, `401 unauthorized`, `404 clip_not_found|image_not_fou
 ```jsonc
 // request
 { "messages": [{ "role": "user", "text": "How much did I spend on coffee?" }], "tz": "Asia/Manila" }
+// `content` (a string) is accepted in place of `text`; only answered turns are sent as history
 // 200: exactly the `Answer` type of src/screens/chat.tsx
 { "read": 412, "matched": { "n": 23, "label": "coffee purchases" }, "compareYear": 2025,
   "text": "You’ve spent ₱6,240 on coffee this year…", "marks": ["₱6,240 on coffee"],

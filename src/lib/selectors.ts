@@ -108,6 +108,18 @@ export function monthBudget(s: LedgerState, now = new Date()) {
   return { budget: Math.round((full * active) / days), full, proratedFrom: start as Date | null };
 }
 
+/**
+ * Share of this month's budget period gone by the end of `today`, in (0, 1]. A prorated first month
+ * (monthBudget) starts on the ledger's first day, so its pace runs over the active days only.
+ */
+export function budgetPace(mb: Pick<ReturnType<typeof monthBudget>, "proratedFrom">, today = new Date()): number {
+  const [from, to] = monthBounds(today);
+  const periodFrom = mb.proratedFrom ?? from;
+  const periodDays = Math.max(1, Math.round((to.getTime() - periodFrom.getTime()) / 86400000));
+  const gone = Math.round((startOfDay(today).getTime() - periodFrom.getTime()) / 86400000) + 1;
+  return Math.min(1, Math.max(1, gone) / periodDays);
+}
+
 /** The verdict: where the month stands. The daily figure is todayBudget().allowance (lib/today.ts), only. */
 export function verdict(s: LedgerState, today = new Date()) {
   const [from, to] = monthBounds(today);
@@ -118,10 +130,7 @@ export function verdict(s: LedgerState, today = new Date()) {
   const left = budget - t.out;
   const daysInMonth = Math.round((to.getTime() - from.getTime()) / 86400000);
   const daysLeft = Math.max(1, daysInMonth - today.getDate() + 1);
-  // share of the budget period gone by the end of today; a prorated first month starts on the ledger's first day
-  const periodFrom = mb.proratedFrom ?? from;
-  const periodDays = Math.max(1, Math.round((to.getTime() - periodFrom.getTime()) / 86400000));
-  const pace = Math.min(1, (Math.round((startOfDay(today).getTime() - periodFrom.getTime()) / 86400000) + 1) / periodDays);
+  const pace = budgetPace(mb, today);
 
   const over = byCategory(month)
     .map(([c, v]) => ({ category: c, spent: v, budget: s.profile.categoryBudgets[c] ?? 0 }))
@@ -145,10 +154,19 @@ export function daysLogged(entries: Entry[]) {
   return new Set(entries.map((e) => e.date.slice(0, 10))).size;
 }
 
+/**
+ * How rows and pickers name an account: GCASH ·8871. A known provider goes by its brand; an
+ * "other" account goes by the name the Owner gave it (its provider label is free text such as
+ * "App" or "Bank", which named a GoTyme account "APP ·1381").
+ */
 export function accountLabel(a: Account | undefined) {
   if (!a) return "ACCOUNT?";
-  return `${a.providerLabel.toUpperCase()}${a.last4 ? ` ·${a.last4}` : ""}`;
+  const base = a.provider === "other" ? a.name || a.providerLabel : a.providerLabel;
+  return `${base.toUpperCase()}${a.last4 ? ` ·${a.last4}` : ""}`;
 }
+
+/** Money is spent from cash, banks, wallets and cards; an investments account is never the source of a purchase. */
+export const canSpendFrom = (a: Account) => a.type !== "investments";
 
 export type PeriodKind = "week" | "month" | "year";
 

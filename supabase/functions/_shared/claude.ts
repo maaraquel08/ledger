@@ -7,7 +7,7 @@
 // Messages are written in Anthropic shapes either way; the adapter translates them.
 import Anthropic from "npm:@anthropic-ai/sdk@1.3.0";
 import { type AiConfig, aiConfig, ANTHROPIC_MODELS, type Env, type Job } from "./ai_config.ts";
-import { AiError, type AMessage, type ATool, compatCall, type CompatClient, providerFailure } from "./openai_compat.ts";
+import { AiError, type AMessage, type ATool, compatCall, type CompatClient, compatText, providerFailure } from "./openai_compat.ts";
 
 export { AiError };
 
@@ -100,6 +100,19 @@ export function parseJson<T>(m: Message): T {
 export async function structured<T>(client: AiClient, o: CallOptions): Promise<{ value: T; message: Message }> {
   const message = await call(client, o);
   return { value: parseJson<T>(message), message };
+}
+
+/** A plain-text answer (no schema, no tools): the receipt reading step before the parse. */
+export async function text(client: AiClient, o: Omit<CallOptions, "schema" | "tools">): Promise<string> {
+  if (client.provider === "openai_compat") {
+    return await compatText(client.compat, {
+      model: o.model, system: o.system, messages: o.messages as unknown as AMessage[], effort: o.effort, maxTokens: o.maxTokens,
+    });
+  }
+  const m = await client.sdk.beta.messages.create({ model: o.model, max_tokens: o.maxTokens ?? 4000, system: o.system, messages: o.messages });
+  if (m.stop_reason === "refusal") throw new AiError("refused");
+  if (m.stop_reason === "max_tokens") throw new AiError("truncated");
+  return m.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("").trim();
 }
 
 /** Map SDK / provider / AiError failures to an HTTP status + code for the client. */

@@ -364,7 +364,7 @@ export interface CompatClient {
 }
 
 /** Longest Retry-After we wait out inside one edge-function request. */
-const MAX_WAIT_S = 8;
+const MAX_WAIT_S = 20;
 
 export const FINAL_JSON_NUDGE =
   "Now give your final answer as one JSON object that matches the required schema, using the tool results above. No other text.";
@@ -481,17 +481,21 @@ export async function compatCall(c: CompatClient, o: CompatCallOptions): Promise
   if (!o.tools?.length) return await structuredCall(c, o, o.messages);
 
   const body = { ...baseBody(c, o, o.messages), tools: toOpenAiTools(o.tools), tool_choice: "auto" };
+  // Once the model has tool results, a failed tool round is usually it trying to emit the final
+  // answer as a call to a tool that does not exist (gpt-oss calls "json"): go straight to the final
+  // strict-JSON call below. Before any tool ran, retry the round once so the tools are not skipped.
+  const hasResults = o.messages.some((m) => blocksOf(m).some((b) => b.type === "tool_result"));
   let first: AResult | undefined;
-  for (let attempt = 0; attempt < 2 && !first; attempt++) {
+  for (let attempt = 0; attempt < (hasResults ? 1 : 2) && !first; attempt++) {
     try {
       first = fromOpenAi(await post(c, body), o.model);
     } catch (e) {
-      if (attempt === 0 && (isGenerationFailure(e) || (e instanceof AiError && e.code === "bad_output"))) continue;
-      throw e;
+      if (!(isGenerationFailure(e) || (e instanceof AiError && e.code === "bad_output"))) throw e;
+      if (!hasResults && attempt === 1) throw e;
     }
   }
-  if (first!.stop_reason !== "end_turn") return first!;
-  const draft = textOf(first!);
+  if (first && first.stop_reason !== "end_turn") return first;
+  const draft = first ? textOf(first) : "";
   const strict = strictify(o.schema);
   const early = draft ? checkJson(draft, strict) : null;
   if (early?.ok) return jsonResult(first!, o.schema, early.value);
@@ -501,4 +505,16 @@ export async function compatCall(c: CompatClient, o: CompatCallOptions): Promise
     { role: "user", content: FINAL_JSON_NUDGE },
   ];
   return await structuredCall(c, o, final);
+}
+
+/**
+ * A plain-text answer (no tools, no response_format), e.g. reading a receipt photo before parsing
+ * it. Truncation and refusal throw; an empty answer returns "".
+ */
+export async function compatText(c: CompatClient, o: Omit<CompatCallOptions, "schema" | "tools">): Promise<string> {
+  assertImageLimits(o.messages);
+  const r = fromOpenAi(await post(c, baseBody(c, { ...o, schema: {} }, o.messages)), o.model);
+  if (r.stop_reason === "refusal") throw new AiError("refused");
+  if (r.stop_reason === "max_tokens") throw new AiError("truncated");
+  return textOf(r).trim();
 }

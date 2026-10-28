@@ -7,7 +7,7 @@ import { INCOME_CATEGORIES, isUnusualAmount } from "@/lib/entry-rules";
 import { isQuestion, parseEntry, parseSpoken, splitEntries, type Parsed } from "@/lib/parse";
 import { SPEND_CATEGORIES } from "@/lib/providers";
 import { compressImage, draftToEntry, parseReceipt, splitOf, type ReceiptDraft } from "@/lib/receipt";
-import { accountLabel } from "@/lib/selectors";
+import { accountLabel, canSpendFrom } from "@/lib/selectors";
 import { navigate } from "@/lib/router";
 import { newId, useLedger } from "@/lib/store";
 import type { Account, Category, Entry } from "@/lib/types";
@@ -289,6 +289,9 @@ export function AddSheet({
       accounts: rankBy(accounts, new Map(accounts.map((x) => [x, accs.get(x.id) ?? 0]))),
     };
   }, [state.entries, accounts]);
+  // money is spent from cash, banks, wallets and cards: an investments account is offered only
+  // where money can come in or move (income, invest), not as the source of a purchase
+  const spendable = React.useMemo(() => ranked.accounts.filter(canSpendFrom), [ranked.accounts]);
 
   // whole pesos only: the row reads like the list does. Seven digits is the cap, and it says so.
   const keyInto = (value: string, set: React.Dispatch<React.SetStateAction<string>>) => (k: string) => {
@@ -330,7 +333,15 @@ export function AddSheet({
   };
 
   /** cloud: what the capture function did, as the same toast the phone's own save shows */
-  const captured = (r: CaptureResult, image?: string) => {
+  const captured = (r: CaptureResult, from: { kind: "voice" | "photo"; storagePath?: string; image?: string }) => {
+    const { image } = from;
+    // a question with nothing filed ("I couldn’t find an amount"): keep it in Review, not just in the toast
+    if (cloud && r.outcome === "review" && !r.entries.length) {
+      const question = r.gate.question ?? "M8 couldn’t find an amount. How much was it?";
+      const id = r.raw_input_id || newId("c");
+      cloud.park({ id, at: Date.now(), kind: from.kind, storagePath: from.storagePath, question, image });
+      return done({ ids: [id], kind: "In Review", amount: "—", tone: "fg", where: question, review: question });
+    }
     cloud?.applyServer({
       entries: r.entries.map((e) => (image && e.receipt ? { ...e, receipt: { ...e.receipt, image } } : e)),
       removed: [],
@@ -424,7 +435,7 @@ export function AddSheet({
         if (r) {
           spoken.current = null;
           voice.cancel();
-          captured(r);
+          captured(r, { kind: "voice", storagePath: path });
           return;
         }
       } catch {
@@ -526,7 +537,7 @@ export function AddSheet({
         const sharp = await compressImage(canvas, 1600, 0.8);
         receiptPath.current = await upload("receipts", cloud.uid, dataUrlToBlob(sharp), "jpg");
         const r = await capture({ client_id: newId("c"), kind: "photo", storage_path: receiptPath.current });
-        if (r) return captured(r, image);
+        if (r) return captured(r, { kind: "photo", storagePath: receiptPath.current, image });
       } catch {
         /* read it here instead */
       }
@@ -594,7 +605,7 @@ export function AddSheet({
           onPick={(c) => next({ category: c })}
         />
       );
-    return <AccountPanel options={ranked.accounts} value={draft.accountId} onPick={(id) => next({ accountId: id })} />;
+    return <AccountPanel options={draft.amount != null && draft.amount > 0 ? ranked.accounts : spendable} value={draft.accountId} onPick={(id) => next({ accountId: id })} />;
   };
 
   /* ---------- render ----------------------------------------------------- */
@@ -674,7 +685,7 @@ export function AddSheet({
             />
           ) : part === "account" ? (
             <AccountPanel
-              options={ranked.accounts}
+              options={kind === "Expense" ? spendable : ranked.accounts}
               value={acc}
               allowNone
               onPick={(id) => {
@@ -922,7 +933,7 @@ export function AddSheet({
     } else {
       body = (
         <>
-          <SheetCamera onCapture={read} />
+          <SheetCamera onCapture={read} cloud={!!cloud && navigator.onLine} />
           <button
             type="button"
             onClick={() => {
@@ -1081,7 +1092,7 @@ function BackLink({ onClick, children }: { onClick: () => void; children: React.
 }
 
 /** The receipt viewfinder inside the sheet; the stream stops when it unmounts. */
-function SheetCamera({ onCapture }: { onCapture: (c: HTMLCanvasElement) => void }) {
+function SheetCamera({ onCapture, cloud }: { onCapture: (c: HTMLCanvasElement) => void; cloud: boolean }) {
   const { video, status, start, snap } = useCamera();
   const file = React.useRef<HTMLInputElement>(null);
   const live = status === "live";
@@ -1090,7 +1101,7 @@ function SheetCamera({ onCapture }: { onCapture: (c: HTMLCanvasElement) => void 
     <div className="flex flex-col gap-3">
       <div className="relative flex h-[232px] items-center justify-center overflow-hidden rounded-lg bg-cam text-cam-ink">
         <video ref={video} playsInline muted className={cn("absolute inset-0 size-full object-cover", !live && "hidden")} />
-        {live ? <ReceiptFrame className="h-[84%] w-[48%]" corner={24} /> : <CameraGate status={status} onAllow={start} onChoose={choose} />}
+        {live ? <ReceiptFrame className="h-[84%] w-[48%]" corner={24} /> : <CameraGate status={status} onAllow={start} onChoose={choose} cloud={cloud} />}
       </div>
       <div className="flex items-center gap-4">
         <p className="min-w-0 flex-1 text-[12.5px] leading-[1.45] text-fg-muted">
