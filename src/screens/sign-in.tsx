@@ -19,7 +19,7 @@ export function SignIn() {
   const [username, setUsername] = React.useState("");
   const [password, setPassword] = React.useState("");
   const [stage, setStage] = React.useState<{ k: "form"; error?: string } | { k: "signing-in" }>({ k: "form" });
-  const valid = /^[a-z0-9._-]{3,}$/i.test(username.trim()) && password.length > 0;
+  const valid = /^[a-z0-9._-]{3,}(@[a-z0-9.-]+\.[a-z]+)?$/i.test(username.trim()) && password.length > 0;
   const userRef = React.useRef<HTMLInputElement>(null);
   const error = stage.k === "form" ? stage.error : undefined;
   // a failed sign-in moves focus to the first field, which announces the error it's described by

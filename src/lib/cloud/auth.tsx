@@ -30,7 +30,11 @@ export function useSession() {
  * never in this code. Only allow-listed addresses can exist (migration 001500/001600).
  */
 const USERNAME_DOMAIN = "ledger.local";
-export const usernameEmail = (username: string) => `${username.trim().toLowerCase()}@${USERNAME_DOMAIN}`;
+/** "maaraquel24" and the full "maaraquel24@ledger.local" both work. */
+export const usernameEmail = (username: string) => {
+  const u = username.trim().toLowerCase();
+  return u.includes("@") ? u : `${u}@${USERNAME_DOMAIN}`;
+};
 
 export async function signInWithUsername(username: string, password: string) {
   const { error } = await sb().auth.signInWithPassword({ email: usernameEmail(username), password });
