@@ -95,6 +95,12 @@ export const ChevronRight = ({ size = 18, ...p }: P) => (
   </svg>
 );
 
+export const ChevronDown = ({ size = 18, ...p }: P) => (
+  <svg {...stroke(size, p)}>
+    <path d="m5.5 9.5 6.5 6.5 6.5-6.5" />
+  </svg>
+);
+
 export const CloseIcon = ({ size = 14, ...p }: P) => (
   <svg {...stroke(size, p)} strokeWidth={1.8}>
     <path d="M6 6l12 12M18 6 6 18" />

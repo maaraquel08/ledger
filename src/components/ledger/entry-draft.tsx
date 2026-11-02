@@ -2,8 +2,8 @@ import * as React from "react";
 import { cn } from "@/lib/cn";
 import { balance } from "@/lib/format";
 import { accountLabel } from "@/lib/selectors";
-import type { Account, Category } from "@/lib/types";
-import { CheckIcon } from "./icons";
+import type { Account } from "@/lib/types";
+import { CheckIcon, ChevronDown } from "./icons";
 import { CategoryChip, ProviderMark } from "./primitives";
 
 /**
@@ -177,12 +177,6 @@ export function FieldLabel({ children, aside }: { children: React.ReactNode; asi
   );
 }
 
-const chipClass = (on: boolean) =>
-  cn(
-    "flex flex-none items-center gap-2 rounded-full border whitespace-nowrap transition-colors duration-fast",
-    on ? "border-accent bg-accent text-accent-fg" : "border-line-strong text-fg active:bg-surface",
-  );
-
 /** The amount, big and typed with the phone's own number pad. Whole pesos only. */
 export const AmountInput = React.forwardRef<
   HTMLInputElement,
@@ -224,89 +218,62 @@ export const AmountInput = React.forwardRef<
   );
 });
 
-/** Accounts as one swipeable row of chips, most-used first. */
-export function AccountChips({ options, value, onPick, label }: { options: Account[]; value: string | null; onPick: (id: string) => void; label: string }) {
-  return (
-    <div role="radiogroup" aria-label={label} className="no-scrollbar -mx-1 flex gap-2 overflow-x-auto px-1 pb-0.5">
-      {options.map((a) => (
-        <button key={a.id} type="button" role="radio" aria-checked={value === a.id} onClick={() => onPick(a.id)} className={cn(chipClass(value === a.id), "h-11 pr-3.5 pl-1.5")}>
-          <ProviderMark provider={a.provider} size={28} radius={14} />
-          <span className="text-left leading-tight">
-            <span className="block text-[13px] font-medium">{a.name}</span>
-            <span className={cn("tnum block text-[11px]", value === a.id ? "text-accent-fg/70" : "text-fg-subtle")}>{balance(a.type === "credit" ? -a.balance : a.balance)}</span>
-          </span>
-        </button>
-      ))}
-    </div>
-  );
-}
+const fieldClass = "h-12 w-full rounded-md border border-line-strong bg-bg px-3.5 text-[16px] outline-none focus:border-accent";
 
-/** Categories as wrapping chips, most-used first. */
-export function CategoryChips({ options, value, onPick }: { options: Category[]; value: Category | null; onPick: (c: Category) => void }) {
-  return (
-    <div role="radiogroup" aria-label="Category" className="flex flex-wrap gap-2">
-      {options.map((c) => (
-        <button key={c} type="button" role="radio" aria-checked={value === c} onClick={() => onPick(c)} className={cn(chipClass(value === c), "h-9 px-3.5 text-[13px] font-medium")}>
-          {c}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-/** Today, Yesterday, or any earlier day; then an optional note. */
-export function WhenAndNote({
-  date,
-  today,
-  yesterday,
-  onDate,
-  note,
-  onNote,
+/** A native select, so the phone shows its own list. An empty value reads as the placeholder. */
+export function SelectField({
+  label,
+  value,
+  onChange,
+  options,
   placeholder,
 }: {
-  date: string;
-  today: string;
-  yesterday: string;
-  onDate: (d: string) => void;
-  note: string;
-  onNote: (v: string) => void;
-  placeholder: string;
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: { value: string; label: string }[];
+  placeholder?: string;
 }) {
-  const other = date !== today && date !== yesterday;
   return (
-    <div className="flex flex-col gap-3">
-      <div role="radiogroup" aria-label="Date" className="flex gap-2">
-        {(
-          [
-            ["Today", today],
-            ["Yesterday", yesterday],
-          ] as const
-        ).map(([l, d]) => (
-          <button key={l} type="button" role="radio" aria-checked={date === d} onClick={() => onDate(d)} className={cn(chipClass(date === d), "h-9 px-3.5 text-[13px] font-medium")}>
-            {l}
-          </button>
-        ))}
-        <label className={cn(chipClass(other), "relative h-9 px-3.5 text-[13px] font-medium")}>
-          {other ? new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { day: "numeric", month: "short" }) : "Other day"}
-          <input
-            type="date"
-            aria-label="Another day"
-            value={date}
-            max={today}
-            onChange={(e) => e.target.value && onDate(e.target.value)}
-            className="absolute inset-0 cursor-pointer opacity-0"
-          />
-        </label>
-      </div>
-      <input
-        value={note}
-        onChange={(e) => onNote(e.target.value)}
-        maxLength={80}
-        enterKeyHint="done"
-        placeholder={placeholder}
-        aria-label="Note"
-        className="h-11 rounded-md border border-line-strong bg-bg px-3.5 text-[16px] outline-none placeholder:text-mute focus:border-accent"
-      />
-    </div>
+    <label className="block">
+      <FieldLabel>{label}</FieldLabel>
+      <span className="relative block">
+        <select value={value} onChange={(e) => onChange(e.target.value)} className={cn(fieldClass, "appearance-none pr-10", !value && "text-mute")}>
+          {placeholder ? (
+            <option value="" disabled>
+              {placeholder}
+            </option>
+          ) : null}
+          {options.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+        <ChevronDown size={16} className="pointer-events-none absolute top-1/2 right-3.5 -translate-y-1/2 text-fg-subtle" />
+      </span>
+    </label>
+  );
+}
+
+/** "Daily wallet · ₱19,400": how account options read in a select. */
+export const accountOption = (a: Account) => ({ value: a.id, label: `${a.name} · ${balance(a.type === "credit" ? -a.balance : a.balance)}` });
+
+/** The native date picker; no later than today. */
+export function DateField({ value, max, onChange }: { value: string; max: string; onChange: (d: string) => void }) {
+  return (
+    <label className="block">
+      <FieldLabel>Date</FieldLabel>
+      <input type="date" value={value} max={max} onChange={(e) => e.target.value && onChange(e.target.value)} className={fieldClass} />
+    </label>
+  );
+}
+
+export function NoteField({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder: string }) {
+  return (
+    <label className="block">
+      <FieldLabel>Note</FieldLabel>
+      <input value={value} onChange={(e) => onChange(e.target.value)} maxLength={80} enterKeyHint="done" placeholder={placeholder} className={cn(fieldClass, "placeholder:text-mute")} />
+    </label>
   );
 }

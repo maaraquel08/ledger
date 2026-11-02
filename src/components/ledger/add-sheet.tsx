@@ -1,7 +1,7 @@
 import * as React from "react";
 import { cn } from "@/lib/cn";
 import { fileToCanvas, useCamera } from "@/lib/camera";
-import { addDays, balance, MAX_AMOUNT, peso } from "@/lib/format";
+import { balance, MAX_AMOUNT, peso } from "@/lib/format";
 import { recognize, warmUp } from "@/lib/ocr";
 import { INCOME_CATEGORIES, isUnusualAmount, moveLegs, overdraws } from "@/lib/entry-rules";
 import { parseEntry } from "@/lib/parse";
@@ -15,15 +15,15 @@ import { capture, dataUrlToBlob, undoEvent, upload, type CaptureResult } from "@
 import { useCloud } from "@/lib/cloud/provider";
 import { CameraGate, ReceiptFrame } from "./camera";
 import {
-  AccountChips,
+  accountOption,
   AccountPanel,
   AmountInput,
-  CategoryChips,
+  DateField,
   DraftRow,
-  FieldLabel,
   KINDS,
+  NoteField,
+  SelectField,
   SourceRow,
-  WhenAndNote,
   type Kind,
   type Part,
 } from "./entry-draft";
@@ -51,7 +51,6 @@ type Fix = { part: "account" } | null;
 
 const inputDay = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const todayInput = () => inputDay(new Date());
-const yesterdayInput = () => inputDay(addDays(new Date(), -1));
 
 /** Most-used first, from this phone's own entries (D-0002); ties keep `base` order. */
 function rankBy<T>(base: T[], counts: Map<T, number>) {
@@ -434,41 +433,35 @@ export function AddSheet({
     body = (
       <>
         <Segmented value={kind} options={KINDS} onChange={pickKind} />
-        <div className="mt-5 flex flex-col gap-5">
+        <div className="mt-5 flex flex-col gap-4">
           <AmountInput ref={amountRef} value={amountStr} onChange={typeAmount} sign={abs != null ? sign : ""} note={capNote} onEnter={() => canSave && saveManual()} />
           {kind !== "Transfer" ? (
-            <div>
-              <FieldLabel>Category</FieldLabel>
-              <CategoryChips options={kind === "Income" ? ranked.income : ranked.spend} value={category} onPick={setCat} />
-            </div>
-          ) : null}
-          <div>
-            <FieldLabel>{kind === "Transfer" ? "From" : kind === "Income" ? "Into" : "Paid with"}</FieldLabel>
-            <AccountChips
-              label={kind === "Transfer" ? "From account" : "Account"}
-              options={accOptions}
-              value={accId}
-              onPick={(id) => {
-                setAcc(id);
-                // a destination that is now the source has to be picked again
-                if (id === toAcc) setToAcc(undefined);
-              }}
+            <SelectField
+              label="Category"
+              value={category ?? ""}
+              onChange={(v) => setCat(v as Category)}
+              placeholder="Pick a category"
+              options={(kind === "Income" ? ranked.income : ranked.spend).map((c) => ({ value: c, label: c }))}
             />
-          </div>
-          {kind === "Transfer" ? (
-            <div>
-              <FieldLabel>To</FieldLabel>
-              <AccountChips label="To account" options={toOptions} value={toAccount?.id ?? null} onPick={setToAcc} />
-            </div>
           ) : null}
-          <WhenAndNote
-            date={date}
-            today={todayInput()}
-            yesterday={yesterdayInput()}
-            onDate={setDate}
-            note={note}
-            onNote={setNote}
-            placeholder={kind === "Expense" ? "Note (optional): Grab, lunch w/ team" : kind === "Income" ? "Note (optional): Payroll" : "Note (optional): Move to savings"}
+          <SelectField
+            label={kind === "Transfer" ? "From" : kind === "Income" ? "Into" : "Paid with"}
+            value={accId ?? ""}
+            onChange={(id) => {
+              setAcc(id);
+              // a destination that is now the source has to be picked again
+              if (id === toAcc) setToAcc(undefined);
+            }}
+            options={accOptions.map(accountOption)}
+          />
+          {kind === "Transfer" ? (
+            <SelectField label="To" value={toAccount?.id ?? ""} onChange={setToAcc} placeholder="Pick an account" options={toOptions.map(accountOption)} />
+          ) : null}
+          <DateField value={date} max={todayInput()} onChange={setDate} />
+          <NoteField
+            value={note}
+            onChange={setNote}
+            placeholder={kind === "Expense" ? "Optional: Grab, lunch w/ team" : kind === "Income" ? "Optional: Payroll" : "Optional: Move to savings"}
           />
         </div>
       </>
