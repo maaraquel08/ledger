@@ -37,23 +37,24 @@ const DEMO_ACCOUNTS: Account[] = [
   { id: "a-gcash", name: "Daily wallet", provider: "gcash", providerLabel: "GCash", type: "ewallet", kind: "WALLET", last4: "8871", balance: 18900 },
   { id: "a-cash", name: "Pocket cash", provider: "cash", providerLabel: "Cash", type: "cash", kind: "PHYSICAL", balance: 5000 },
   { id: "a-maya", name: "Online wallet", provider: "maya", providerLabel: "Maya", type: "ewallet", kind: "WALLET", last4: "3306", balance: 9400 },
+  { id: "a-rcbc", name: "The card", provider: "rcbc", providerLabel: "RCBC JCB", type: "credit", kind: "CREDIT", last4: "4402", balance: 18240 },
   { id: "a-ibkr", name: "Investments", provider: "ibkr", providerLabel: "IBKR", type: "investments", kind: "BROKERAGE", balance: 1070630 },
 ];
 
 type Spend = [string, Category, string, number, number]; // desc, cat, account, min, max
 const DAILY: Spend[] = [
   ["Grab", "Transport", "a-gcash", 160, 420],
-  ["Starbucks", "Food & drink", "a-maya", 240, 460],
+  ["Starbucks", "Food & drink", "a-rcbc", 240, 460],
   ["Jollibee", "Food & drink", "a-gcash", 180, 320],
   ["lunch", "Food & drink", "a-gcash", 150, 260],
   ["7-Eleven", "Groceries", "a-gcash", 80, 220],
-  ["Landers Superstore", "Groceries", "a-maya", 900, 2800],
+  ["Landers Superstore", "Groceries", "a-rcbc", 900, 2800],
   ["palengke", "Groceries", "a-cash", 600, 1400],
   ["Shopee", "Shopping", "a-gcash", 350, 1900],
   ["Tim Hortons", "Food & drink", "a-maya", 220, 360],
-  ["Shell fuel", "Transport", "a-maya", 1200, 2100],
-  ["dinner w/ friends", "Food & drink", "a-maya", 700, 1800],
-  ["Uniqlo", "Shopping", "a-maya", 990, 2490],
+  ["Shell fuel", "Transport", "a-rcbc", 1200, 2100],
+  ["dinner w/ friends", "Food & drink", "a-rcbc", 700, 1800],
+  ["Uniqlo", "Shopping", "a-rcbc", 990, 2490],
   ["Watsons", "Health", "a-maya", 250, 780],
   ["load", "Rent & bills", "a-gcash", 100, 300],
 ];
@@ -90,8 +91,8 @@ export function buildDemo(today = new Date()): LedgerState {
     if (day === 9) push({ desc: "Meralco", accountId: "a-bpi", category: "Rent & bills", amount: -between(2400, 3100), date: iso(d, 7), auto: true });
     if (day === 12) push({ desc: "Maynilad", accountId: "a-bpi", category: "Rent & bills", amount: -612, date: iso(d, 7), auto: true });
     if (day === 15) push({ desc: "PLDT Fibr", accountId: "a-bpi", category: "Rent & bills", amount: -2099, date: iso(d, 7), auto: true });
-    if (day === 18) push({ desc: "Netflix", accountId: "a-bpi", category: "Subscriptions", amount: -549, date: iso(d, 6), auto: true });
-    if (day === 22) push({ desc: "Spotify", accountId: "a-bpi", category: "Subscriptions", amount: -194, date: iso(d, 6), auto: true });
+    if (day === 18) push({ desc: "Netflix", accountId: "a-rcbc", category: "Subscriptions", amount: -549, date: iso(d, 6), auto: true });
+    if (day === 22) push({ desc: "Spotify", accountId: "a-rcbc", category: "Subscriptions", amount: -194, date: iso(d, 6), auto: true });
     if (day === 6) {
       // an invest is a move: out of the payroll account, into the brokerage (D-0010)
       const date = iso(d, 21);
@@ -112,11 +113,18 @@ export function buildDemo(today = new Date()): LedgerState {
       push({ desc: "To emergency fund", accountId: "a-bpi", category: "Transfer", amount: -10000, date, linkId });
       push({ desc: "To emergency fund", accountId: "a-mari", category: "Transfer", amount: 10000, date, linkId });
     }
+    if (day === 28) {
+      // paying the card: out of the bank, down the amount owed (a move, never spending)
+      const date = iso(d, 10);
+      const linkId = `l-card-${d.getMonth() + 1}`;
+      push({ desc: "Card payment", accountId: "a-bpi", category: "Transfer", amount: -12000, date, linkId });
+      push({ desc: "Card payment", accountId: "a-rcbc", category: "Transfer", amount: 12000, date, linkId });
+    }
     const count = isToday ? 0 : dow === 5 ? 3 : dow === 0 ? 1 : 2;
     for (let i = 0; i < count; i++) {
       const [desc, category, accountId, min, max] = pick(DAILY);
       const hi = dow === 5 ? 1.6 : 1;
-      push({ desc, category, accountId, amount: -between(min, max * hi), date: iso(d, 8 + Math.floor(rand() * 13), Math.floor(rand() * 60)), method: accountId === "a-maya" ? "Contactless" : undefined });
+      push({ desc, category, accountId, amount: -between(min, max * hi), date: iso(d, 8 + Math.floor(rand() * 13), Math.floor(rand() * 60)), method: accountId === "a-rcbc" ? "Contactless" : undefined });
     }
   }
 
@@ -124,7 +132,7 @@ export function buildDemo(today = new Date()): LedgerState {
   const yest = new Date(end);
   yest.setDate(yest.getDate() - 1);
   push({ desc: "Grab", accountId: "a-gcash", category: "Transport", amount: -248, date: iso(end, 8, 42), raw: "grab gcash 248" });
-  push({ desc: "Starbucks", accountId: "a-maya", category: "Food & drink", amount: -290, date: iso(end, 8, 14), raw: "starbucks maya 290", method: "Contactless" });
+  push({ desc: "Starbucks", accountId: "a-rcbc", category: "Food & drink", amount: -290, date: iso(end, 8, 14), raw: "starbucks rcbc jcb 290", method: "Contactless" });
   push({ desc: "Landers Superstore", accountId: "a-bpi", category: "Groceries", amount: -500, date: iso(end, 7, 30) });
   // The review queue: entries the parser couldn't fully file.
   push({ desc: "lunch w/ team", accountId: "a-cash", category: null, amount: -780, date: iso(yest, 13), raw: "lunch w/ team cash 780" });
@@ -133,11 +141,12 @@ export function buildDemo(today = new Date()): LedgerState {
 
   entries.sort((a, b) => b.date.localeCompare(a.date));
 
+  const dueDate = new Date(today.getFullYear(), today.getMonth() + 1, 15).toISOString();
   return {
     onboarded: true,
     demo: true,
     questionsToday: 0,
-    accounts: DEMO_ACCOUNTS,
+    accounts: DEMO_ACCOUNTS.map((a) => (a.type === "credit" ? { ...a, dueDate } : a)),
     entries,
     profile: {
       name: "Mika Reyes",

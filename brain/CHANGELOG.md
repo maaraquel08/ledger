@@ -14,6 +14,7 @@ Format: `- kind — what, in one sentence — files`
 
 ### 2026-11-03
 - decided — D-0019 narrows Ledger to four pillars (entries with an Expense/Income/Transfer switch, accounts, analytics, chat), removes voice, insights, push, holdings, side income and new credit accounts, adds goal Add money and new chat tools; supersedes D-0016 — `decisions/D-0019-four-pillars.md`
+- changed — Credit cards are creatable again (onboarding and Add account) after the Owner reversed the credit removal; D-0019 account types are cash, e-wallet, bank, investments and credit card; demo seed has an RCBC card with spends and a payment from BPI — `decisions/D-0019-four-pillars.md`, `src/screens/accounts.tsx`, `src/screens/onboarding.tsx`, `src/lib/seed.ts`
 
 ### 2026-10-29
 - decided — D-0018 removes the Review tab (Owner request): three tabs Today / Money / Analytics, Review opens from Today's "things to review" row, which also counts balance gaps; supersedes D-0017 — `decisions/D-0018-review-has-no-tab.md`, `decisions/D-0017-four-tabs.md`, `features/review.md`, `system-map.md`

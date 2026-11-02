@@ -16,6 +16,7 @@ import { useCloud } from "@/lib/cloud/provider";
 import { CameraGate, ReceiptFrame } from "./camera";
 import {
   accountOption,
+  amountDigits,
   AccountPanel,
   AmountInput,
   DateField,
@@ -234,10 +235,9 @@ export function AddSheet({
 
   // whole pesos only: the row reads like the list does. Seven digits is the cap, and it says so.
   const typeAmount = (raw: string) => {
-    const digits = raw.replace(/\D/g, "").replace(/^0+(?=\d)/, "");
-    const max = String(MAX_AMOUNT).length;
-    setCapped(digits.length > max);
-    setAmountStr(digits.slice(0, max));
+    const a = amountDigits(raw, String(MAX_AMOUNT).length);
+    setCapped(a.capped);
+    setAmountStr(a.digits);
   };
   const capNote = capped ? `${peso(MAX_AMOUNT)} is the most one entry can hold.` : undefined;
 

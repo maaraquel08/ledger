@@ -10,6 +10,7 @@ import {
   readAnalyticsQuery,
   recurringBills,
   shiftPeriod,
+  spendCalendar,
   topMerchants,
   trailingAverage,
   trendSeries,
@@ -229,5 +230,54 @@ describe("income", () => {
     expect(c.months).toHaveLength(4); // Jun–Sep; October is still going
     expect(c).toMatchObject({ min: 60_000, max: 100_000, avg: 90_000, verdict: "varies" });
     expect(incomeConsistency(list, NOW, new Date(2026, 8, 1))).toBeNull();
+  });
+});
+
+describe("spendCalendar", () => {
+  const oct = new Date(2026, 9, 1);
+  const now = new Date(2026, 9, 20, 15);
+  test("one cell per local day, with month boundaries", () => {
+    const days = spendCalendar(
+      [e("a", "Food", -100, new Date(2026, 9, 1, 0, 30).toISOString()), e("b", "Food", -200, new Date(2026, 9, 31, 23, 30).toISOString()), e("c", "Food", -999, new Date(2026, 10, 1, 0, 30).toISOString()), e("d", "Food", -999, new Date(2026, 8, 30, 23, 30).toISOString())],
+      oct,
+      now,
+    );
+    expect(days).toHaveLength(31);
+    expect(days[0].spent).toBe(100);
+    expect(days[30].spent).toBe(200);
+    expect(days.reduce((s, d) => s + d.spent, 0)).toBe(300);
+    expect(spendCalendar([], new Date(2024, 1, 1), now)).toHaveLength(29);
+  });
+  test("splits count per part; transfers, investments, refunded and income are excluded", () => {
+    const d = at(2026, 9, 5);
+    const days = spendCalendar(
+      [
+        e("split", "Groceries", -500, d, { split: [{ category: "Groceries", amount: 300 }, { category: "Other", amount: 200 }] }),
+        e("xfer", "Transfer", -1000, d),
+        e("inv", "Investments", -1000, d),
+        e("refunded", "Food", -700, d, { refunded: true }),
+        e("pay", "Salary", 5000, d),
+      ],
+      oct,
+      now,
+    );
+    expect(days[4].spent).toBe(500);
+    expect(days[4].entries.map((x) => x.desc)).toEqual(["split"]);
+  });
+  test("levels are quantiles by rank, robust to one huge day", () => {
+    const amounts = [50, 100, 150, 200, 250, 300, 350, 400, 450, 50000];
+    const days = spendCalendar(amounts.map((a, i) => e("x", "Food", -a, at(2026, 9, i + 1))), oct, now);
+    expect(days.slice(0, 10).map((d) => d.level)).toEqual([1, 1, 2, 2, 3, 3, 4, 4, 5, 5]);
+    expect(days[10].level).toBe(0);
+  });
+  test("ties share a level, a single spending day is level 5", () => {
+    const days = spendCalendar([e("a", "Food", -80, at(2026, 9, 2)), e("b", "Food", -80, at(2026, 9, 3))], oct, now);
+    expect([days[1].level, days[2].level]).toEqual([5, 5]);
+  });
+  test("all-zero month and future flags", () => {
+    const days = spendCalendar([], oct, now);
+    expect(days.every((d) => d.level === 0 && d.spent === 0)).toBe(true);
+    expect(days[19].future).toBe(false);
+    expect(days[20].future).toBe(true);
   });
 });

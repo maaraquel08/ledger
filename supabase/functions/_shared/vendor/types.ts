@@ -11,7 +11,6 @@ export type Provider =
   | "cash"
   | "other";
 
-/** "credit" is kept only so older stored data and synced rows still load; it can no longer be created. */
 export type AccountType = "bank" | "investments" | "ewallet" | "cash" | "credit";
 
 export interface Account {

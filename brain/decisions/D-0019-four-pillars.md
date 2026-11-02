@@ -10,11 +10,11 @@ superseded_by: null
 
 # D-0019 Four pillars: entries, accounts, analytics, chat; extras removed
 
-**Context.** On 2026-11-03 the Owner set four non-negotiables: Expense / Income / Transfer entries, account tracking (cash, e-wallet, bank, investments), analytics, and an AI chat that answers from their history and advises. They asked to remove what doesn't serve them.
+**Context.** On 2026-11-03 the Owner set four non-negotiables: Expense / Income / Transfer entries, account tracking (cash, e-wallet, bank, investments, credit card), analytics, and an AI chat that answers from their history and advises. They asked to remove what doesn't serve them.
 
 **Decision.**
 - Add opens on an **Expense | Income | Transfer** switch. A Transfer picks From and To; into an investments account it files as Investments (D-0010), otherwise Transfer. Account detail's Transfer uses the same rule (`moveLegs`).
-- Account types the Owner can create: cash, e-wallet, bank, investments. Credit stays readable for old data only. Holdings and side income are gone.
+- Account types the Owner can create: cash, e-wallet, bank, investments, and credit card (the Owner reversed the credit removal on 2026-11-03). Holdings and side income are gone.
 - Removing (or archiving, in the cloud) an account drops its legs of moves; the twin on the surviving account stays as a plain entry (`detachAccounts`). Other entries go to Review.
 - Removed: voice logging, the insight inbox, the stored M8 review card, push notifications and the scheduled insight runs (migration `…002000`). Receipt scanning stays.
 - Goals get **Add money**: a number on the goal, no account moves.

@@ -26,8 +26,7 @@ import type { Account, AccountType, Provider } from "@/lib/types";
 
 const FIELD =
   "h-11 w-full rounded-md border border-line-strong bg-bg px-3 text-[16px] text-fg outline-none placeholder:text-fg-subtle focus:border-accent";
-/** Credit cards are no longer created; existing ones keep working. */
-const TYPES: AccountType[] = ["bank", "ewallet", "cash", "investments"];
+const TYPES: AccountType[] = ["bank", "ewallet", "cash", "credit", "investments"];
 
 const kindLine = (a: Account) => {
   const same = a.name.toLowerCase().startsWith(a.providerLabel.toLowerCase());
@@ -101,6 +100,7 @@ export function AccountsSummary({ onAdd }: { onAdd: (provider?: Provider) => voi
             [
               ["gcash", "GCash", "Wallet"],
               ["bpi", "BPI", "Debit or savings"],
+              ["rcbc", "RCBC", "Credit card"],
               ["cash", "Cash on hand", "Physical"],
             ] as [Provider, string, string][]
           ).map(([p, label, sub]) => (
@@ -164,7 +164,7 @@ export function AddAccountSheet({ open, onOpenChange, initialProvider }: { open:
     const m = providerMeta(p);
     setProvider(p);
     setName(p === "other" ? "" : p === "cash" ? "Cash on hand" : m.label);
-    setType(m.type === "credit" ? "bank" : m.type);
+    setType(m.type);
   }, []);
 
   React.useEffect(() => {

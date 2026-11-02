@@ -70,9 +70,7 @@ function useDraft() {
 
 const STEPS = ["accounts", "balances", "income"] as const;
 const FREQS: Frequency[] = ["Twice a month", "Monthly", "Weekly", "Irregular"];
-/** Credit cards can no longer be created. */
-const CREATABLE_PROVIDERS = PROVIDERS.filter((p) => p.type !== "credit");
-const TYPES: AccountType[] = ["bank", "investments", "ewallet", "cash"];
+const TYPES: AccountType[] = ["bank", "investments", "ewallet", "cash", "credit"];
 
 const toNum = (s: string) => Number.parseFloat(s.replace(/,/g, "")) || 0;
 
@@ -263,7 +261,7 @@ function AccountsStep() {
                   <ProviderMark provider={a.provider} size={40} />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[14.5px]">{a.name}</div>
-                    <div className="mt-1 truncate font-mono text-[10.5px] tracking-[0.05em] text-fg-subtle">{accountLine(a)}</div>
+                    <div className="mt-1 truncate font-mono text-[10.5px] tracking-[0.05em] text-fg-subtle">{a.type === "credit" ? `${a.providerLabel} · OWED${a.last4 ? ` ·${a.last4}` : ""}` : accountLine(a)}</div>
                   </div>
                   <button type="button" onClick={() => show({ provider: a.provider, edit: a })} className="flex h-11 min-w-11 items-center justify-center px-2 text-[12px] text-fg-muted active:opacity-60">
                     Edit
@@ -289,7 +287,7 @@ function AccountsStep() {
               <Eyebrow>{has ? "ADD ANOTHER" : "COMMON IN PH"}</Eyebrow>
             </div>
             <div className="mt-[13px] grid grid-cols-3 gap-[9px]">
-              {CREATABLE_PROVIDERS.map((p) => (
+              {PROVIDERS.map((p) => (
                 <button
                   key={p.id}
                   type="button"
@@ -324,7 +322,13 @@ function AccountsStep() {
 function BalancesStep() {
   const d = useDraft();
   const filled = d.accounts.filter((a) => (d.balances[a.id] ?? "") !== "").length;
-  const assets = d.accounts.reduce((n, a) => n + toNum(d.balances[a.id] ?? ""), 0);
+  let assets = 0;
+  let owed = 0;
+  for (const a of d.accounts) {
+    const v = toNum(d.balances[a.id] ?? "");
+    if (a.type === "credit") owed += v;
+    else assets += v;
+  }
   return (
     <Screen>
       <TopBar step="balances" onSkip={() => navigate("/onboarding/income")} />
@@ -371,6 +375,7 @@ function BalancesStep() {
         {filled > 0 ? (
           <div className="mt-3 text-center font-mono text-[10.5px] tracking-[0.04em] text-fg-subtle">
             Assets {peso(assets)}
+            {owed > 0 ? ` · card owed ${peso(owed)}` : ""}
           </div>
         ) : null}
       </Footer>
@@ -424,7 +429,7 @@ function ReadyStep() {
   const save = Math.max(0, monthly - budget);
   const savePct = monthly > 0 ? Math.round((save / monthly) * 100) : 0;
   const accounts = d.accounts.map((a) => ({ ...a, balance: toNum(d.balances[a.id] ?? "") }));
-  const assets = accounts.reduce((n, a) => n + a.balance, 0);
+  const assets = accounts.reduce((n, a) => n + (a.type === "credit" ? 0 : a.balance), 0);
   const emergency = budget * 3;
 
   const finish = () => {

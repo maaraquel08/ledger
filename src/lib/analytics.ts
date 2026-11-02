@@ -368,3 +368,36 @@ export function incomeConsistency(entries: Entry[], now = new Date(), start = no
     verdict: (cv < 0.1 ? "steady" : cv < 0.25 ? "varies" : "irregular") as "steady" | "varies" | "irregular",
   };
 }
+
+export type SpendDay = { date: Date; day: number; spent: number; level: 0 | 1 | 2 | 3 | 4 | 5; entries: Entry[]; future: boolean };
+
+/**
+ * The spend calendar of the month starting at `from`: one cell per day, local time.
+ * A day's spend is what Analytics counts as spend (isSpend, splits by part), and its entries
+ * are the spend entries of that day, newest first. Level 0 = no spend; 1-5 are quantiles by
+ * rank among the days that spent, so one huge rent day cannot flatten the rest:
+ * level = ceil(5 * (days spending <= this day) / (days that spent)). Equal days share a level.
+ * `future` marks days after `now`.
+ */
+export function spendCalendar(entries: Entry[], from: Date, now = new Date()): SpendDay[] {
+  const y = from.getFullYear();
+  const m = from.getMonth();
+  const count = new Date(y, m + 1, 0).getDate();
+  const days: SpendDay[] = Array.from({ length: count }, (_, i) => ({ date: new Date(y, m, i + 1), day: i + 1, spent: 0, level: 0, entries: [], future: false }));
+  for (const e of entries) {
+    if (!isSpend(e)) continue;
+    const d = new Date(e.date);
+    if (d.getFullYear() !== y || d.getMonth() !== m) continue;
+    const cell = days[d.getDate() - 1];
+    cell.entries.push(e);
+    for (const p of spendParts(e)) cell.spent += p.amount;
+  }
+  const spends = days.filter((d) => d.spent > 0).map((d) => d.spent);
+  const today = startOfDay(now).getTime();
+  for (const d of days) {
+    d.entries.sort((a, b) => b.date.localeCompare(a.date));
+    d.future = d.date.getTime() > today;
+    if (d.spent > 0) d.level = Math.ceil((5 * spends.filter((s) => s <= d.spent).length) / spends.length) as SpendDay["level"];
+  }
+  return days;
+}

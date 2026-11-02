@@ -1,4 +1,5 @@
 import * as React from "react";
+import { accountOption, amountDigits, AmountInput, DateField, NoteField, PickField } from "@/components/ledger/entry-draft";
 import { Sparkle } from "@/components/ledger/icons";
 import {
   ActionButton,
@@ -14,11 +15,12 @@ import {
   Pill,
   ProviderMark,
   Screen,
+  Segmented,
   Sheet,
 } from "@/components/ledger/primitives";
 import { UndoToast, type UndoNote } from "@/components/ledger/undo-toast";
 import { cn } from "@/lib/cn";
-import { inputDateTime, monthName, parseWholePesos, peso, signed, stamp, wholePesos } from "@/lib/format";
+import { monthName, parseWholePesos, peso, signed, stamp, wholePesos } from "@/lib/format";
 import { canRefund, categoriesFor, fixedCategory } from "@/lib/entry-rules";
 import { SPEND_CATEGORIES, suggestCategory } from "@/lib/providers";
 import { splitOf } from "@/lib/receipt";
@@ -31,8 +33,6 @@ import { loadGaps, type Gap } from "@/lib/cloud/api";
 import { useCloud } from "@/lib/cloud/provider";
 import type { Account, Category, Entry } from "@/lib/types";
 
-const FIELD =
-  "h-11 w-full rounded-md border border-line-strong bg-bg px-3 text-[16px] text-fg outline-none placeholder:text-fg-subtle focus:border-accent";
 /** Text buttons in a bar: at least 44×44 to hit. */
 const EDIT_HIT = "flex h-11 min-w-11 items-center justify-center px-1 text-[15px] active:opacity-60";
 
@@ -324,8 +324,12 @@ function MoveNote({ out, into, accounts }: { out: Entry; into: Entry; accounts: 
   );
 }
 
-type Direction = "out" | "in";
+type Direction = "Expense" | "Income";
+const DIRECTIONS: Direction[] = ["Expense", "Income"];
 
+const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+/** Edit uses Add's own form: the same type switch, amount, pickers, calendar and note. */
 function EditEntrySheet({
   open,
   onOpenChange,
@@ -341,53 +345,50 @@ function EditEntrySheet({
   accounts: Account[];
 }) {
   const { dispatch } = useLedger();
-  const shown = String(wholePesos(entry.amount));
   const [desc, setDesc] = React.useState(entry.desc);
-  const [amount, setAmount] = React.useState(shown);
-  const [dir, setDir] = React.useState<Direction>(entry.amount > 0 ? "in" : "out");
+  const [amount, setAmount] = React.useState(String(wholePesos(entry.amount)));
+  const [capped, setCapped] = React.useState(false);
+  const [dir, setDir] = React.useState<Direction>(entry.amount > 0 ? "Income" : "Expense");
   const [cat, setCat] = React.useState<Category | null>(entry.category);
   const [acct, setAcct] = React.useState<string | null>(entry.accountId);
-  const [when, setWhen] = React.useState(inputDateTime(new Date(entry.date)));
-  const [now, setNow] = React.useState(() => new Date());
+  const [day, setDay] = React.useState(ymd(new Date(entry.date)));
 
   React.useEffect(() => {
     if (open) {
       setDesc(entry.desc);
       setAmount(String(wholePesos(entry.amount)));
-      setDir(entry.amount > 0 ? "in" : "out");
+      setCapped(false);
+      setDir(entry.amount > 0 ? "Income" : "Expense");
       setCat(entry.category);
       setAcct(entry.accountId);
-      setWhen(inputDateTime(new Date(entry.date)));
-      setNow(new Date());
+      setDay(ymd(new Date(entry.date)));
     }
   }, [open, entry]);
 
   // a leg of a move or an Adjustment keeps its category and its sign
   const fixed = fixedCategory(entry);
-  const sign: 1 | -1 = fixed ? (entry.amount >= 0 ? 1 : -1) : dir === "in" ? 1 : -1;
+  const sign: 1 | -1 = fixed ? (entry.amount >= 0 ? 1 : -1) : dir === "Income" ? 1 : -1;
   const options = categoriesFor(sign, entry.category);
-
-  // whole pesos only, like Add; untouched, the stored amount stays as it was
-  const untouched = amount.trim() === shown;
-  const value = untouched ? Math.abs(entry.amount) : parseWholePesos(amount);
-  const date = when ? new Date(when) : null;
-  const future = !!date && date.getTime() > now.getTime() + 60_000;
-  const dateOk = !!date && !Number.isNaN(date.getTime()) && !future;
-  const valid = desc.trim() !== "" && value != null && dateOk && (fixed || cat == null || options.includes(cat)) && !(other && acct != null && acct === other.accountId);
+  const value = parseWholePesos(amount);
+  const valid = value != null && (fixed || cat == null || options.includes(cat)) && !(other && acct != null && acct === other.accountId);
   const flips = valid && sign !== (entry.amount >= 0 ? 1 : -1);
   const acctName = accounts.find((a) => a.id === acct)?.name;
+  // a leg of a move can't land in the other leg's account
+  const accountOptions = accounts.filter((a) => !other || a.id !== other.accountId);
 
   const pickDir = (d: Direction) => {
     setDir(d);
     // income categories don't fit money out, and the other way round
-    if (cat && !categoriesFor(d === "in" ? 1 : -1, entry.category).includes(cat)) setCat(null);
+    if (cat && !categoriesFor(d === "Income" ? 1 : -1, entry.category).includes(cat)) setCat(null);
   };
 
   const save = () => {
-    if (!valid || value == null || !date) return;
-    const iso = untouchedDate(entry.date, when) ? entry.date : date.toISOString();
+    if (!valid || value == null) return;
+    // same day: keep the stored moment; another day: noon that day, as Add does
+    const iso = day === ymd(new Date(entry.date)) ? entry.date : new Date(`${day}T12:00:00`).toISOString();
     const signedValue = sign * value;
-    dispatch({ type: "update-entry", id: entry.id, patch: { desc: desc.trim(), amount: signedValue, category: fixed ? entry.category : cat, accountId: acct, date: iso } });
+    const category = fixed ? entry.category : cat;
+    dispatch({ type: "update-entry", id: entry.id, patch: { desc: desc.trim() || category || entry.desc, amount: signedValue, category, accountId: acct, date: iso } });
     // both legs of a move carry the same amount and moment, or the accounts drift apart
     if (other && (other.amount !== -signedValue || other.date !== iso)) dispatch({ type: "update-entry", id: other.id, patch: { amount: -signedValue, date: iso } });
     onOpenChange(false);
@@ -395,108 +396,56 @@ function EditEntrySheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange} title="Edit entry">
-      <form
-        className="space-y-5 pt-5 pb-3"
-        onSubmit={(e) => {
-          e.preventDefault();
-          save();
-        }}
-      >
-        <label className="block">
-          <Eyebrow className="mb-2">DESCRIPTION</Eyebrow>
-          <input value={desc} onChange={(e) => setDesc(e.target.value)} className={FIELD} enterKeyHint="next" />
-        </label>
-        {fixed ? null : (
-          <div>
-            <Eyebrow className="mb-2.5">MONEY</Eyebrow>
-            <div className="flex gap-2">
-              <Pill active={dir === "out"} className="min-h-10 flex-1 px-3.5 text-[12.5px]" onClick={() => pickDir("out")}>
-                Out · spent
-              </Pill>
-              <Pill active={dir === "in"} className="min-h-10 flex-1 px-3.5 text-[12.5px]" onClick={() => pickDir("in")}>
-                In · got
-              </Pill>
-            </div>
-          </div>
-        )}
-        <label className="block">
-          <Eyebrow className="mb-2">AMOUNT (₱)</Eyebrow>
-          <div className="flex items-center gap-3">
-            <input
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              inputMode="numeric"
-              aria-invalid={value == null}
-              className={cn(FIELD, "min-w-0 flex-1 font-mono", value == null && amount.trim() !== "" && "border-danger")}
-            />
-            {value != null ? <span className={cn("tnum flex-none text-[15px] font-semibold", sign > 0 ? "text-success" : "text-fg")}>{signed(sign * value)}</span> : null}
-          </div>
-          {value == null && amount.trim() !== "" ? (
-            <p role="alert" className="mt-1.5 text-[12.5px] text-danger">
-              Whole pesos only, up to ₱9,999,999.
-            </p>
-          ) : null}
-          {other ? (
-            <p className="mt-1.5 text-[12.5px] text-fg-subtle">
-              The other leg changes with it.
-            </p>
-          ) : null}
-        </label>
-        <label className="block">
-          <Eyebrow className="mb-2">DATE AND TIME</Eyebrow>
-          <input
-            type="datetime-local"
-            value={when}
-            max={inputDateTime(now)}
-            onChange={(e) => setWhen(e.target.value)}
-            aria-invalid={!dateOk}
-            className={cn(FIELD, !dateOk && "border-danger")}
-          />
-          {future ? <p role="alert" className="mt-1.5 text-[12.5px] text-danger">That’s in the future. Pick a time up to now.</p> : null}
-        </label>
-        <div>
-          <Eyebrow className="mb-2.5">CATEGORY</Eyebrow>
-          {fixed ? (
-            <p className="text-[14px] text-fg-muted">
-              {entry.category === "Adjustment" ? "Adjustment · closes a reported-balance gap" : `${entry.category ?? "Transfer"} · linked to ${other ? accounts.find((a) => a.id === other.accountId)?.name ?? "another account" : "another entry"}`}
-            </p>
-          ) : (
-            <div className="flex flex-wrap gap-2">
-              {options.map((c) => (
-                <Pill key={c} active={cat === c} className="min-h-10 px-3.5 text-[12.5px]" onClick={() => setCat(c)}>
-                  {c}
-                </Pill>
-              ))}
-            </div>
-          )}
-          {!fixed ? <p className="mt-2 text-[12.5px] leading-[1.45] text-fg-subtle">Moving money between your own accounts? Use Transfer on the account, so both sides are logged.</p> : null}
-        </div>
-        <div>
-          <Eyebrow className="mb-2.5">ACCOUNT</Eyebrow>
-          <div className="flex flex-wrap gap-2">
-            {/* a leg of a move can't land in the other leg's account */}
-            {accounts.filter((a) => !other || a.id !== other.accountId).map((a) => (
-              <Pill key={a.id} active={acct === a.id} className="min-h-10 max-w-full px-3.5 text-start text-[12.5px] whitespace-normal" onClick={() => setAcct(a.id)}>
-                {a.name}
-              </Pill>
-            ))}
-          </div>
-        </div>
-        {flips && value != null ? (
-          <p className="text-[13px] leading-[1.5] text-fg-muted" role="status">
-            This becomes money {sign > 0 ? "in" : "out"}{acctName ? ` and moves ${acctName} by ${peso(value)}` : ` of ${peso(value)}`}.
+      <div className="pt-4 pb-3">
+        {fixed ? (
+          <p className="text-[13px] leading-[1.45] text-fg-muted">
+            {entry.category === "Adjustment"
+              ? "Adjustment · closes a reported-balance gap"
+              : `${entry.category ?? "Transfer"} · linked to ${other ? (accounts.find((a) => a.id === other.accountId)?.name ?? "another account") : "another entry"}. The other side changes with it.`}
           </p>
-        ) : null}
-        <Cta type="submit" disabled={!valid}>
-          Save changes
-        </Cta>
-      </form>
+        ) : (
+          <Segmented value={dir} options={DIRECTIONS} onChange={pickDir} />
+        )}
+        <div className="mt-5 flex flex-col gap-4">
+          <AmountInput
+            autoFocus={false}
+            value={amount}
+            onChange={(raw) => {
+              const a = amountDigits(raw);
+              setCapped(a.capped);
+              setAmount(a.digits);
+            }}
+            sign={value != null && !fixed ? (sign > 0 ? "+" : "−") : ""}
+            note={capped ? "₱9,999,999 is the most one entry can hold." : undefined}
+            onEnter={save}
+          />
+          {fixed ? null : (
+            <PickField label="Category" value={cat ?? ""} onChange={(v) => setCat(v as Category)} placeholder="Pick a category" options={options.map((c) => ({ value: c, label: c }))} />
+          )}
+          <PickField
+            label={sign > 0 ? "Into" : "Paid with"}
+            value={acct ?? ""}
+            onChange={setAcct}
+            placeholder="Pick an account"
+            options={accountOptions.map(accountOption)}
+          />
+          <DateField value={day} max={ymd(new Date())} onChange={setDay} />
+          <NoteField value={desc} onChange={setDesc} placeholder={cat ?? "Optional"} />
+          {flips && value != null ? (
+            <p className="text-[13px] leading-[1.5] text-fg-muted" role="status">
+              This becomes money {sign > 0 ? "in" : "out"}
+              {acctName ? ` and moves ${acctName} by ${peso(value)}` : ` of ${peso(value)}`}.
+            </p>
+          ) : null}
+          <Cta disabled={!valid} onClick={save}>
+            Save changes
+          </Cta>
+        </div>
+      </div>
     </Sheet>
   );
 }
 
-/** The datetime field still shows the stored moment (to the minute): keep its seconds. */
-const untouchedDate = (iso: string, field: string) => inputDateTime(new Date(iso)) === field;
 
 /* ====================================================================== */
 /*  Review queue                                                           */

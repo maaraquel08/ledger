@@ -182,8 +182,8 @@ export function FieldLabel({ children, aside }: { children: React.ReactNode; asi
 /** The amount, big and typed with the phone's own number pad. Whole pesos only. */
 export const AmountInput = React.forwardRef<
   HTMLInputElement,
-  { value: string; onChange: (v: string) => void; onEnter: () => void; sign: "−" | "+" | ""; note?: string }
->(function AmountInput({ value, onChange, onEnter, sign, note }, ref) {
+  { value: string; onChange: (v: string) => void; onEnter: () => void; sign: "−" | "+" | ""; note?: string; autoFocus?: boolean }
+>(function AmountInput({ value, onChange, onEnter, sign, note, autoFocus = true }, ref) {
   return (
     <div>
       <label className="flex items-baseline gap-1.5 border-b border-line-strong pb-2 focus-within:border-accent">
@@ -192,7 +192,7 @@ export const AmountInput = React.forwardRef<
         </span>
         <input
           ref={ref}
-          autoFocus
+          autoFocus={autoFocus}
           type="text"
           inputMode="numeric"
           pattern="[0-9]*"
@@ -414,4 +414,10 @@ export function NoteField({ value, onChange, placeholder }: { value: string; onC
       <input value={value} onChange={(e) => onChange(e.target.value)} maxLength={80} enterKeyHint="done" placeholder={placeholder} className={cn(fieldClass, "placeholder:text-mute")} />
     </label>
   );
+}
+
+/** Typed amount text → whole-peso digits, capped at seven; `capped` when a digit was refused. */
+export function amountDigits(raw: string, max = 7) {
+  const digits = raw.replace(/\D/g, "").replace(/^0+(?=\d)/, "");
+  return { digits: digits.slice(0, max), capped: digits.length > max };
 }
