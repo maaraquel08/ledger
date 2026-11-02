@@ -24,8 +24,9 @@ const TABS = [
 
 /**
  * Four tabs: Chat (home), Money, Budget, Analytics. Adding an entry is the yellow
- * floating action above the nav on Money, Budget and Analytics; on Chat it would sit on
- * the composer, so the chat header carries a + instead. #FCC305 is used nowhere else.
+ * floating action above the nav on Money and Analytics. Chat has a + in its header (the FAB
+ * would sit on the composer); Budget's one action is its pinned New category button.
+ * #FCC305 is used nowhere else.
  */
 export function TabBar({ path }: { path: string }) {
   const { openAdd } = useChrome();
@@ -34,7 +35,7 @@ export function TabBar({ path }: { path: string }) {
       aria-label="Main"
       className="fixed inset-x-0 bottom-0 z-20 mx-auto w-full max-w-[430px] border-t border-line bg-bg/95 backdrop-blur-sm"
     >
-      {path === "/today" ? null : (
+      {path === "/today" || path === "/budget" ? null : (
       <button
         type="button"
         aria-label="Add entry"

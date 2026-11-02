@@ -57,3 +57,16 @@ export function categoryNameError(name: string, defs: CategoryDef[], except?: Ca
   if (defs.some((d) => d.name !== except && d.name.toLowerCase() === key)) return `You already have “${n}”.`;
   return null;
 }
+
+/** A per-category map with one key renamed (budgets, % budgets). */
+export function renameKey<T>(m: Partial<Record<Category, T>>, from: Category, to: Category): Partial<Record<Category, T>> {
+  if (!(from in m)) return m;
+  const { [from]: v, ...rest } = m;
+  return { ...rest, [to]: v };
+}
+
+/** A per-category map without one key. */
+export function dropKey<T>(m: Partial<Record<Category, T>>, key: Category): Partial<Record<Category, T>> {
+  const { [key]: _gone, ...rest } = m;
+  return rest;
+}

@@ -55,7 +55,7 @@ describe("budget rows", () => {
 
 describe("allocation and history", () => {
   test("allocated vs monthly budget", () => {
-    expect(allocation(state, spendCategories(state))).toEqual({ allocated: 7000, total: 10000, unallocated: 3000, over: 0 });
+    expect(allocation(state, spendCategories(state))).toEqual({ allocated: 7000, total: 10000, pct: 70, unallocated: 3000, over: 0 });
     const tight = { ...state, profile: { ...state.profile, monthlyBudget: 5000 } };
     expect(allocation(tight, spendCategories(tight))).toMatchObject({ unallocated: 0, over: 2000 });
   });

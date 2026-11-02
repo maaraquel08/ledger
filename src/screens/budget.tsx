@@ -2,12 +2,12 @@ import * as React from "react";
 import { AmountInput, amountDigits, PickField } from "@/components/ledger/entry-draft";
 import { ChevronLeft, ChevronRight } from "@/components/ledger/icons";
 import { ActionButton, Cta, EntryRow, Eyebrow, PageTitle, Screen, Segmented, Sheet, StatGrid } from "@/components/ledger/primitives";
-import { allocation, budgetRows, categoryHistory, lastDayOf, monthPace, receivedBy, startOfMonth, type BudgetRow } from "@/lib/budget";
+import { allocation, budgetRows, categoryBudgetPatch, categoryHistory, lastDayOf, monthPace, parsePct, receivedBy, startOfMonth, type BudgetRow, type BudgetSetting } from "@/lib/budget";
 import { categoryNameError, incomeCategories, spendCategories, SYSTEM_CATEGORIES, userCategories } from "@/lib/categories";
 import { cn } from "@/lib/cn";
 import { balance, monthName, peso } from "@/lib/format";
 import { navigate, query } from "@/lib/router";
-import { inRange, isIncome, isSpend, ledgerStart, monthBounds, spendParts, verdict } from "@/lib/selectors";
+import { budgetBase, inRange, isIncome, isSpend, ledgerStart, monthBounds, pctOf, spendParts, verdict } from "@/lib/selectors";
 import { useLedger } from "@/lib/store";
 import { todayBudget } from "@/lib/today";
 import type { Category, Entry } from "@/lib/types";
@@ -145,24 +145,21 @@ export function Budget({ path }: { path: string }) {
             {alloc.over > 0
               ? `Category budgets add up to ${peso(alloc.allocated)}, ${peso(alloc.over)} more than your ${peso(alloc.total)} monthly budget.`
               : alloc.total > 0
-                ? `${peso(alloc.allocated)} of ${peso(alloc.total)} allocated to categories · ${peso(alloc.unallocated)} unallocated`
+                ? `${peso(alloc.allocated)} (${alloc.pct}%) of ${peso(alloc.total)} allocated to categories · ${peso(alloc.unallocated)} unallocated`
                 : `${peso(alloc.allocated)} allocated to categories`}
           </p>
         ) : null}
         <ul className="divide-y divide-line">
           {rows.map((r) => (
-            <CategoryRow key={r.category} r={r} pace={current ? pace : null} onOpen={() => setSheet({ cat: r.category, kind: "expense" })} />
+            <CategoryRow key={r.category} r={r} pct={state.profile.categoryBudgetPct?.[r.category]} pace={current ? pace : null} onOpen={() => setSheet({ cat: r.category, kind: "expense" })} />
           ))}
         </ul>
-        <button type="button" onClick={() => setNewOpen(true)} className="mt-2 flex min-h-11 w-full items-center justify-center rounded-md border border-line-strong text-[13px] font-medium active:bg-surface">
-          + New category
-        </button>
       </section>
 
       <section aria-label="Income categories" className="px-6 pt-8">
         <Eyebrow>INCOME CATEGORIES</Eyebrow>
         {incomeCats.length === 0 ? (
-          <p className="py-3 text-[14px] text-fg-muted">No income categories. Add one above.</p>
+          <p className="py-3 text-[14px] text-fg-muted">No income categories. Add one with New category.</p>
         ) : (
           <ul className="divide-y divide-line">
             {incomeCats.map((c) => {
@@ -179,6 +176,11 @@ export function Budget({ path }: { path: string }) {
           </ul>
         )}
       </section>
+
+      {/* the one action on this tab: pinned above the tab bar, where the floating + would be */}
+      <div className="sticky bottom-[calc(66px+env(safe-area-inset-bottom))] z-10 mt-6 bg-bg/95 px-6 pt-3 pb-3 backdrop-blur-sm">
+        <Cta onClick={() => setNewOpen(true)}>+ New category</Cta>
+      </div>
 
       {sheet ? <CategorySheet key={`${sheet.kind}-${sheet.cat}`} cat={sheet.cat} kind={sheet.kind} at={at} onClose={() => setSheet(null)} /> : null}
       <NewCategorySheet open={newOpen} onClose={() => setNewOpen(false)} />
@@ -197,7 +199,7 @@ export function Budget({ path }: { path: string }) {
   );
 }
 
-function CategoryRow({ r, pace, onOpen }: { r: BudgetRow; pace: number | null; onOpen: () => void }) {
+function CategoryRow({ r, pct, pace, onOpen }: { r: BudgetRow; pct?: number; pace: number | null; onOpen: () => void }) {
   const over = r.status === "over";
   const right = r.status === "none" ? "Set budget" : over ? `${peso(r.spent - r.budget)} over` : `${peso(r.left)} left`;
   return (
@@ -213,7 +215,7 @@ function CategoryRow({ r, pace, onOpen }: { r: BudgetRow; pace: number | null; o
           <span className={cn("tnum flex-none text-[13px]", over ? "font-semibold text-danger" : r.status === "none" ? "text-fg-muted underline underline-offset-4" : "font-semibold text-fg")}>{right}</span>
         </div>
         <div className="tnum mt-1 text-[12.5px] text-fg-muted">
-          <span className={cn(over && "text-danger")}>{peso(r.spent)}</span> {r.status === "none" ? "spent · No budget" : `of ${peso(r.budget)}`}
+          <span className={cn(over && "text-danger")}>{peso(r.spent)}</span> {r.status === "none" ? "spent · No budget" : `of ${pct ? `${pct}% · ` : ""}${peso(r.budget)}`}
         </div>
         {r.status !== "none" ? (
           <div className="mt-2.5">
@@ -241,7 +243,8 @@ function CategorySheet({ cat, kind, at, onClose }: { cat: Category; kind: "expen
   const [open, setOpen] = React.useState(true);
   const [mode, setMode] = React.useState<"main" | "rename" | "delete">("main");
   const current = state.profile.categoryBudgets[cat] ?? 0;
-  const [amt, setAmt] = React.useState(current > 0 ? String(current) : "");
+  const currentPct = state.profile.categoryBudgetPct?.[cat];
+  const [budget, setBudget] = React.useState<BudgetDraft>(() => (currentPct ? { kind: "pct", text: String(currentPct) } : { kind: "amount", text: current > 0 ? String(current) : "" }));
   const [name, setName] = React.useState(cat);
   const [moveTo, setMoveTo] = React.useState("Other");
   const system = SYSTEM_CATEGORIES.includes(cat);
@@ -253,12 +256,11 @@ function CategorySheet({ cat, kind, at, onClose }: { cat: Category; kind: "expen
     setOpen(false);
     onClose();
   };
-  const n = Number(amt) || 0;
-  const saveBudget = (value: number) => {
-    const next = { ...state.profile.categoryBudgets };
-    if (value > 0) next[cat] = value;
-    else delete next[cat];
-    dispatch({ type: "update-profile", patch: { categoryBudgets: next } });
+  const setting = draftSetting(budget);
+  const unchanged = setting.kind === "pct" ? setting.value === (currentPct ?? 0) : !currentPct && setting.value === current;
+  const saveBudget = () => {
+    if (setting.value < 0) return;
+    dispatch({ type: "update-profile", patch: categoryBudgetPatch(state.profile, cat, setting) });
     close();
   };
   const nameError = name.trim() === cat ? null : categoryNameError(name, defs, cat);
@@ -273,11 +275,10 @@ function CategorySheet({ cat, kind, at, onClose }: { cat: Category; kind: "expen
         <div className="mt-5 flex flex-col gap-5">
           {kind === "expense" ? (
             <div>
-              <Eyebrow className="mb-2">MONTHLY BUDGET</Eyebrow>
-              <AmountInput value={amt} onChange={(v) => setAmt(amountDigits(v).digits)} onEnter={() => saveBudget(n)} sign="" autoFocus={false} />
+              <BudgetField draft={budget} onChange={setBudget} base={budgetBase(state)} onEnter={saveBudget} />
               <div className="mt-4 flex flex-col gap-2.5">
-                <Cta onClick={() => saveBudget(n)} disabled={n === current || (n === 0 && current === 0)}>
-                  {n === 0 && current > 0 ? "Remove budget" : "Save budget"}
+                <Cta onClick={saveBudget} disabled={unchanged || setting.value < 0}>
+                  {setting.value === 0 && (current > 0 || !!currentPct) ? "Remove budget" : "Save budget"}
                 </Cta>
               </div>
             </div>
@@ -391,12 +392,12 @@ function NewCategorySheet({ open, onClose }: { open: boolean; onClose: () => voi
   const { state, dispatch } = useLedger();
   const [name, setName] = React.useState("");
   const [kind, setKind] = React.useState<"Spending" | "Income">("Spending");
-  const [amt, setAmt] = React.useState("");
+  const [budget, setBudget] = React.useState<BudgetDraft>({ kind: "amount", text: "" });
   const [touched, setTouched] = React.useState(false);
   const error = categoryNameError(name, userCategories(state));
   const reset = () => {
     setName("");
-    setAmt("");
+    setBudget({ kind: "amount", text: "" });
     setKind("Spending");
     setTouched(false);
   };
@@ -409,8 +410,8 @@ function NewCategorySheet({ open, onClose }: { open: boolean; onClose: () => voi
     if (error) return;
     const n = name.trim();
     dispatch({ type: "add-category", def: { name: n, kind: kind === "Spending" ? "expense" : "income" } });
-    const b = Number(amt) || 0;
-    if (kind === "Spending" && b > 0) dispatch({ type: "update-profile", patch: { categoryBudgets: { ...state.profile.categoryBudgets, [n]: b } } });
+    const b = draftSetting(budget);
+    if (kind === "Spending" && b.value > 0) dispatch({ type: "update-profile", patch: categoryBudgetPatch(state.profile, n, b) });
     close();
   };
   return (
@@ -438,7 +439,7 @@ function NewCategorySheet({ open, onClose }: { open: boolean; onClose: () => voi
         {kind === "Spending" ? (
           <div>
             <Eyebrow className="mb-2">MONTHLY BUDGET · OPTIONAL</Eyebrow>
-            <AmountInput value={amt} onChange={(v) => setAmt(amountDigits(v).digits)} onEnter={create} sign="" autoFocus={false} />
+            <BudgetField draft={budget} onChange={setBudget} base={budgetBase(state)} onEnter={create} />
           </div>
         ) : null}
         <Cta type="submit" disabled={!name.trim()}>
@@ -446,5 +447,85 @@ function NewCategorySheet({ open, onClose }: { open: boolean; onClose: () => voi
         </Cta>
       </form>
     </Sheet>
+  );
+}
+
+/* ---------- a budget in pesos or as a share of the monthly budget ------------ */
+
+type BudgetDraft = { kind: "amount" | "pct"; text: string };
+
+/** The draft as a setting; an unreadable % reads as -1 so Save stays off. */
+function draftSetting(d: BudgetDraft): BudgetSetting {
+  if (d.kind === "amount") return { kind: "amount", value: Number(d.text) || 0 };
+  if (!d.text.trim()) return { kind: "pct", value: 0 };
+  return { kind: "pct", value: parsePct(d.text) ?? -1 };
+}
+
+const UNITS = ["₱ Amount", "% of budget"] as const;
+
+/**
+ * Budget entry with a ₱ / % switch. Switching converts what's typed, so 12,600 of a 63,000
+ * budget becomes 20% and back. A % stays a % when the monthly budget changes.
+ */
+function BudgetField({ draft, onChange, base, onEnter }: { draft: BudgetDraft; onChange: (d: BudgetDraft) => void; base: number; onEnter: () => void }) {
+  const setting = draftSetting(draft);
+  const switchTo = (u: (typeof UNITS)[number]) => {
+    const kind = u === UNITS[0] ? "amount" : "pct";
+    if (kind === draft.kind) return;
+    if (kind === "pct") {
+      const pct = base > 0 && setting.value > 0 ? Math.min(100, Math.round((setting.value / base) * 1000) / 10) : 0;
+      onChange({ kind, text: pct ? String(pct) : "" });
+    } else onChange({ kind, text: setting.value > 0 ? String(pctOf(setting.value, base)) : "" });
+  };
+  return (
+    <div>
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <Eyebrow>MONTHLY BUDGET</Eyebrow>
+      </div>
+      <Segmented value={draft.kind === "amount" ? UNITS[0] : UNITS[1]} options={[...UNITS]} onChange={switchTo} />
+      <div className="mt-4">
+        {draft.kind === "amount" ? (
+          <AmountInput value={draft.text} onChange={(v) => onChange({ kind: "amount", text: amountDigits(v).digits })} onEnter={onEnter} sign="" autoFocus={false} />
+        ) : (
+          <label className="flex items-baseline gap-1.5 border-b border-line-strong pb-2 focus-within:border-accent">
+            <input
+              type="text"
+              inputMode="decimal"
+              autoComplete="off"
+              enterKeyHint="done"
+              aria-label="Share of the monthly budget, in percent"
+              aria-invalid={setting.value < 0}
+              placeholder="0"
+              value={draft.text}
+              onChange={(e) => onChange({ kind: "pct", text: e.target.value.replace(/[^\d.]/g, "").slice(0, 5) })}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  onEnter();
+                }
+              }}
+              style={{ width: `${Math.max(1, draft.text.length) + 0.3}ch` }}
+              className="tnum min-w-0 bg-transparent text-[40px] leading-none font-semibold tracking-[-0.02em] outline-none placeholder:text-mute"
+            />
+            <span aria-hidden className={cn("text-[30px] font-semibold", draft.text ? "text-fg" : "text-mute")}>
+              %
+            </span>
+          </label>
+        )}
+        <p role="status" className={cn("tnum mt-1.5 text-[12.5px]", setting.value < 0 ? "text-danger" : "text-fg-muted")}>
+          {setting.value < 0
+            ? "Up to 100%, one decimal at most."
+            : base <= 0
+              ? "Set a monthly budget first; a % is a share of it."
+              : draft.kind === "pct"
+                ? setting.value > 0
+                  ? `${peso(pctOf(setting.value, base))} of your ${peso(base)} monthly budget. It changes when the budget does.`
+                  : `A share of your ${peso(base)} monthly budget.`
+                : setting.value > 0
+                  ? `${Math.round((setting.value / base) * 1000) / 10}% of your ${peso(base)} monthly budget`
+                  : `Your monthly budget is ${peso(base)}.`}
+        </p>
+      </div>
+    </div>
   );
 }

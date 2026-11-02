@@ -183,6 +183,7 @@ export function toProfile(r: Row | null, goals: Row[], base: Profile): Profile {
     frequency: ((r?.frequency as Frequency) ?? base.frequency) || base.frequency,
     monthlyBudget: num(r?.monthly_budget),
     categoryBudgets: Object.fromEntries(Object.entries((r?.category_budgets as Record<string, unknown> | null) ?? {}).map(([k, v]) => [k, num(v)])),
+    categoryBudgetPct: Object.fromEntries(Object.entries((r?.category_budget_pct as Record<string, unknown> | null) ?? {}).map(([k, v]) => [k, num(v)])),
     goals: goals.map(toGoal),
   };
 }
@@ -195,6 +196,7 @@ export function profilePayload(p: Partial<Profile>): Row {
   if ("frequency" in p) r.frequency = p.frequency;
   if ("monthlyBudget" in p) r.monthly_budget = p.monthlyBudget;
   if ("categoryBudgets" in p) r.category_budgets = p.categoryBudgets;
+  if ("categoryBudgetPct" in p) r.category_budget_pct = p.categoryBudgetPct ?? {};
   return r;
 }
 

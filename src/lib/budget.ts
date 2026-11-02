@@ -1,7 +1,7 @@
 import { fixedCategories } from "./categories";
 import { startOfDay } from "./format";
 import { budgetPace, byCategory, inRange, isIncome, monthBounds, monthBudget } from "./selectors";
-import type { Category, Entry, LedgerState } from "./types";
+import type { Category, Entry, LedgerState, Profile } from "./types";
 
 /*
  * Pure numbers behind the Budget tab: one row for every spending category (spent, budget,
@@ -49,7 +49,8 @@ export function budgetRows(s: LedgerState, cats: Category[], at: Date, now: Date
 export function allocation(s: LedgerState, cats: Category[]) {
   const allocated = cats.reduce((n, c) => n + Math.max(0, s.profile.categoryBudgets[c] ?? 0), 0);
   const total = s.profile.monthlyBudget || monthBudget(s).full;
-  return { allocated, total, unallocated: Math.max(0, total - allocated), over: Math.max(0, allocated - total) };
+  const pct = total > 0 ? Math.round((allocated / total) * 100) : 0;
+  return { allocated, total, pct, unallocated: Math.max(0, total - allocated), over: Math.max(0, allocated - total) };
 }
 
 const spentOf = (entries: Entry[], cat: Category, from: Date, to: Date) =>
@@ -73,3 +74,29 @@ export function receivedBy(entries: Entry[], at: Date): Map<Category, number> {
 
 export const startOfMonth = (d: Date) => new Date(d.getFullYear(), d.getMonth(), 1);
 export const lastDayOf = (d: Date) => startOfDay(new Date(d.getFullYear(), d.getMonth() + 1, 0));
+
+/** A category budget as the Owner sets it: a fixed amount, or a share of the monthly budget. */
+export type BudgetSetting = { kind: "amount" | "pct"; value: number };
+
+/**
+ * The profile patch that sets (value > 0) or clears (0) one category's budget. A % budget
+ * goes in categoryBudgetPct; resolveProfilePatch then writes its pesos into categoryBudgets.
+ */
+export function categoryBudgetPatch(p: Profile, cat: Category, b: BudgetSetting): Partial<Profile> {
+  const budgets = { ...p.categoryBudgets };
+  const pct = { ...(p.categoryBudgetPct ?? {}) };
+  delete pct[cat];
+  delete budgets[cat];
+  if (b.value > 0) {
+    if (b.kind === "pct") pct[cat] = Math.min(100, Math.round(b.value * 10) / 10);
+    else budgets[cat] = Math.round(b.value);
+  }
+  return { categoryBudgets: budgets, categoryBudgetPct: pct };
+}
+
+/** "20%" → 20, "12.5" → 12.5; anything else (or over 100) → null. */
+export function parsePct(s: string): number | null {
+  if (!/^\d{0,3}(\.\d?)?$/.test(s.trim()) || !s.trim()) return null;
+  const n = Number(s);
+  return Number.isFinite(n) && n > 0 && n <= 100 ? n : null;
+}

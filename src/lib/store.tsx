@@ -1,9 +1,10 @@
 import * as React from "react";
-import { categoryNameError, SYSTEM_CATEGORIES, userCategories, FIXED_BUILT_INS, MONTHLY_BUILT_INS } from "./categories";
+import { categoryNameError, dropKey, renameKey, SYSTEM_CATEGORIES, userCategories, FIXED_BUILT_INS, MONTHLY_BUILT_INS } from "./categories";
 import { canRefund, detachAccounts } from "./entry-rules";
 import { localDay } from "./format";
 import { localStoragePhotoStore, localStorageRepository, type LedgerRepository } from "./persistence";
 import { buildDemo, EMPTY_STATE } from "./seed";
+import { resolveProfilePatch } from "./selectors";
 import { cloud } from "./supabase";
 import type { Account, Category, CategoryDef, Entry, LedgerState, Profile } from "./types";
 
@@ -145,7 +146,7 @@ export function reducer(s: LedgerState, a: Action): LedgerState {
     case "remove-account":
       return { ...s, accounts: s.accounts.filter((x) => x.id !== a.id), entries: detachAccounts(s.entries, (id) => id === a.id) };
     case "update-profile":
-      return { ...s, profile: { ...s.profile, ...a.patch } };
+      return { ...s, profile: { ...s.profile, ...resolveProfilePatch(s, a.patch) } };
     case "ask": {
       const day = localDay();
       const n = s.questionsDate === day ? s.questionsToday + 1 : 1;
@@ -162,11 +163,8 @@ export function reducer(s: LedgerState, a: Action): LedgerState {
       const to = a.to.trim();
       const def = defs.find((d) => d.name === a.from);
       if (!def || SYSTEM_CATEGORIES.includes(a.from) || a.from === to || categoryNameError(to, defs, a.from)) return s;
-      const budgets = { ...s.profile.categoryBudgets };
-      if (a.from in budgets) {
-        budgets[to] = budgets[a.from];
-        delete budgets[a.from];
-      }
+      const budgets = renameKey(s.profile.categoryBudgets, a.from, to);
+      const pct = s.profile.categoryBudgetPct && renameKey(s.profile.categoryBudgetPct, a.from, to);
       return {
         ...s,
         // a renamed built-in keeps the nature it had
@@ -180,7 +178,7 @@ export function reducer(s: LedgerState, a: Action): LedgerState {
             : d,
         ),
         entries: recategorize(s.entries, a.from, to),
-        profile: { ...s.profile, categoryBudgets: budgets },
+        profile: { ...s.profile, categoryBudgets: budgets, ...(pct ? { categoryBudgetPct: pct } : {}) },
       };
     }
     case "delete-category": {
@@ -189,11 +187,12 @@ export function reducer(s: LedgerState, a: Action): LedgerState {
       if (!def || SYSTEM_CATEGORIES.includes(a.name) || a.moveTo === a.name) return s;
       if (!defs.some((d) => d.name === a.moveTo) && !SYSTEM_CATEGORIES.includes(a.moveTo)) return s;
       const { [a.name]: _gone, ...budgets } = s.profile.categoryBudgets;
+      const pct = s.profile.categoryBudgetPct && dropKey(s.profile.categoryBudgetPct, a.name);
       return {
         ...s,
         categories: defs.filter((d) => d !== def),
         entries: recategorize(s.entries, a.name, a.moveTo),
-        profile: { ...s.profile, categoryBudgets: budgets },
+        profile: { ...s.profile, categoryBudgets: budgets, ...(pct ? { categoryBudgetPct: pct } : {}) },
       };
     }
     case "hydrate":

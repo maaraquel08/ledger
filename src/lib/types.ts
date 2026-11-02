@@ -130,6 +130,8 @@ export interface Profile {
   sideIncome?: SideIncome[];
   monthlyBudget: number;
   categoryBudgets: Partial<Record<Category, number>>;
+  /** budgets set as a share of the monthly budget; categoryBudgets holds them resolved to pesos */
+  categoryBudgetPct?: Partial<Record<Category, number>>;
   goals: Goal[];
   /** @deprecated per-ticker holdings were removed; only older stored data may carry it */
   holdings?: Holding[];
