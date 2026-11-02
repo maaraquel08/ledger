@@ -11,7 +11,7 @@ import { inRange, isIncome, isSpend, ledgerStart, monthBounds, spendParts, verdi
 import { useLedger } from "@/lib/store";
 import { todayBudget } from "@/lib/today";
 import type { Category, Entry } from "@/lib/types";
-import { Goals, TotalSheet } from "@/screens/plan";
+import { TotalSheet } from "@/screens/plan";
 import { MathSheet } from "@/screens/today-sheets";
 
 /*
@@ -179,8 +179,6 @@ export function Budget({ path }: { path: string }) {
           </ul>
         )}
       </section>
-
-      <Goals />
 
       {sheet ? <CategorySheet key={`${sheet.kind}-${sheet.cat}`} cat={sheet.cat} kind={sheet.kind} at={at} onClose={() => setSheet(null)} /> : null}
       <NewCategorySheet open={newOpen} onClose={() => setNewOpen(false)} />
