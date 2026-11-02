@@ -16,11 +16,10 @@ import {
   savingsRate,
   shiftPeriod,
   spendCalendar,
-  tickLabel,
-  trendSeries,
+  periodSteps,
   type Headline,
   type SpendDay,
-  type TrendPoint,
+  type StepPoint,
 } from "@/lib/analytics";
 import { cn } from "@/lib/cn";
 import { addDays, balance, compact, dayName, monthName, monthShort, peso, sameDay } from "@/lib/format";
@@ -183,81 +182,90 @@ const SERIES: { key: Series; label: string; dot: string; stroke: string }[] = [
   { key: "in", label: "Income", dot: "bg-chart-in", stroke: "var(--color-chart-in)" },
   { key: "out", label: "Spending", dot: "bg-chart-out", stroke: "var(--color-chart-out)" },
 ];
+const WEEKDAY_TICKS = ["M", "T", "W", "T", "F", "S", "S"];
+const STEP: Record<PeriodKind, string> = { week: "day", month: "day", year: "month" };
+
+/** "Tue 3 Nov" for a day, "Oct" for a month. */
+const stepName = (kind: PeriodKind, d: Date) => (kind === "year" ? monthName(d) : `${dayName(d).slice(0, 3)} ${d.getDate()} ${monthShort(d)}`);
+/** Under the axis: weekday letters, every fifth day of a month, month letters. */
+function stepTick(kind: PeriodKind, d: Date, i: number) {
+  if (kind === "week") return WEEKDAY_TICKS[i];
+  if (kind === "year") return monthShort(d)[0];
+  const n = d.getDate();
+  return n === 1 || n % 5 === 0 ? `${n}` : "";
+}
 
 /**
- * Income and spending as two lines over the last few periods. The legend is a filter: either
- * line, or both (never neither). Each period is a tap target that opens it.
+ * Income and spending through the selected week, month or year, as two running-total lines.
+ * The legend filters: tap Income or Spending to show only that line; tap it again for both.
+ * Tapping a step shows its figures.
  */
-function TrendChart({ kind, points, onPick }: { kind: PeriodKind; points: TrendPoint[]; onPick: (from: Date) => void }) {
+function TrendChart({ kind, steps, label }: { kind: PeriodKind; steps: StepPoint[]; label: string }) {
   const [table, setTable] = React.useState(false);
-  const [shown, setShown] = React.useState<Record<Series, boolean>>({ in: true, out: true });
-  const visible = SERIES.filter((x) => shown[x.key]);
-  const max = Math.max(...points.flatMap((p) => visible.map((x) => p[x.key])), 1);
-  const sel = points.find((p) => p.selected) ?? points[points.length - 1];
-  const title = points.length === 1 ? `ONE ${UNIT[kind].toUpperCase()}` : `LAST ${points.length} ${UNIT[kind].toUpperCase()}S`;
-  const name = (p: TrendPoint) => `${periodLabel(kind, p.from)}${p.current ? " so far" : ""}`;
-  // each point sits mid-column, so lines, dots and tick labels line up
-  const x = (i: number) => ((i + 0.5) / points.length) * 100;
+  const [only, setOnly] = React.useState<Series | null>(null);
+  const done = steps.filter((p) => !p.future);
+  const [picked, setPicked] = React.useState<number | null>(null);
+  const sel = picked != null && picked < done.length ? picked : done.length - 1;
+  const visible = SERIES.filter((x) => !only || x.key === only);
+  const soFar = (p: StepPoint, k: Series) => (k === "in" ? p.inSoFar : p.outSoFar);
+  const max = Math.max(...done.flatMap((p) => visible.map((x) => soFar(p, x.key))), 1);
+  const x = (i: number) => ((i + 0.5) / steps.length) * 100;
   const y = (v: number) => 100 - (v / max) * 92;
-  const toggle = (k: Series) => setShown((s) => (s[k] && !s[k === "in" ? "out" : "in"] ? s : { ...s, [k]: !s[k] }));
+  const at = done[sel];
 
   return (
     <Section
-      title={`TREND · ${title}`}
+      title={`TREND · ${label.toUpperCase()} BY ${STEP[kind].toUpperCase()}`}
       aside={
         <button type="button" aria-pressed={table} onClick={() => setTable((t) => !t)} className="-my-3 -mr-2 flex h-11 flex-none items-center px-2 text-[13px] whitespace-nowrap text-fg-muted active:opacity-60">
           {table ? "Show chart" : "Show table"}
         </button>
       }
     >
-      <div role="group" aria-label="Lines to show" className="mt-3 flex items-center gap-2">
-        {SERIES.map((x) => (
+      <div role="group" aria-label="Show only" className="mt-3 flex items-center gap-2">
+        {SERIES.map((sr) => (
           <button
-            key={x.key}
+            key={sr.key}
             type="button"
-            aria-pressed={shown[x.key]}
-            onClick={() => toggle(x.key)}
+            aria-pressed={only === sr.key}
+            onClick={() => setOnly((o) => (o === sr.key ? null : sr.key))}
             className={cn(
               "flex h-8 items-center gap-1.5 rounded-full border px-3 text-[12px] transition-colors duration-fast",
-              shown[x.key] ? "border-line-strong text-fg" : "border-line text-fg-subtle",
+              only === sr.key ? "border-accent bg-accent font-semibold text-accent-fg" : "border-line-strong text-fg active:bg-surface",
             )}
           >
-            <span className={cn("size-2 rounded-full", shown[x.key] ? x.dot : "bg-fill")} />
-            {x.label}
+            <span className={cn("size-2 rounded-full", sr.dot)} />
+            {sr.label}
           </button>
         ))}
       </div>
 
       {table ? (
         <table className="tnum mt-3 w-full text-[13px]">
-          <caption className="sr-only">Income and spending per {UNIT[kind]}</caption>
+          <caption className="sr-only">Income and spending per {STEP[kind]} in {label}</caption>
           <thead>
             <tr className="border-b border-line text-left font-mono text-[9.5px] tracking-[0.1em] text-fg-subtle">
               <th scope="col" className="py-2 font-semibold">
-                {UNIT[kind].toUpperCase()}
+                {STEP[kind].toUpperCase()}
               </th>
-              <th scope="col" className="py-2 text-right font-semibold">
-                INCOME
-              </th>
-              <th scope="col" className="py-2 text-right font-semibold">
-                SPENDING
-              </th>
-              <th scope="col" className="py-2 text-right font-semibold">
-                NET
-              </th>
+              {visible.map((sr) => (
+                <th key={sr.key} scope="col" className="py-2 text-right font-semibold">
+                  {sr.label.toUpperCase()}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody className="divide-y divide-line">
-            {[...points].reverse().map((p) => (
-              <tr key={p.from.toISOString()} className={cn(p.selected && "font-semibold")}>
-                <th scope="row" className="py-2.5 text-left font-[inherit]">
-                  <button type="button" onClick={() => onPick(p.from)} className="min-h-6 text-left underline-offset-4 active:opacity-60" aria-current={p.selected ? "true" : undefined}>
-                    {name(p)}
-                  </button>
+            {[...done].reverse().filter((p) => p.in || p.out).map((p) => (
+              <tr key={p.from.toISOString()}>
+                <th scope="row" className="py-2.5 text-left font-normal">
+                  {stepName(kind, p.from)}
                 </th>
-                <td className="py-2.5 text-right">{peso(p.in)}</td>
-                <td className="py-2.5 text-right">{peso(p.out)}</td>
-                <td className={cn("py-2.5 text-right", p.net < 0 && "text-danger")}>{balance(p.net)}</td>
+                {visible.map((sr) => (
+                  <td key={sr.key} className="py-2.5 text-right">
+                    {peso(p[sr.key])}
+                  </td>
+                ))}
               </tr>
             ))}
           </tbody>
@@ -275,13 +283,12 @@ function TrendChart({ kind, points, onPick }: { kind: PeriodKind; points: TrendP
                 ))}
                 <div className="absolute inset-x-0 bottom-0 border-t border-line-strong" />
               </div>
-              {/* the selected period's column */}
-              <div className="pointer-events-none absolute inset-y-0 rounded-[4px] bg-surface" style={{ left: `${x(points.indexOf(sel)) - 50 / points.length}%`, width: `${100 / points.length}%` }} aria-hidden />
+              {at ? <div className="pointer-events-none absolute inset-y-0 w-px bg-line-strong" style={{ left: `${x(sel)}%` }} aria-hidden /> : null}
               <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="absolute inset-0 size-full overflow-visible" aria-hidden>
                 {visible.map((sr) => (
                   <polyline
                     key={sr.key}
-                    points={points.map((p, i) => `${x(i)},${y(p[sr.key])}`).join(" ")}
+                    points={done.map((p, i) => `${x(i)},${y(soFar(p, sr.key))}`).join(" ")}
                     fill="none"
                     stroke={sr.stroke}
                     strokeWidth={2.25}
@@ -291,53 +298,52 @@ function TrendChart({ kind, points, onPick }: { kind: PeriodKind; points: TrendP
                   />
                 ))}
               </svg>
-              {/* dots as HTML so they stay round on a stretched chart */}
-              {visible.map((sr) =>
-                points.map((p, i) => (
-                  <span
-                    key={`${sr.key}${i}`}
-                    aria-hidden
-                    className={cn("pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-bg", sr.dot, p.selected ? "size-3" : "size-2")}
-                    style={{ left: `${x(i)}%`, top: `${y(p[sr.key])}%` }}
-                  />
-                )),
-              )}
+              {/* the picked step's dots, as HTML so they stay round on a stretched chart */}
+              {at
+                ? visible.map((sr) => (
+                    <span
+                      key={sr.key}
+                      aria-hidden
+                      className={cn("pointer-events-none absolute size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-bg", sr.dot)}
+                      style={{ left: `${x(sel)}%`, top: `${y(soFar(at, sr.key))}%` }}
+                    />
+                  ))
+                : null}
             </div>
-            <div role="group" aria-label={`Income and spending per ${UNIT[kind]}. Tap a ${UNIT[kind]} to open it.`} className="absolute inset-y-0 right-0 left-8 grid" style={{ gridTemplateColumns: `repeat(${points.length}, minmax(0, 1fr))` }}>
-              {points.map((p) => (
+            <div role="group" aria-label={`Each ${STEP[kind]} of ${label}. Tap one for its figures.`} className="absolute inset-y-0 right-0 left-8 grid" style={{ gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))` }}>
+              {steps.map((p, i) => (
                 <button
                   key={p.from.toISOString()}
                   type="button"
-                  aria-current={p.selected ? "true" : undefined}
-                  aria-label={`${name(p)}: income ${peso(p.in)}, spending ${peso(p.out)}`}
-                  onClick={() => onPick(p.from)}
-                  className="flex min-w-0 flex-col justify-end active:opacity-60"
+                  disabled={p.future}
+                  aria-current={i === sel ? "true" : undefined}
+                  aria-label={`${stepName(kind, p.from)}: income ${peso(p.in)}, spending ${peso(p.out)}`}
+                  onClick={() => setPicked(i)}
+                  className="flex min-w-0 flex-col justify-end"
                 >
-                  <span className={cn("translate-y-full truncate pt-1.5 text-center font-mono text-[10px]", p.selected ? "font-semibold text-fg" : "text-fg-subtle")}>
-                    {kind === "month" ? tickLabel(kind, p.from)[0] : tickLabel(kind, p.from)}
+                  <span className={cn("translate-y-full overflow-visible pt-1.5 text-center font-mono text-[10px] whitespace-nowrap", i === sel ? "font-semibold text-fg" : "text-fg-subtle")}>
+                    {stepTick(kind, p.from, i)}
                   </span>
                 </button>
               ))}
             </div>
           </div>
-          <div className="mt-8 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-[13px]" aria-live="polite">
-            <span className="font-medium">{name(sel)}</span>
-            {shown.in ? (
-              <span className="flex items-center gap-1.5 text-fg-muted">
-                <span className="h-0.5 w-3 rounded-full bg-chart-in" aria-hidden />
-                In <span className="tnum font-medium text-fg">{peso(sel.in)}</span>
-              </span>
-            ) : null}
-            {shown.out ? (
-              <span className="flex items-center gap-1.5 text-fg-muted">
-                <span className="h-0.5 w-3 rounded-full bg-chart-out" aria-hidden />
-                Out <span className="tnum font-medium text-fg">{peso(sel.out)}</span>
-              </span>
-            ) : null}
-          </div>
+          {at ? (
+            <div className="mt-8 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-[13px]" aria-live="polite">
+              <span className="font-medium">{stepName(kind, at.from)}</span>
+              {visible.map((sr) => (
+                <span key={sr.key} className="flex items-center gap-1.5 text-fg-muted">
+                  <span className={cn("size-2 rounded-full", sr.dot)} aria-hidden />
+                  {sr.key === "in" ? "In" : "Out"} <span className="tnum font-medium text-fg">{peso(at[sr.key])}</span>
+                  <span className="tnum text-fg-subtle">· {peso(soFar(at, sr.key))} so far</span>
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-8 text-[13px] text-fg-muted">Nothing yet in {label}.</p>
+          )}
         </>
       )}
-      {points.length === 1 ? <p className="mt-2 text-[13px] text-fg-muted">This is the first {UNIT[kind]} in your ledger. The trend fills in as you log.</p> : null}
     </Section>
   );
 }
@@ -701,7 +707,7 @@ export function Analytics({ path }: { path: string }) {
   const h = headline(all, kind, from, to, now, start);
   const list = inRange(all, from, to);
   const prevList = inRange(all, h.prior.from, h.prior.to);
-  const points = trendSeries(all, kind, from, now, start);
+  const steps = periodSteps(all, kind, from, now);
   const mb = kind === "month" ? monthBudget(state, current ? now : lastDay(to)) : null;
   const budget = { budget: mb?.budget ?? 0, current, pace: mb && current ? budgetPace(mb, now) : 1 };
   const cards = findings({ kind, from, to, now, label, h, list, prevList, all, budget });
@@ -737,12 +743,12 @@ export function Analytics({ path }: { path: string }) {
         <SourceLink bare count={list.filter((e) => isSpend(e) || isIncome(e)).length} to={entriesHref(all, list.filter((e) => isSpend(e) || isIncome(e)), `Income and spending · ${label}`)} />
       </section>
 
-      <TrendChart kind={kind} points={points} onPick={(f) => go(kind, f)} />
+      <TrendChart key={`${kind}${from.getTime()}`} kind={kind} steps={steps} label={label} />
 
       {kind === "month" ? <SpendCalendar from={from} now={now} /> : null}
 
       {empty ? (
-        <p className="px-6 pt-9 text-[14px] text-fg-muted">Nothing logged in {label}. Step back to an earlier {UNIT[kind]}, or tap a bar.</p>
+        <p className="px-6 pt-9 text-[14px] text-fg-muted">Nothing logged in {label}. Step back to an earlier {UNIT[kind]}.</p>
       ) : (
         <>
           <Section title="WHAT THIS MEANS" ai>

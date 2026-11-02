@@ -10,7 +10,7 @@ import {
   shiftPeriod,
   spendCalendar,
   trailingAverage,
-  trendSeries,
+  periodSteps,
 } from "../../src/lib/analytics";
 import { priorPeriod } from "../../src/lib/selectors";
 import type { Entry } from "../../src/lib/types";
@@ -63,32 +63,35 @@ describe("period stepping and labels", () => {
 
 /* ---------- trend --------------------------------------------------------- */
 
-describe("trendSeries", () => {
+describe("periodSteps", () => {
   const entries = [
-    e("Payroll", "Salary", 50_000, at(2026, 8, 5)),
-    e("Rent", "Rent & bills", -18_000, at(2026, 8, 3)),
     e("Payroll", "Salary", 50_000, at(2026, 9, 5)),
+    e("Rent", "Rent & bills", -18_000, at(2026, 9, 3)),
     e("VOO", "Investments", -8_000, at(2026, 9, 6)), // a move, never spending
     e("Lunch", "Food & drink", -400, at(2026, 9, 7), { refunded: true }), // refunded, not spending
+    e("Coffee", "Food & drink", -200, at(2026, 9, 7)),
+    e("Grab", "Transport", -300, at(2026, 8, 30)), // September: outside
   ];
 
-  test("twelve months ending now, trimmed to the ledger's start, current flagged", () => {
-    const s = trendSeries(entries, "month", new Date(2026, 9, 1), NOW, new Date(2026, 8, 3));
-    expect(s.map((p) => p.from.getMonth())).toEqual([8, 9]);
-    expect(s[1]).toMatchObject({ in: 50_000, out: 0, current: true, selected: true });
-    expect(s[0]).toMatchObject({ in: 50_000, out: 18_000, current: false, selected: false });
+  test("a month by day, with running totals that end at the month's totals", () => {
+    const s = periodSteps(entries, "month", new Date(2026, 9, 1), new Date(2026, 9, 31, 12));
+    expect(s).toHaveLength(31);
+    expect(s[2]).toMatchObject({ in: 0, out: 18_000, inSoFar: 0, outSoFar: 18_000 });
+    expect(s[6]).toMatchObject({ out: 200, inSoFar: 50_000, outSoFar: 18_200 });
+    expect(s[30]).toMatchObject({ inSoFar: 50_000, outSoFar: 18_200, future: false });
   });
 
-  test("a selection older than the window moves the window to end at it", () => {
-    const s = trendSeries([], "week", new Date(2026, 0, 5), NOW, new Date(2025, 0, 1));
-    expect(s).toHaveLength(8);
-    expect(s[7].from).toEqual(new Date(2026, 0, 5));
-    expect(s[7].selected).toBe(true);
+  test("steps after now are future", () => {
+    const s = periodSteps(entries, "month", new Date(2026, 9, 1), new Date(2026, 9, 10, 9));
+    expect(s.filter((p) => !p.future)).toHaveLength(10);
   });
 
-  test("years: only those the ledger covers, up to five", () => {
-    const s = trendSeries([], "year", new Date(2026, 0, 1), NOW, new Date(2025, 5, 1));
-    expect(s.map((p) => p.from.getFullYear())).toEqual([2025, 2026]);
+  test("a week by day, a year by month", () => {
+    expect(periodSteps([], "week", new Date(2026, 9, 5), NOW)).toHaveLength(7);
+    const y = periodSteps(entries, "year", new Date(2026, 0, 1), new Date(2026, 11, 31));
+    expect(y).toHaveLength(12);
+    expect(y[8]).toMatchObject({ out: 300 });
+    expect(y[9]).toMatchObject({ in: 50_000, out: 18_200 });
   });
 });
 

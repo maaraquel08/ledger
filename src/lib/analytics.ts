@@ -39,13 +39,6 @@ export function periodLabel(kind: PeriodKind, from: Date) {
     : `${monthShort(from)} ${from.getDate()}–${monthShort(end)} ${end.getDate()}`;
 }
 
-/** Bar label under the trend chart: "20" (week of Oct 20), "O", "2026". */
-export function tickLabel(kind: PeriodKind, from: Date) {
-  if (kind === "year") return `${from.getFullYear()}`;
-  if (kind === "month") return monthShort(from);
-  return `${from.getDate()}`;
-}
-
 /** /analytics?p=week|month|year&at=YYYY-MM-DD → the period shown; a future date clamps to now. */
 export function readAnalyticsQuery(params: URLSearchParams, now = new Date()): { kind: PeriodKind; from: Date } {
   const p = params.get("p");
@@ -61,41 +54,38 @@ export const analyticsHref = (kind: PeriodKind, from: Date) => `/analytics?p=${k
 /** First period the ledger has data for: the one containing its start. */
 const firstPeriod = (kind: PeriodKind, start: Date) => periodBounds(kind, start)[0];
 
-/* ---------- trend ----------------------------------------------------------- */
+/* ---------- inside one period: running totals ------------------------------ */
 
-export const TREND_LENGTH: Record<PeriodKind, number> = { week: 8, month: 12, year: 5 };
-
-export interface TrendPoint {
+export interface StepPoint {
+  /** start of the step: a day (week, month) or a month (year) */
   from: Date;
-  to: Date;
+  /** income and spending in this step alone */
   in: number;
   out: number;
-  net: number;
-  /** contains today, so still going */
-  current: boolean;
-  selected: boolean;
+  /** running totals from the start of the period through this step */
+  inSoFar: number;
+  outSoFar: number;
+  /** hasn't started yet: drawn as axis only */
+  future: boolean;
 }
 
 /**
- * Income and spending per period: the last 8 weeks / 12 months / 5 years, ending at
- * the current period while the selected one is inside that window, else at the selected
- * one. Periods before the ledger's first are dropped; the selected one always stays.
+ * The selected period split into steps (days of a week or month, months of a year), with
+ * running totals so income and spending read as two trend lines that end at the period's totals.
  */
-export function trendSeries(entries: Entry[], kind: PeriodKind, selected: Date, now = new Date(), start = now): TrendPoint[] {
-  const n = TREND_LENGTH[kind];
-  const cur = periodBounds(kind, now)[0];
-  const end = shiftPeriod(kind, cur, -(n - 1)).getTime() <= selected.getTime() ? cur : selected;
-  const first = firstPeriod(kind, start).getTime();
-  const out: TrendPoint[] = [];
-  for (let i = n - 1; i >= 0; i--) {
-    const from = shiftPeriod(kind, end, -i);
-    const isSel = from.getTime() === selected.getTime();
-    if (from.getTime() < first && !isSel) continue;
-    const to = shiftPeriod(kind, from, 1);
-    const t = totals(inRange(entries, from, to));
-    out.push({ from, to, in: t.in, out: t.out, net: t.net, current: from.getTime() === cur.getTime(), selected: isSel });
-  }
-  return out;
+export function periodSteps(entries: Entry[], kind: PeriodKind, from: Date, now = new Date()): StepPoint[] {
+  const to = shiftPeriod(kind, from, 1);
+  const steps: Date[] = [];
+  for (let d = from; d < to; d = kind === "year" ? new Date(d.getFullYear(), d.getMonth() + 1, 1) : addDays(d, 1)) steps.push(d);
+  let inSoFar = 0;
+  let outSoFar = 0;
+  return steps.map((step, i) => {
+    const next = steps[i + 1] ?? to;
+    const t = totals(inRange(entries, step, next));
+    inSoFar += t.in;
+    outSoFar += t.out;
+    return { from: step, in: t.in, out: t.out, inSoFar, outSoFar, future: step.getTime() > now.getTime() };
+  });
 }
 
 /* ---------- comparisons ----------------------------------------------------- */
