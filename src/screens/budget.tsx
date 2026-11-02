@@ -177,8 +177,8 @@ export function Budget({ path }: { path: string }) {
         )}
       </section>
 
-      {/* the one action on this tab: pinned above the tab bar, where the floating + would be */}
-      <div className="sticky bottom-[calc(66px+env(safe-area-inset-bottom))] z-10 mt-6 bg-bg/95 px-6 pt-3 pb-3 backdrop-blur-sm">
+      {/* the one action on this tab: fixed right above the tab bar, where the floating + would be; Screen tabbed leaves room for it */}
+      <div className="fixed inset-x-0 bottom-[calc(66px+env(safe-area-inset-bottom))] z-20 mx-auto w-full max-w-[430px] bg-bg/95 px-6 pt-3 pb-3 backdrop-blur-sm">
         <Cta onClick={() => setNewOpen(true)}>+ New category</Cta>
       </div>
 
