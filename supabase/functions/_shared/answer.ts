@@ -15,6 +15,8 @@ export interface Answer {
   offer?: { label: string; name: string; target: number; by: string };
   sources: string[];
   followups: string[];
+  /** true when this is the server's template, not the model's answer: the client says so */
+  fallback?: boolean;
 }
 
 /** What Claude returns (schemas.ts CHAT_ANSWER_SCHEMA). */
@@ -129,6 +131,7 @@ export function fallbackAnswer(reg: FactRegistry, now: { year: number }): Answer
     text,
     sources,
     followups: [],
+    fallback: true,
   };
 }
 

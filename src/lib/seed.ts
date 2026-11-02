@@ -6,11 +6,9 @@ export const EMPTY_PROFILE: Profile = {
   initials: "",
   income: 0,
   frequency: "Twice a month",
-  sideIncome: [],
   monthlyBudget: 0,
   categoryBudgets: {},
   goals: [],
-  holdings: [],
 };
 
 export const EMPTY_STATE: LedgerState = {
@@ -38,25 +36,25 @@ const DEMO_ACCOUNTS: Account[] = [
   { id: "a-mari", name: "Emergency fund", provider: "maribank", providerLabel: "MariBank", type: "bank", kind: "SAVINGS", last4: "5510", balance: 62000, rate: "4.5% p.a." },
   { id: "a-gcash", name: "Daily wallet", provider: "gcash", providerLabel: "GCash", type: "ewallet", kind: "WALLET", last4: "8871", balance: 18900 },
   { id: "a-cash", name: "Pocket cash", provider: "cash", providerLabel: "Cash", type: "cash", kind: "PHYSICAL", balance: 5000 },
-  { id: "a-rcbc", name: "The card", provider: "rcbc", providerLabel: "RCBC JCB", type: "credit", kind: "CREDIT", last4: "4402", balance: 18240 },
+  { id: "a-maya", name: "Online wallet", provider: "maya", providerLabel: "Maya", type: "ewallet", kind: "WALLET", last4: "3306", balance: 9400 },
   { id: "a-ibkr", name: "Investments", provider: "ibkr", providerLabel: "IBKR", type: "investments", kind: "BROKERAGE", balance: 1070630 },
 ];
 
 type Spend = [string, Category, string, number, number]; // desc, cat, account, min, max
 const DAILY: Spend[] = [
   ["Grab", "Transport", "a-gcash", 160, 420],
-  ["Starbucks", "Food & drink", "a-rcbc", 240, 460],
+  ["Starbucks", "Food & drink", "a-maya", 240, 460],
   ["Jollibee", "Food & drink", "a-gcash", 180, 320],
   ["lunch", "Food & drink", "a-gcash", 150, 260],
   ["7-Eleven", "Groceries", "a-gcash", 80, 220],
-  ["Landers Superstore", "Groceries", "a-rcbc", 900, 2800],
+  ["Landers Superstore", "Groceries", "a-maya", 900, 2800],
   ["palengke", "Groceries", "a-cash", 600, 1400],
   ["Shopee", "Shopping", "a-gcash", 350, 1900],
-  ["Tim Hortons", "Food & drink", "a-rcbc", 220, 360],
-  ["Shell fuel", "Transport", "a-rcbc", 1200, 2100],
-  ["dinner w/ friends", "Food & drink", "a-rcbc", 700, 1800],
-  ["Uniqlo", "Shopping", "a-rcbc", 990, 2490],
-  ["Watsons", "Health", "a-rcbc", 250, 780],
+  ["Tim Hortons", "Food & drink", "a-maya", 220, 360],
+  ["Shell fuel", "Transport", "a-maya", 1200, 2100],
+  ["dinner w/ friends", "Food & drink", "a-maya", 700, 1800],
+  ["Uniqlo", "Shopping", "a-maya", 990, 2490],
+  ["Watsons", "Health", "a-maya", 250, 780],
   ["load", "Rent & bills", "a-gcash", 100, 300],
 ];
 
@@ -92,8 +90,8 @@ export function buildDemo(today = new Date()): LedgerState {
     if (day === 9) push({ desc: "Meralco", accountId: "a-bpi", category: "Rent & bills", amount: -between(2400, 3100), date: iso(d, 7), auto: true });
     if (day === 12) push({ desc: "Maynilad", accountId: "a-bpi", category: "Rent & bills", amount: -612, date: iso(d, 7), auto: true });
     if (day === 15) push({ desc: "PLDT Fibr", accountId: "a-bpi", category: "Rent & bills", amount: -2099, date: iso(d, 7), auto: true });
-    if (day === 18) push({ desc: "Netflix", accountId: "a-rcbc", category: "Subscriptions", amount: -549, date: iso(d, 6), auto: true });
-    if (day === 22) push({ desc: "Spotify", accountId: "a-rcbc", category: "Subscriptions", amount: -194, date: iso(d, 6), auto: true });
+    if (day === 18) push({ desc: "Netflix", accountId: "a-bpi", category: "Subscriptions", amount: -549, date: iso(d, 6), auto: true });
+    if (day === 22) push({ desc: "Spotify", accountId: "a-bpi", category: "Subscriptions", amount: -194, date: iso(d, 6), auto: true });
     if (day === 6) {
       // an invest is a move: out of the payroll account, into the brokerage (D-0010)
       const date = iso(d, 21);
@@ -101,13 +99,24 @@ export function buildDemo(today = new Date()): LedgerState {
       push({ desc: "VOO", accountId: "a-bpi", category: "Investments", amount: -8000, date, linkId });
       push({ desc: "VOO", accountId: "a-ibkr", category: "Investments", amount: 8000, date, linkId });
     }
-    if (day === 25 && rand() > 0.35)
-      push({ desc: "Freelance · Studio K", accountId: "a-gcash", category: "Income", amount: 12000, date: iso(d, 16) });
+    if (day === 8) {
+      // a transfer between own accounts: out of one, into the other, never spending
+      const date = iso(d, 9);
+      const linkId = `l-topup-${d.getMonth() + 1}`;
+      push({ desc: "Top up GCash", accountId: "a-bpi", category: "Transfer", amount: -5000, date, linkId });
+      push({ desc: "Top up GCash", accountId: "a-gcash", category: "Transfer", amount: 5000, date, linkId });
+    }
+    if (day === 21) {
+      const date = iso(d, 9, 30);
+      const linkId = `l-save-${d.getMonth() + 1}`;
+      push({ desc: "To emergency fund", accountId: "a-bpi", category: "Transfer", amount: -10000, date, linkId });
+      push({ desc: "To emergency fund", accountId: "a-mari", category: "Transfer", amount: 10000, date, linkId });
+    }
     const count = isToday ? 0 : dow === 5 ? 3 : dow === 0 ? 1 : 2;
     for (let i = 0; i < count; i++) {
       const [desc, category, accountId, min, max] = pick(DAILY);
       const hi = dow === 5 ? 1.6 : 1;
-      push({ desc, category, accountId, amount: -between(min, max * hi), date: iso(d, 8 + Math.floor(rand() * 13), Math.floor(rand() * 60)), method: accountId === "a-rcbc" ? "Contactless" : undefined });
+      push({ desc, category, accountId, amount: -between(min, max * hi), date: iso(d, 8 + Math.floor(rand() * 13), Math.floor(rand() * 60)), method: accountId === "a-maya" ? "Contactless" : undefined });
     }
   }
 
@@ -115,7 +124,7 @@ export function buildDemo(today = new Date()): LedgerState {
   const yest = new Date(end);
   yest.setDate(yest.getDate() - 1);
   push({ desc: "Grab", accountId: "a-gcash", category: "Transport", amount: -248, date: iso(end, 8, 42), raw: "grab gcash 248" });
-  push({ desc: "Starbucks", accountId: "a-rcbc", category: "Food & drink", amount: -290, date: iso(end, 8, 14), raw: "starbucks rcbc jcb 290", method: "Contactless" });
+  push({ desc: "Starbucks", accountId: "a-maya", category: "Food & drink", amount: -290, date: iso(end, 8, 14), raw: "starbucks maya 290", method: "Contactless" });
   push({ desc: "Landers Superstore", accountId: "a-bpi", category: "Groceries", amount: -500, date: iso(end, 7, 30) });
   // The review queue: entries the parser couldn't fully file.
   push({ desc: "lunch w/ team", accountId: "a-cash", category: null, amount: -780, date: iso(yest, 13), raw: "lunch w/ team cash 780" });
@@ -124,31 +133,23 @@ export function buildDemo(today = new Date()): LedgerState {
 
   entries.sort((a, b) => b.date.localeCompare(a.date));
 
-  const dueDate = new Date(today.getFullYear(), today.getMonth() + 1, 15).toISOString();
   return {
     onboarded: true,
     demo: true,
     questionsToday: 0,
-    accounts: DEMO_ACCOUNTS.map((a) => (a.type === "credit" ? { ...a, dueDate } : a)),
+    accounts: DEMO_ACCOUNTS,
     entries,
     profile: {
       name: "Mika Reyes",
       initials: "MR",
       income: 48000,
       frequency: "Twice a month",
-      sideIncome: [{ id: "s1", label: "Freelance · Studio K", amount: 12000, frequency: "Irregular" }],
       monthlyBudget: 63000,
       categoryBudgets: { "Food & drink": 16000, Transport: 12000, Shopping: 14000, "Rent & bills": 21000 },
       goals: [
         { id: "g1", name: "Emergency fund", saved: 216000, target: 300000, by: "2027-01" },
         { id: "g2", name: "Japan trip", saved: 61500, target: 150000, by: "2027-04" },
         { id: "g3", name: "New laptop", saved: 11700, target: 65000, by: "2026-11" },
-      ],
-      holdings: [
-        { ticker: "VOO", name: "Vanguard S&P 500", shares: 12, value: 492400, change: 14.1 },
-        { ticker: "FMETF", name: "First Metro PH ETF", shares: 2400, value: 278300, change: -2.4 },
-        { ticker: "BND", name: "Total Bond Market", shares: 40, value: 192700, change: 3.0 },
-        { ticker: "JFC", name: "Jollibee Foods", shares: 380, value: 107230, change: 6.8 },
       ],
     },
   };

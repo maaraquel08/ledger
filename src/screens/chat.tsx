@@ -1,17 +1,16 @@
 import * as React from "react";
-import { ArrowUpIcon, ChevronLeft, ChevronRight, CloseIcon, MicIcon, MoreIcon, Sparkle } from "@/components/ledger/icons";
+import { ArrowUpIcon, ChevronLeft, ChevronRight, CloseIcon, MoreIcon, Sparkle } from "@/components/ledger/icons";
 import { AiSummaryLabel, AiSummaryText } from "@/components/ui/ai-summary/ai-summary";
-import { AiEyebrow, AiMark, AiPanel, Cta, ProviderMark, Eyebrow, EntryRow, Screen, Sheet } from "@/components/ledger/primitives";
+import { AiEyebrow, AiMark, AiPanel, Cta, Eyebrow, EntryRow, Screen, Sheet } from "@/components/ledger/primitives";
 import { cn } from "@/lib/cn";
-import { addDays, compact, goalLabel, goalMonth, localDay, monthName, monthShort, peso, sameDay, startOfDay } from "@/lib/format";
+import { addDays, compact, goalLabel, goalMonth, localDay, monthName, monthShort, peso, startOfDay } from "@/lib/format";
 import { back, navigate, query } from "@/lib/router";
 import { byCategory, inRange, isIncome, isSpend, monthBounds, netWorth, priorPeriod, spendParts, totals, verdict, weekBounds } from "@/lib/selectors";
 import { newId, useLedger } from "@/lib/store";
 import { todayBudget } from "@/lib/today";
-import { useVoice } from "@/lib/voice";
 import type { Category, Entry, LedgerState } from "@/lib/types";
 import { callFunction, timezone } from "@/lib/cloud/api";
-import { cloud } from "@/lib/supabase";
+import { cloud, sb } from "@/lib/supabase";
 import { useCloud } from "@/lib/cloud/provider";
 import { chatKey } from "@/lib/chat-history";
 
@@ -30,6 +29,8 @@ export interface Answer {
   offer?: { label: string; name: string; target: number; by: string };
   sources: string[];
   followups: string[];
+  /** set when this is not the AI's answer: why (shown under the answer) */
+  basic?: string;
 }
 
 const DISCRETIONARY: Category[] = ["Food & drink", "Shopping", "Transport", "Subscriptions", "Gifts", "Other"];
@@ -47,6 +48,17 @@ const CATEGORY_WORDS: [RegExp, Category][] = [
   [/health|medic|pharma/, "Health"],
 ];
 
+const MONTH_RE = /\b(?:in|during|for|of|on)\s+(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b/;
+const MONTH_KEYS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+
+/** A month named in the question ("in August"): its first day, the latest one not after today. */
+function namedMonth(lower: string, today: Date): Date | null {
+  const m = lower.match(MONTH_RE);
+  if (!m) return null;
+  const i = MONTH_KEYS.indexOf(m[1].slice(0, 3));
+  return new Date(today.getFullYear() - (i > today.getMonth() ? 1 : 0), i, 1);
+}
+
 /** The period a question is about: last month, this week, this year, or (by default) this month. */
 function periodOf(lower: string, today: Date) {
   if (/\btoday\b|\btonight\b/.test(lower)) {
@@ -56,6 +68,11 @@ function periodOf(lower: string, today: Date) {
   if (/\byesterday\b/.test(lower)) {
     const to = startOfDay(today);
     return { from: addDays(to, -1), to, label: "yesterday", current: false };
+  }
+  const named = namedMonth(lower, today);
+  if (named) {
+    const [from, to] = monthBounds(named);
+    return { from, to, label: `in ${monthName(named)}`, current: false };
   }
   if (/last week/.test(lower)) {
     const [from] = weekBounds(today);
@@ -226,6 +243,25 @@ export function respond(q: string, s: LedgerState, today = new Date()): Answer {
     };
   }
 
+  if (/(biggest|largest|most expensive)\b.*(expense|purchase|transaction|bought|buy)/.test(lower) && !/categor/.test(lower)) {
+    const p = periodOf(lower, today);
+    const top = inRange(s.entries, p.from, p.to)
+      .filter(isSpend)
+      .sort((a, b) => a.amount - b.amount)
+      .slice(0, 3);
+    if (!top.length) return { ...base, matched: { n: 0, label: "" }, text: `No spending logged ${p.label} yet.`, followups: [] };
+    const day = (e: Entry) => new Date(e.date).toLocaleDateString("en-PH", { month: "short", day: "numeric" });
+    const [first, ...rest] = top;
+    return {
+      ...base,
+      matched: { n: top.length, label: "largest expenses" },
+      text: `Your biggest expense ${p.label} was ${first.desc}: ${peso(first.amount)} on ${day(first)}.${rest.length ? ` Next: ${rest.map((e) => `${e.desc}, ${peso(e.amount)}`).join("; ")}.` : ""}`,
+      marks: [`${first.desc}: ${peso(first.amount)}`],
+      sources: ids(top),
+      followups: ["What’s my biggest category?", "Compare to last month"],
+    };
+  }
+
   if (/(biggest|largest|top|most)\b.*(categor|spend|spent|expense|money)|categor.*(biggest|largest|most|top)/.test(lower)) {
     const p = periodOf(lower, today);
     const inPeriod = inRange(s.entries, p.from, p.to).filter(isSpend);
@@ -246,7 +282,9 @@ export function respond(q: string, s: LedgerState, today = new Date()): Answer {
     };
   }
 
-  if (/spen[dt]|spending/.test(lower) && /how much|what did i|total|so far/.test(lower)) {
+  const monthAsked = namedMonth(lower, today);
+  const catWord = CATEGORY_WORDS.some(([re]) => re.test(lower));
+  if ((/spen[dt]|spending/.test(lower) && /how much|what did i|total|so far/.test(lower)) || (monthAsked && (catWord || /spen[dt]|spending/.test(lower)))) {
     const p = periodOf(lower, today);
     const cat = CATEGORY_WORDS.find(([re]) => re.test(lower))?.[1];
     const inPeriod = inRange(s.entries, p.from, p.to).filter(isSpend);
@@ -393,7 +431,12 @@ export function respond(q: string, s: LedgerState, today = new Date()): Answer {
 
 const NO_ANSWER: Answer = { read: 0, matched: { n: 0, label: "" }, compareYear: 0, text: "", sources: [], followups: [] };
 
-type CloudReply = { kind: "answer"; ans: Answer } | { kind: "local" } | { kind: "error"; text: string };
+type CloudReply = { kind: "answer"; ans: Answer } | { kind: "local"; why: string } | { kind: "error"; text: string };
+
+/** The note under an answer that did not come from the AI. */
+export const basicNote = (why: string) => `Basic answer: ${why}`;
+export const WHY_OFFLINE = "you’re offline.";
+export const WHY_UNREACHABLE = "the AI couldn’t be reached.";
 
 /**
  * The chat function's request turns ({role, text}, supabase/functions/README.md). Only answered
@@ -415,26 +458,33 @@ export function chatMessages(history: Pick<Msg, "role" | "text" | "ans">[]): { r
   return out.slice(-12);
 }
 
-async function askCloud(history: Msg[]): Promise<CloudReply> {
+export async function askCloud(history: Msg[]): Promise<CloudReply> {
   const messages = chatMessages(history);
-  if (!navigator.onLine) return { kind: "local" };
+  if (!navigator.onLine) return { kind: "local", why: WHY_OFFLINE };
   let res;
   try {
     res = await callFunction("chat", { messages, tz: timezone() });
+    if (res.status === 401) {
+      // the session lapsed: refresh it once, then ask again (as capture does)
+      await sb().auth.refreshSession();
+      res = await callFunction("chat", { messages, tz: timezone() });
+    }
   } catch {
-    return { kind: "local" };
+    return { kind: "local", why: WHY_UNREACHABLE };
   }
-  if (res.status === 503 || res.status === 404) return { kind: "local" };
-  const d = (res.data ?? {}) as Partial<Answer> & { error?: string; message?: string };
+  if (res.status === 503 || res.status === 404) return { kind: "local", why: WHY_UNREACHABLE };
+  const d = (res.data ?? {}) as Partial<Answer> & { error?: string; message?: string; fallback?: boolean };
   if (res.status === 429)
     return { kind: "error", text: typeof d.message === "string" && d.message ? d.message : "You’ve asked me a lot today. I can answer again tomorrow; everything you log still saves." };
   if (!res.ok || typeof d.text !== "string")
     return { kind: "error", text: "I couldn’t answer just now. Try again in a moment." };
+  const { fallback, ...rest } = d;
   return {
     kind: "answer",
     ans: {
       ...NO_ANSWER,
-      ...d,
+      ...rest,
+      ...(fallback ? { basic: basicNote(WHY_UNREACHABLE) } : {}),
       matched: d.matched ?? NO_ANSWER.matched,
       sources: Array.isArray(d.sources) ? d.sources : [],
       followups: Array.isArray(d.followups) ? d.followups : [],
@@ -448,7 +498,6 @@ interface Msg {
   id: string;
   role: "user" | "ai";
   at?: number; // sent time
-  via?: "voice" | "text";
   text?: string; // user text or plain ai text
   q?: string; // the question an ai message answers
   status?: "loading" | "streaming" | "done";
@@ -522,26 +571,6 @@ export function Chat({ path }: { path: string }) {
   }, [menu]);
 
   const tb = todayBudget(state);
-  const [listening, setListening] = React.useState(false);
-  const voice = useVoice({
-    onDone: (t) => {
-      setListening(false);
-      send(t, "voice");
-    },
-    onError: () => setListening(false),
-  });
-
-  // Entries logged by voice today sit in the thread, in time order (v15).
-  const voiceToday = state.entries.filter((e) => e.source === "voice" && sameDay(new Date(e.date), new Date()));
-  const thread = [
-    ...voiceToday.map((e) => ({ t: new Date(e.date).getTime(), entry: e as Entry | undefined, msg: undefined as Msg | undefined })),
-    // a message without a time (an answer) stays right after the one before it
-    ...msgs.reduce<{ t: number; entry: Entry | undefined; msg: Msg | undefined }[]>((out, m) => {
-      out.push({ t: m.at ?? out.at(-1)?.t ?? 0, entry: undefined, msg: m });
-      return out;
-    }, []),
-  ].sort((a, b) => a.t - b.t);
-
   const active = msgs.find((m) => m.status === "loading" || m.status === "streaming");
   const lastDone = [...msgs].reverse().find((m) => m.role === "ai" && m.status === "done");
 
@@ -578,8 +607,8 @@ export function Chat({ path }: { path: string }) {
     el.style.height = `${Math.min(el.scrollHeight, 144)}px`;
   }, [text]);
 
-  const run = (question: string, via: "voice" | "text" = "text") => {
-    const user: Msg = { id: newId("m"), role: "user", text: question, at: Date.now(), via };
+  const run = (question: string) => {
+    const user: Msg = { id: newId("m"), role: "user", text: question, at: Date.now() };
     dispatch({ type: "ask" });
     if (!cloud) {
       const ai: Msg = { id: newId("m"), role: "ai", q: question, status: "loading", t0: Date.now(), words: 0, ans: respond(question, state) };
@@ -596,16 +625,16 @@ export function Chat({ path }: { path: string }) {
           if (m.id !== ai.id || m.status !== "loading") return m; // stopped meanwhile
           if (r.kind === "error") return { ...m, status: "done", text: r.text };
           // skip the reading steps: the server already read
-          return { ...m, ans: r.kind === "answer" ? r.ans : respond(question, snapshot), t0: Date.now() - STREAM_AT };
+          return { ...m, ans: r.kind === "answer" ? r.ans : { ...respond(question, snapshot), basic: basicNote(r.why) }, t0: Date.now() - STREAM_AT };
         }),
       ),
     );
   };
 
-  const send = (raw: string, via: "voice" | "text" = "text") => {
+  const send = (raw: string) => {
     const q = raw.trim().slice(0, MAX);
     if (!q || active) return;
-    run(q, via);
+    run(q);
     setText("");
   };
 
@@ -615,7 +644,7 @@ export function Chat({ path }: { path: string }) {
     sentQ.current = true;
     const q = query(path).get("q");
     if (q) {
-      send(q, query(path).get("via") === "voice" ? "voice" : "text");
+      send(q);
       navigate("/chat", { replace: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -653,9 +682,7 @@ export function Chat({ path }: { path: string }) {
       ? "Reading your entries…"
       : active
         ? "Answering…"
-        : listening
-          ? "Listening… release to send"
-          : "Reply or hold to talk…";
+        : "Ask about your money…";
 
   const sourceEntries = (sources ?? []).map((id) => state.entries.find((e) => e.id === id)).filter((e): e is Entry => !!e);
 
@@ -724,8 +751,8 @@ export function Chat({ path }: { path: string }) {
       </p>
 
       {/* thread */}
-      <div className={cn("flex-1 px-6 pt-2 pb-6", thread.length > 0 && "flex flex-col justify-end")}>
-        {thread.length === 0 ? (
+      <div className={cn("flex-1 px-6 pt-2 pb-6", msgs.length > 0 && "flex flex-col justify-end")}>
+        {msgs.length === 0 ? (
           <div className="pt-10">
             <div className="mx-auto flex size-12 items-center justify-center rounded-full border border-line-strong font-mono text-[18px] text-fg-muted">?</div>
             <h1 className="mt-4 text-center text-[20px] font-semibold tracking-[-0.01em]">Ask anything about your money</h1>
@@ -748,39 +775,14 @@ export function Chat({ path }: { path: string }) {
           <>
             <div className="mb-[22px] text-center font-mono text-[9.5px] font-medium tracking-[0.14em] text-fg-subtle">TODAY</div>
             <div className="flex flex-col gap-[22px]">
-              {thread.map(({ entry, msg }) => {
-                if (entry) {
-                  const a = state.accounts.find((x) => x.id === entry.accountId);
-                  return (
-                    <button
-                      key={entry.id}
-                      type="button"
-                      onClick={() => navigate(`/activity/${entry.id}`)}
-                      className="flex items-center gap-2.5 self-end rounded-[14px] border border-line px-3 py-2.5 text-left active:bg-surface"
-                    >
-                      <ProviderMark provider={a?.provider ?? null} size={28} radius={8} />
-                      <span>
-                        <span className="block text-[13px] font-medium">
-                          {entry.desc} · {entry.amount < 0 ? "−" : "+"}
-                          {peso(entry.amount)}
-                        </span>
-                        <span className="mt-0.5 block font-mono text-[9.5px] font-medium text-fg-subtle">LOGGED BY VOICE · {clock(entry.date)}</span>
-                      </span>
-                    </button>
-                  );
-                }
-                const m = msg!;
+              {msgs.map((m) => {
                 return m.role === "user" ? (
                   <div key={m.id} className="flex max-w-[80%] flex-col items-end gap-[5px] self-end">
                     <p className="rounded-[18px_18px_4px_18px] bg-accent px-[15px] py-[11px] text-[14.5px] leading-[1.4] break-words whitespace-pre-wrap text-accent-fg">
                       {m.text}
                     </p>
                     {m.at ? (
-                      <span className="flex items-center gap-1 font-mono text-[9.5px] font-medium text-fg-subtle">
-                        {m.via === "voice" ? <MicIcon size={10} /> : null}
-                        {m.via === "voice" ? "VOICE · " : ""}
-                        {clock(m.at)}
-                      </span>
+                      <span className="font-mono text-[9.5px] font-medium text-fg-subtle">{clock(m.at)}</span>
                     ) : null}
                   </div>
                 ) : (
@@ -855,39 +857,6 @@ export function Chat({ path }: { path: string }) {
             <button type="button" aria-label="Stop answering" onClick={stop} className="hit flex size-10 flex-none items-center justify-center rounded-full bg-accent text-accent-fg active:bg-accent-hover">
               <span className="size-3 rounded-[2px] bg-current" />
             </button>
-          ) : !text.trim() ? (
-            <button
-              type="button"
-              aria-label="Hold to talk"
-              onPointerDown={(e) => {
-                e.preventDefault();
-                (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
-                setListening(true);
-                voice.start();
-              }}
-              onPointerUp={() => voice.finish()}
-              onPointerCancel={() => {
-                voice.cancel();
-                setListening(false);
-              }}
-              onKeyDown={(e) => {
-                if ((e.key === " " || e.key === "Enter") && !e.repeat) {
-                  e.preventDefault();
-                  setListening(true);
-                  voice.start();
-                }
-              }}
-              onKeyUp={(e) => {
-                if (e.key === " " || e.key === "Enter") voice.finish();
-              }}
-              onContextMenu={(e) => e.preventDefault()}
-              className={cn(
-                "hit flex size-10 flex-none touch-none items-center justify-center rounded-full bg-highlight text-highlight-fg select-none [-webkit-touch-callout:none]",
-                listening && "shadow-[0_0_0_6px_color-mix(in_oklab,var(--color-highlight)_30%,var(--color-bg))]",
-              )}
-            >
-              <MicIcon size={18} />
-            </button>
           ) : (
             <button
               type="submit"
@@ -900,7 +869,6 @@ export function Chat({ path }: { path: string }) {
           )}
         </form>
         {showCounter ? <p className="tnum mt-1.5 pr-3 text-right font-mono text-[10.5px] text-fg-subtle">{text.length} / {MAX}</p> : null}
-        {listening && voice.heard ? <p className="mt-1.5 px-3 text-[13px] text-fg-muted">{voice.heard}</p> : null}
       </div>
 
       <Sheet open={sources !== null} onOpenChange={(o) => !o && setSources(null)} title={<AiEyebrow>SOURCES · {sourceEntries.length}</AiEyebrow>}>
@@ -986,7 +954,7 @@ function AiMessage({
     <div>
       <AiPanel label="M8">
         {shown > 0 ? (
-          <AiSummaryText className="mt-2.5 text-[15px]/[1.6]">
+          <AiSummaryText className="mt-2.5 text-[15px]/[1.6] whitespace-pre-line">
             {complete ? withMarks(a.text, a.marks) : words.slice(0, shown).join(" ")}
             {m.status === "streaming" ? <span className="ml-0.5 inline-block h-[1em] w-px translate-y-[2px] bg-bg motion-safe:animate-pulse" /> : null}
           </AiSummaryText>
@@ -1047,6 +1015,7 @@ function AiMessage({
 
         {complete && a.ask ? <AiSummaryText className="mt-4 text-[14.5px]/[1.65]">{a.ask}</AiSummaryText> : null}
       </AiPanel>
+      {complete && a.basic ? <p className="mt-2 text-[12.5px] leading-[1.4] text-fg-muted">{a.basic}</p> : null}
       {complete && (a.offer || a.followups.length) ? (
         <div className="mt-3 flex flex-wrap gap-2">
           {a.offer ? (

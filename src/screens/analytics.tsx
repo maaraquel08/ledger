@@ -1,7 +1,7 @@
 import * as React from "react";
 import { useChrome } from "@/components/ledger/chrome";
 import { ChevronLeft, ChevronRight } from "@/components/ledger/icons";
-import { AiCard, AiEyebrow, Cta, Delta, Eyebrow, PageTitle, Screen, Segmented } from "@/components/ledger/primitives";
+import { AiEyebrow, Cta, Delta, Eyebrow, PageTitle, Screen, Segmented } from "@/components/ledger/primitives";
 import {
   analyticsHref,
   categoryRows,
@@ -25,13 +25,11 @@ import {
   type TrendPoint,
 } from "@/lib/analytics";
 import { cn } from "@/lib/cn";
-import { addDays, balance, compact, dayName, monthName, monthShort, peso, stamp } from "@/lib/format";
+import { addDays, balance, compact, dayName, monthName, monthShort, peso } from "@/lib/format";
 import { navigate, query } from "@/lib/router";
 import { FIXED, budgetPace, byCategory, inRange, isIncome, isSpend, ledgerStart, monthBudget, type PeriodKind } from "@/lib/selectors";
 import { useLedger } from "@/lib/store";
-import { cloud } from "@/lib/supabase";
 import type { Entry } from "@/lib/types";
-import { LABEL, useInsights } from "@/screens/insights-inbox";
 import { entriesHref, type EntryKind } from "@/screens/ledger-list";
 
 /*
@@ -80,15 +78,22 @@ function SourceLink({ count, to, bare }: { count: number; to: string; bare?: boo
 }
 
 /** A tappable row: label (and meta), amount, optional trailing bit. */
-function Row({ label, meta, value, trail, onClick }: { label: React.ReactNode; meta?: React.ReactNode; value: React.ReactNode; trail?: React.ReactNode; onClick?: () => void }) {
+function Row({ label, meta, value, trail, onClick, bar }: { label: React.ReactNode; meta?: React.ReactNode; value: React.ReactNode; trail?: React.ReactNode; onClick?: () => void; bar?: { fraction: number; muted?: boolean } }) {
   const Tag = onClick ? "button" : "div";
   return (
     <Tag type={onClick ? "button" : undefined} onClick={onClick} className={cn("flex min-h-12 w-full items-center gap-3 py-2 text-left", onClick && "active:opacity-60")}>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[14.5px]">{label}</span>
         {meta ? <span className="mt-0.5 block truncate font-mono text-[10.5px] tracking-[0.04em] text-fg-subtle uppercase">{meta}</span> : null}
+        {/* length = share of the period's spending; the meta line says the same in words */}
+        {bar ? (
+          <span aria-hidden className="mt-1.5 block h-1.5 rounded-full bg-fill">
+            <span className={cn("block h-full rounded-full", bar.muted ? "bg-fg-subtle" : "bg-accent")} style={{ width: `${Math.max(1.5, Math.min(100, bar.fraction * 100))}%` }} />
+          </span>
+        ) : null}
       </span>
-      <span className="tnum text-[14.5px] font-medium whitespace-nowrap">{value}</span>
+      {/* a fixed width when barred, so every track ends at the same x */}
+      <span className={cn("tnum text-[14.5px] font-medium whitespace-nowrap", bar && "w-[88px] flex-none text-right")}>{value}</span>
       {trail}
       {onClick ? <ChevronRight size={14} className="-mr-1 flex-none text-fg-subtle" /> : null}
     </Tag>
@@ -519,6 +524,7 @@ function Habits({ kind, from, to, now, start, label, h, list, prevList, all }: {
               label={r.cat}
               meta={`${r.share}% of spending · ${entriesText(r.entries.length)}`}
               value={peso(r.amount)}
+              bar={{ fraction: r.fraction, muted: r.cat === "Unfiled" }}
               trail={
                 <span className="flex w-[58px] flex-none justify-end">
                   {h.prev ? <Delta value={r.change} /> : null}
@@ -660,27 +666,6 @@ function Income({ from, to, label, h, list, prevList, all, now, start }: { from:
   );
 }
 
-/* ---------- cloud: M8's stored review for this period ------------------------ */
-
-function StoredReview({ kind, from, to }: { kind: PeriodKind; from: Date; to: Date }) {
-  const { all } = useInsights({ markRead: false });
-  if (kind === "year") return null;
-  const want = kind === "week" ? "weekly" : "monthly";
-  const hit = all.find((i) => i.kind === want && i.period_start && new Date(i.period_start) >= from && new Date(i.period_start) < to);
-  if (!hit) return null;
-  return (
-    <div className="px-6 pt-5">
-      <AiCard label={`${LABEL[hit.kind]}${hit.stale ? " · OUT OF DATE" : ""}`}>
-        <span className={hit.stale ? "opacity-70" : undefined}>{hit.narrative}</span>
-      </AiCard>
-      <div className="mt-1 font-mono text-[10.5px] font-medium tracking-[0.05em] text-fg-subtle">
-        {hit.stale ? "YOUR ENTRIES CHANGED SINCE · " : ""}
-        {stamp(hit.created_at).toUpperCase()}
-      </div>
-    </div>
-  );
-}
-
 /* ---------- screen ---------------------------------------------------------- */
 
 export function Analytics({ path }: { path: string }) {
@@ -742,8 +727,6 @@ export function Analytics({ path }: { path: string }) {
           <ChevronRight size={18} />
         </button>
       </div>
-
-      {cloud ? <StoredReview kind={kind} from={from} to={to} /> : null}
 
       <section aria-label="Headline" className="px-6 pt-4">
         <Eyebrow>

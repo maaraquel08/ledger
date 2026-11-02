@@ -5,12 +5,11 @@ import { cn } from "@/lib/cn";
 import { balance, dayName, monthName, peso } from "@/lib/format";
 import { navigate, query } from "@/lib/router";
 import { analyticsHref } from "@/lib/analytics";
-import { inRange, monthBounds, verdict } from "@/lib/selectors";
+import { inRange, monthBounds, netWorth, verdict } from "@/lib/selectors";
 import { useLedger, useOnline } from "@/lib/store";
 import { todayBudget } from "@/lib/today";
 import { MathSheet, ProfileSheet } from "@/screens/today-sheets";
 import { Plan } from "@/screens/plan";
-import { InsightsInbox, useInsights } from "@/screens/insights-inbox";
 import { useGaps } from "@/screens/activity";
 import { needsReview } from "@/screens/ledger-list";
 import { cloud } from "@/lib/supabase";
@@ -54,13 +53,13 @@ export function Today({ path }: { path: string }) {
   const [mathOpen, setMathOpen] = React.useState(false);
   const [ask, setAsk] = React.useState("");
   const [profileOpen, setProfileOpen] = React.useState(false);
-  const insights = useInsights(); // cloud only; empty in local mode
 
   const now = new Date();
   const v = verdict(state, now);
   const tb = todayBudget(state, now);
   const [mf, mt] = monthBounds(now);
   const month = monthName(now);
+  const worth = netWorth(state.accounts).total;
   const gaps = useGaps();
   const reviewCount = state.entries.filter(needsReview).length;
   // Review has no tab (D-0018): this row is its only door, so balance gaps count too
@@ -105,7 +104,7 @@ export function Today({ path }: { path: string }) {
       </div>
 
       <AiCard label="M8 · Today" className="mx-6 mt-3">
-        {insights.daily ? insights.daily.narrative : sentence(v, tb, month)}
+        {sentence(v, tb, month)}
       </AiCard>
 
       <div className="px-6 pt-6">
@@ -113,6 +112,9 @@ export function Today({ path }: { path: string }) {
         <div className={cn("tnum mt-2 text-[40px] leading-none font-semibold tracking-[-0.04em]", v.left < 0 && "text-danger", !tb.hasBudget && "text-fg-subtle")}>
           {tb.hasBudget ? balance(v.left) : "₱—"}
         </div>
+        <p className="tnum mt-2 text-[13px] text-fg-muted">
+          Total balance <span className={cn("font-semibold", worth < 0 ? "text-danger" : "text-fg")}>{balance(worth)}</span>
+        </p>
         <button
           type="button"
           onClick={() => tb.hasBudget && setMathOpen(true)}
@@ -179,7 +181,6 @@ export function Today({ path }: { path: string }) {
         </div>
       </div>
 
-      <InsightsInbox items={insights.inbox} onDismiss={insights.dismiss} />
       <Plan />
 
       <MathSheet open={mathOpen} onOpenChange={setMathOpen} v={v} month={inRange(state.entries, mf, mt)} today={now} />

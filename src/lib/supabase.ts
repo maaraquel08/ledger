@@ -26,5 +26,3 @@ export function sb(): SupabaseClient {
   if (!supabase) throw new Error("Supabase is not configured (local mode)");
   return supabase;
 }
-
-export const VAPID_PUBLIC_KEY = ((import.meta.env.VITE_VAPID_PUBLIC_KEY as string | undefined) ?? "").trim();

@@ -8,7 +8,7 @@ import { navigate } from "@/lib/router";
 import { suggestedBudget } from "@/lib/selectors";
 import { newId, useLedger } from "@/lib/store";
 import { NAME_HINT } from "@/screens/accounts";
-import type { Account, AccountType, Frequency, Goal, Provider, SideIncome } from "@/lib/types";
+import type { Account, AccountType, Frequency, Goal, Provider } from "@/lib/types";
 
 /* ---------- draft store (survives route remounts via sessionStorage) ---- */
 
@@ -17,12 +17,11 @@ interface Draft {
   balances: Record<string, string>; // account id -> raw digits ("128400.5")
   income: string;
   frequency: Frequency;
-  side: SideIncome[];
   goals: { emergency: boolean; trip: boolean };
 }
 
 const DRAFT_KEY = "ledger:onboarding";
-const EMPTY: Draft = { accounts: [], balances: {}, income: "", frequency: "Twice a month", side: [], goals: { emergency: false, trip: false } };
+const EMPTY: Draft = { accounts: [], balances: {}, income: "", frequency: "Twice a month", goals: { emergency: false, trip: false } };
 
 function load(): Draft {
   try {
@@ -71,7 +70,9 @@ function useDraft() {
 
 const STEPS = ["accounts", "balances", "income"] as const;
 const FREQS: Frequency[] = ["Twice a month", "Monthly", "Weekly", "Irregular"];
-const TYPES: AccountType[] = ["bank", "investments", "ewallet", "cash", "credit"];
+/** Credit cards can no longer be created. */
+const CREATABLE_PROVIDERS = PROVIDERS.filter((p) => p.type !== "credit");
+const TYPES: AccountType[] = ["bank", "investments", "ewallet", "cash"];
 
 const toNum = (s: string) => Number.parseFloat(s.replace(/,/g, "")) || 0;
 
@@ -288,7 +289,7 @@ function AccountsStep() {
               <Eyebrow>{has ? "ADD ANOTHER" : "COMMON IN PH"}</Eyebrow>
             </div>
             <div className="mt-[13px] grid grid-cols-3 gap-[9px]">
-              {PROVIDERS.map((p) => (
+              {CREATABLE_PROVIDERS.map((p) => (
                 <button
                   key={p.id}
                   type="button"
@@ -323,13 +324,7 @@ function AccountsStep() {
 function BalancesStep() {
   const d = useDraft();
   const filled = d.accounts.filter((a) => (d.balances[a.id] ?? "") !== "").length;
-  let assets = 0;
-  let owed = 0;
-  for (const a of d.accounts) {
-    const v = toNum(d.balances[a.id] ?? "");
-    if (a.type === "credit") owed += v;
-    else assets += v;
-  }
+  const assets = d.accounts.reduce((n, a) => n + toNum(d.balances[a.id] ?? ""), 0);
   return (
     <Screen>
       <TopBar step="balances" onSkip={() => navigate("/onboarding/income")} />
@@ -342,9 +337,7 @@ function BalancesStep() {
                 <ProviderMark provider={a.provider} size={40} />
                 <div className="min-w-0 flex-1">
                   <div className="text-[14.5px] break-words">{a.name}</div>
-                  <div className="mt-1 truncate font-mono text-[10.5px] tracking-[0.05em] text-fg-subtle">
-                    {a.type === "credit" ? `${a.providerLabel} · OWED${a.last4 ? ` ·${a.last4}` : ""}` : accountLine(a)}
-                  </div>
+                  <div className="mt-1 truncate font-mono text-[10.5px] tracking-[0.05em] text-fg-subtle">{accountLine(a)}</div>
                 </div>
                 <span className="flex items-center gap-1 text-fg-muted">
                   <span className="font-mono text-[15px]">₱</span>
@@ -378,7 +371,6 @@ function BalancesStep() {
         {filled > 0 ? (
           <div className="mt-3 text-center font-mono text-[10.5px] tracking-[0.04em] text-fg-subtle">
             Assets {peso(assets)}
-            {owed > 0 ? ` · card owed ${peso(owed)}` : ""}
           </div>
         ) : null}
       </Footer>
@@ -386,54 +378,8 @@ function BalancesStep() {
   );
 }
 
-function SideForm({ onDone }: { onDone: () => void }) {
-  const [label, setLabel] = React.useState("");
-  const [amount, setAmount] = React.useState("");
-  const ok = label.trim() !== "" && toNum(amount) > 0;
-  return (
-    <form
-      className="pt-5"
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (!ok) return;
-        setDraft({ side: [...draft.side, { id: newId("s"), label: label.trim(), amount: toNum(amount), frequency: "Irregular" }] });
-        onDone();
-      }}
-    >
-      <label className="block">
-      <Eyebrow>WHAT IS IT?</Eyebrow>
-      <input
-        autoFocus
-        value={label}
-        onChange={(e) => setLabel(e.target.value)}
-        placeholder="Freelance · Studio K"
-        className={cn(FIELD, "-mx-3 mt-1.5 h-11 w-[calc(100%+24px)] px-3 text-[16px]")}
-      />
-      </label>
-      <label className="mt-5 block">
-      <Eyebrow>HOW MUCH?</Eyebrow>
-      <div className="mt-1.5 flex items-center gap-1 text-fg-muted">
-        <span className="font-mono text-[16px]">₱</span>
-        <input
-          value={amount}
-          onChange={(e) => setAmount(fmtInput(e.target.value))}
-          inputMode="decimal"
-          placeholder="0"
-          className={cn(FIELD, "tnum h-11 px-2 font-mono text-[16px]")}
-        />
-      </div>
-      </label>
-      <p className="mt-3 text-[12px] text-fg-subtle">Irregular · not budgeted</p>
-      <Cta type="submit" disabled={!ok} className="mt-5">
-        Add side income
-      </Cta>
-    </form>
-  );
-}
-
 function IncomeStep() {
   const d = useDraft();
-  const [open, setOpen] = React.useState(false);
   return (
     <Screen>
       <TopBar step="income" onSkip={() => navigate("/onboarding/ready")} />
@@ -460,40 +406,10 @@ function IncomeStep() {
             ))}
           </div>
         </div>
-        <div className="mt-7">
-          <Eyebrow>SIDE INCOME? · OPTIONAL</Eyebrow>
-          {d.side.map((s) => (
-            <div key={s.id} className="mt-2.5 flex items-center gap-3 rounded-lg border border-line-strong py-2.5 pr-1 pl-3.5">
-              <div className="min-w-0 flex-1">
-                <div className="text-[14px] break-words">{s.label}</div>
-                <div className="mt-0.5 text-[11.5px] text-fg-subtle">Irregular · not budgeted</div>
-              </div>
-              <span className="tnum font-mono text-[14px] font-semibold text-success">{peso(s.amount)}</span>
-              <button
-                type="button"
-                aria-label={`Remove ${s.label}`}
-                onClick={() => setDraft({ side: d.side.filter((x) => x.id !== s.id) })}
-                className="flex size-11 items-center justify-center text-fg-subtle active:opacity-60"
-              >
-                <CloseIcon size={13} />
-              </button>
-            </div>
-          ))}
-          <button
-            type="button"
-            onClick={() => setOpen(true)}
-            className="mt-2.5 flex h-12 w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-line-strong text-[13px] text-fg-muted active:bg-surface"
-          >
-            {d.side.length ? "Add another" : "Freelance, rent, anything else"} <PlusIcon size={14} />
-          </button>
-        </div>
       </div>
       <Footer>
         <Cta onClick={() => navigate("/onboarding/ready")}>Done</Cta>
       </Footer>
-      <Sheet open={open} onOpenChange={setOpen} title="Side income">
-        <SideForm onDone={() => setOpen(false)} />
-      </Sheet>
     </Screen>
   );
 }
@@ -508,7 +424,7 @@ function ReadyStep() {
   const save = Math.max(0, monthly - budget);
   const savePct = monthly > 0 ? Math.round((save / monthly) * 100) : 0;
   const accounts = d.accounts.map((a) => ({ ...a, balance: toNum(d.balances[a.id] ?? "") }));
-  const assets = accounts.reduce((n, a) => n + (a.type === "credit" ? 0 : a.balance), 0);
+  const assets = accounts.reduce((n, a) => n + a.balance, 0);
   const emergency = budget * 3;
 
   const finish = () => {
@@ -519,7 +435,7 @@ function ReadyStep() {
     dispatch({
       type: "complete-onboarding",
       accounts,
-      profile: { name: "", initials: "ME", income: per, frequency: d.frequency, sideIncome: d.side, monthlyBudget: budget, categoryBudgets: {}, goals },
+      profile: { name: "", initials: "ME", income: per, frequency: d.frequency, monthlyBudget: budget, categoryBudgets: {}, goals },
     });
     clearDraft();
     navigate("/today", { replace: true });

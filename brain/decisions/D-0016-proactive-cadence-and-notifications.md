@@ -1,11 +1,11 @@
 ---
 type: decision
 area: product
-status: active
-updated: 2026-10-29
+status: superseded
+updated: 2026-11-03
 related: [features/insights, features/home, features/chat, constraints, glossary, D-0008, D-0012, D-0013]
 supersedes: []
-superseded_by: null
+superseded_by: D-0019
 ---
 
 # D-0016 M8 speaks on a cadence, and pushes rarely

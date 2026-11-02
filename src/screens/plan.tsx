@@ -1,8 +1,8 @@
 import * as React from "react";
 import { ActionButton, Cta, Eyebrow, Pill, Sheet } from "@/components/ledger/primitives";
 import { cn } from "@/lib/cn";
-import { goalLabel, monthName, monthShort, peso } from "@/lib/format";
-import { byCategory, FIXED, inRange, monthBounds, verdict } from "@/lib/selectors";
+import { goalLabel, MAX_AMOUNT, monthName, monthShort, peso } from "@/lib/format";
+import { addToGoal, byCategory, FIXED, goalProgress, inRange, monthBounds, verdict } from "@/lib/selectors";
 import { newId, useLedger } from "@/lib/store";
 import type { Category, Goal } from "@/lib/types";
 
@@ -69,6 +69,7 @@ export function Plan() {
   const [catSheet, setCatSheet] = React.useState<{ cat: Category | null } | null>(null);
   const [totalOpen, setTotalOpen] = React.useState(false);
   const [goalSheet, setGoalSheet] = React.useState<{ goal: Goal | null } | null>(null);
+  const [addTo, setAddTo] = React.useState<Goal | null>(null);
 
   return (
     <section id="plan" aria-label="Budgets and goals" className="scroll-mt-4">
@@ -153,22 +154,40 @@ export function Plan() {
         ) : (
           <ul>
             {profile.goals.map((g) => {
-              const p = g.target > 0 ? Math.round((g.saved / g.target) * 100) : 0;
+              const { pct: p, toGo } = goalProgress(g);
               return (
-                <li key={g.id}>
-                  <button type="button" onClick={() => setGoalSheet({ goal: g })} className="block w-full py-3.5 text-left active:opacity-60">
+                <li key={g.id} className="py-1.5">
+                  <button type="button" onClick={() => setGoalSheet({ goal: g })} className="block w-full py-2 text-left active:opacity-60">
                     <div className="flex items-baseline justify-between gap-3">
                       <span className="text-[14.5px] font-medium">{g.name}</span>
                       {/* saving past the target is fine; say it's reached rather than "133%" */}
                       <span className="tnum text-[14px] font-semibold text-info">{p >= 100 ? "Reached" : `${p}%`}</span>
                     </div>
-                    <div className="mt-2.5 h-1.5 rounded-full bg-fill">
+                    <div
+                      role="progressbar"
+                      aria-label={`${g.name} progress`}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-valuenow={Math.min(100, p)}
+                      className="mt-2.5 h-2 rounded-full bg-fill"
+                    >
                       <div className="h-full rounded-full bg-info" style={{ width: `${Math.min(100, p)}%` }} />
                     </div>
                     <div className="tnum mt-2 text-[12px] text-fg-muted">
                       {peso(g.saved)} of {peso(g.target)} · {goalLabel(g.by)}
                     </div>
                   </button>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="tnum text-[13px] font-medium">{toGo > 0 ? `${peso(toGo)} to go` : "Goal reached"}</span>
+                    <button
+                      type="button"
+                      aria-label={`Add money to ${g.name}`}
+                      onClick={() => setAddTo(g)}
+                      className="flex h-11 min-w-11 items-center justify-center rounded-md border border-line-strong px-3.5 text-[13px] font-medium active:bg-surface"
+                    >
+                      Add money
+                    </button>
+                  </div>
                 </li>
               );
             })}
@@ -198,6 +217,15 @@ export function Plan() {
         onSave={(n) => {
           dispatch({ type: "update-profile", patch: { monthlyBudget: n } });
           setTotalOpen(false);
+        }}
+      />
+      <AddMoneySheet
+        key={`add-${addTo?.id ?? "none"}`}
+        goal={addTo}
+        onClose={() => setAddTo(null)}
+        onAdd={(g, amount) => {
+          dispatch({ type: "update-profile", patch: { goals: profile.goals.map((x) => (x.id === g.id ? addToGoal(x, amount) : x)) } });
+          setAddTo(null);
         }}
       />
       <GoalSheet
@@ -289,6 +317,27 @@ function TotalSheet({ open, value, catTotal, onClose, onSave }: { open: boolean;
       ) : null}
       <Cta className="mt-5" disabled={num(amt) <= 0} onClick={() => onSave(num(amt))}>
         Save budget
+      </Cta>
+    </Sheet>
+  );
+}
+
+function AddMoneySheet({ goal, onClose, onAdd }: { goal: Goal | null; onClose: () => void; onAdd: (g: Goal, amount: number) => void }) {
+  const [amt, setAmt] = React.useState("");
+  const n = Math.min(MAX_AMOUNT, Math.round(num(amt)));
+  const after = goal ? addToGoal(goal, n) : null;
+  const left = goal && after ? goalProgress(after).toGo : 0;
+  return (
+    <Sheet open={!!goal} onOpenChange={(o) => !o && onClose()} title={goal ? `Add to ${goal.name}` : "Add money"}>
+      <Field label="AMOUNT" prefix="₱" value={amt} onChange={setAmt} inputMode="numeric" placeholder="0" />
+      {goal && after ? (
+        <p role="status" className="tnum mt-2 text-[13px] leading-[1.45] text-fg-muted">
+          {n > 0 ? `${peso(goal.saved)} becomes ${peso(after.saved)}. ` : `${peso(goal.saved)} saved so far. `}
+          {left > 0 ? `${peso(left)} to go.` : "That reaches your goal."} Your money stays in your accounts.
+        </p>
+      ) : null}
+      <Cta className="mt-5" disabled={n <= 0} onClick={() => goal && onAdd(goal, n)}>
+        {n > 0 ? `Add ${peso(n)}` : "Add money"}
       </Cta>
     </Sheet>
   );

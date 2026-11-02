@@ -1,5 +1,5 @@
 import { SPEND_CATEGORIES } from "./providers";
-import type { Category } from "./types";
+import type { Account, Category, Entry } from "./types";
 
 /* ---------- what an entry can file into, and amounts worth a second look --- */
 
@@ -42,3 +42,52 @@ export function isUnusualAmount(amount: number, category: Category | null, entri
  */
 export const canRefund = (e: { amount: number; linkId?: string | null; category: Category | null }) =>
   e.amount < 0 && e.linkId == null && !MOVE_CATEGORIES.includes(e.category);
+
+/* ---------- moves: transfers and investments (D-0007, D-0010) ------------ */
+
+/** Money leaving a cash, bank, wallet or investments account can't take it below zero; a card is exempt. */
+export const overdraws = (from: Pick<Account, "type" | "balance">, amount: number) => from.type !== "credit" && amount > from.balance;
+
+/**
+ * The two linked legs of a move from one account to another. Money into an
+ * investments account files as Investments (D-0010); any other move is a Transfer.
+ * Same linkId on both; the legs sum to zero.
+ */
+export function moveLegs(o: {
+  from: Pick<Account, "id" | "name">;
+  to: Pick<Account, "id" | "name" | "type">;
+  amount: number;
+  date: string;
+  newId: (prefix: string) => string;
+  /** what the Owner called it; both legs share it */
+  desc?: string;
+  queued?: boolean;
+}): Entry[] {
+  const category: Category = o.to.type === "investments" ? "Investments" : "Transfer";
+  const linkId = o.newId("l");
+  const base = { category, date: o.date, linkId, ...(o.queued ? { queued: true } : {}) };
+  return [
+    { ...base, id: o.newId("e"), desc: o.desc || `${category === "Investments" ? "Invest in" : "Transfer to"} ${o.to.name}`, accountId: o.from.id, amount: -o.amount },
+    { ...base, id: o.newId("e"), desc: o.desc || `${category === "Investments" ? "Invested from" : "Transfer from"} ${o.from.name}`, accountId: o.to.id, amount: o.amount },
+  ];
+}
+
+/**
+ * Entries once their account is gone (removed locally, archived in the cloud). A leg of a move
+ * goes with its account; the twin on a surviving account stays as a plain entry (the money did
+ * leave or arrive there), so no balance moves and nothing orphans. Other entries fall into the
+ * review queue with no account rather than pointing nowhere.
+ */
+export function detachAccounts(entries: Entry[], gone: (accountId: string) => boolean): Entry[] {
+  const isGone = (e: Entry) => e.accountId != null && gone(e.accountId);
+  const goneLinks = new Set(entries.filter((e) => isGone(e) && e.linkId != null).map((e) => e.linkId));
+  const out: Entry[] = [];
+  for (const e of entries) {
+    if (isGone(e) && e.linkId != null) continue;
+    if (e.linkId != null && goneLinks.has(e.linkId)) {
+      const { linkId: _drop, ...plain } = e;
+      out.push(plain);
+    } else out.push(isGone(e) ? { ...e, accountId: null } : e);
+  }
+  return out;
+}

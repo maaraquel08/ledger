@@ -11,6 +11,7 @@ export type Provider =
   | "cash"
   | "other";
 
+/** "credit" is kept only so older stored data and synced rows still load; it can no longer be created. */
 export type AccountType = "bank" | "investments" | "ewallet" | "cash" | "credit";
 
 export interface Account {
@@ -111,11 +112,13 @@ export interface Profile {
   initials: string;
   income: number; // per payday, take-home
   frequency: Frequency;
-  sideIncome: SideIncome[];
+  /** @deprecated side income was removed; only older stored data may carry it */
+  sideIncome?: SideIncome[];
   monthlyBudget: number;
   categoryBudgets: Partial<Record<Category, number>>;
   goals: Goal[];
-  holdings: Holding[];
+  /** @deprecated per-ticker holdings were removed; only older stored data may carry it */
+  holdings?: Holding[];
 }
 
 export interface LedgerState {

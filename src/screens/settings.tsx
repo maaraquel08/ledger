@@ -1,10 +1,8 @@
 import * as React from "react";
 import { ChevronRight } from "@/components/ledger/icons";
 import { BackBar, Cta, Eyebrow, Screen } from "@/components/ledger/primitives";
-import { Switch } from "@/components/ui/switch/switch";
 import { exportAll } from "@/lib/cloud/api";
 import { useCloud } from "@/lib/cloud/provider";
-import { pushIsOn, pushSupport, turnPushOff, turnPushOn } from "@/lib/cloud/push";
 import { back, navigate } from "@/lib/router";
 
 const FIELD =
@@ -12,7 +10,7 @@ const FIELD =
 const ERASE_WORD = "ERASE";
 
 /* ====================================================================== */
-/*  Profile sheet, cloud mode: account, sync, notifications, data          */
+/*  Profile sheet, cloud mode: account, sync, data          */
 /* ====================================================================== */
 
 export function CloudSettings({ onClose }: { onClose: () => void }) {
@@ -26,9 +24,7 @@ export function CloudSettings({ onClose }: { onClose: () => void }) {
         {c.pending ? `${c.pending} change${c.pending === 1 ? "" : "s"} saved on this phone, not synced yet` : "Synced"}
       </p>
 
-      <PushRow />
-
-      <div className="mt-2 divide-y divide-line border-y border-line">
+      <div className="mt-5 divide-y divide-line border-y border-line">
         <button
           type="button"
           onClick={() => {
@@ -64,65 +60,6 @@ export function CloudSettings({ onClose }: { onClose: () => void }) {
         )}
         <EraseAccount onDone={onClose} />
       </div>
-    </div>
-  );
-}
-
-/** "Weekly review and alerts": Web Push, hidden without a VAPID key (D-0016). */
-function PushRow() {
-  const support = React.useMemo(() => pushSupport(), []);
-  const [on, setOn] = React.useState(false);
-  const [busy, setBusy] = React.useState(false);
-  const [note, setNote] = React.useState<string | null>(null);
-
-  React.useEffect(() => {
-    if (support === "ok") pushIsOn().then(setOn, () => setOn(false));
-  }, [support]);
-
-  if (support === "no-key") return null;
-
-  const toggle = async (next: boolean) => {
-    setBusy(true);
-    setNote(null);
-    try {
-      if (next) {
-        const why = await turnPushOn();
-        if (why === "denied") setNote("Notifications are blocked for Ledger. Allow them in your browser’s site settings, then try again.");
-        setOn(why == null);
-      } else {
-        await turnPushOff();
-        setOn(false);
-      }
-    } catch {
-      setNote("Couldn’t change notifications. Check your connection and try again.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="mt-5 border-t border-line pt-4">
-      <div className="flex min-h-12 items-center justify-between gap-4">
-        <div className="min-w-0">
-          <div id="push-label" className="text-[14.5px]">
-            Weekly review and alerts
-          </div>
-          <div className="mt-0.5 text-[12.5px] leading-[1.45] text-fg-subtle">At most 3 a week, never at night, never with amounts.</div>
-        </div>
-        {support === "ok" ? <Switch aria-labelledby="push-label" checked={on} disabled={busy} onCheckedChange={(v) => void toggle(v)} /> : null}
-      </div>
-      {support === "ios-home-screen" ? (
-        <p className="mt-1 text-[12.5px] leading-[1.5] text-fg-muted">
-          On iPhone, notifications need Ledger on your Home Screen. Tap Share, then Add to Home Screen, and turn this on from there.
-        </p>
-      ) : support === "unsupported" ? (
-        <p className="mt-1 text-[12.5px] leading-[1.5] text-fg-muted">This browser can’t show notifications.</p>
-      ) : null}
-      {note ? (
-        <p role="alert" className="mt-1 text-[12.5px] leading-[1.5] text-danger">
-          {note}
-        </p>
-      ) : null}
     </div>
   );
 }
@@ -165,7 +102,7 @@ function EraseAccount({ onDone }: { onDone: () => void }) {
     >
       <p className="text-[15px] font-semibold">Erase everything in your account?</p>
       <p className="mt-1 text-[13.5px] leading-[1.5] text-fg-muted">
-        Every account, entry, goal, insight, receipt photo and voice clip is deleted from your account and this phone. You stay signed in. It can’t be undone.
+        Every account, entry, goal, receipt photo and voice clip is deleted from your account and this phone. You stay signed in. It can’t be undone.
       </p>
       <label className="mt-3 block">
         <Eyebrow className="mb-2">TYPE {ERASE_WORD} TO CONFIRM</Eyebrow>

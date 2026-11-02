@@ -1,7 +1,8 @@
+import { detachAccounts } from "../entry-rules";
 import { EMPTY_STATE } from "../seed";
 import { sb, SUPABASE_ANON_KEY, SUPABASE_URL } from "../supabase";
 import type { Entry, LedgerState } from "../types";
-import { anyToEntry, latestHoldings, toAccount, toEntry, toProfile, type AccountRow } from "./map";
+import { anyToEntry, toAccount, toEntry, toProfile, type AccountRow } from "./map";
 import { backoff, nextDay, type Call } from "./outbox";
 
 type Row = Record<string, unknown>;
@@ -48,13 +49,12 @@ async function all(table: string, select = "*", build?: (q: any) => any): Promis
 
 /** Everything the screens read, as one LedgerState (CONTRACT.md "TypeScript <-> rows"). */
 export async function loadState(): Promise<LedgerState> {
-  const [accounts, balances, entries, profile, goals, holdings] = await Promise.all([
+  const [accounts, balances, entries, profile, goals] = await Promise.all([
     all("accounts", "*", (q) => q.is("archived_at", null).order("created_at")),
     all("account_balances", "account_id,balance"),
     all("entries", "*, entry_splits(*), receipt_items(*)", (q) => q.neq("status", "void").order("occurred_at", { ascending: false }).order("id")),
     sb().from("profiles").select("*").maybeSingle().then(check),
     all("goals", "*", (q) => q.is("archived_at", null).order("created_at")),
-    all("holding_snapshots", "*", (q) => q.order("as_of", { ascending: false })),
   ]);
   const bal = new Map(balances.map((b) => [String(b.account_id), Number(b.balance)]));
   const accs = (accounts as AccountRow[]).map((a) => toAccount(a, bal.get(a.id)));
@@ -63,13 +63,13 @@ export async function loadState(): Promise<LedgerState> {
     ...EMPTY_STATE,
     onboarded: !!(profile as Row | null)?.onboarded,
     demo: false,
-    profile: toProfile(profile as Row | null, goals, latestHoldings(holdings), EMPTY_STATE.profile),
+    profile: toProfile(profile as Row | null, goals, EMPTY_STATE.profile),
     accounts: accs,
-    entries: entries
-      .map(toEntry)
-      .filter((e): e is Entry => !!e)
-      // an archived account's entries read as orphaned, as local mode's "remove account" does
-      .map((e) => (e.accountId && !live.has(e.accountId) ? { ...e, accountId: null } : e)),
+    // an archived account's entries read as local mode's "remove account" leaves them
+    entries: detachAccounts(
+      entries.map(toEntry).filter((e): e is Entry => !!e),
+      (id) => !live.has(id),
+    ),
   };
 }
 
@@ -299,35 +299,7 @@ export async function exportAll(): Promise<Record<string, unknown>> {
   return out;
 }
 
-/* ---------- insights and reconciliation ---------------------------------- */
-
-export interface Insight {
-  id: string;
-  kind: "daily" | "weekly" | "monthly" | "alert" | "answer";
-  narrative: string | null;
-  stale: boolean;
-  read_at: string | null;
-  dismissed_at: string | null;
-  created_at: string;
-  period_start: string | null;
-  period_end: string | null;
-}
-
-export async function loadInsights(): Promise<Insight[]> {
-  const res = await sb()
-    .from("insights")
-    .select("id,kind,narrative,stale,read_at,dismissed_at,created_at,period_start,period_end")
-    .is("dismissed_at", null)
-    .neq("kind", "answer")
-    .order("created_at", { ascending: false })
-    .limit(30);
-  return check(res) as Insight[];
-}
-
-export async function markInsights(ids: string[], field: "read_at" | "dismissed_at") {
-  if (!ids.length) return;
-  check(await sb().from("insights").update({ [field]: new Date().toISOString() }).in("id", ids));
-}
+/* ---------- reconciliation ---------------------------------------------- */
 
 export interface Gap {
   account_id: string;

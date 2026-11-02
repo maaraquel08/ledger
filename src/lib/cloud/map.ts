@@ -1,4 +1,4 @@
-import type { Account, AccountType, Category, Entry, Frequency, Goal, Holding, Profile, Provider, ReceiptItem, SideIncome, Split } from "../types";
+import type { Account, AccountType, Category, Entry, Frequency, Goal, Profile, Provider, ReceiptItem, Split } from "../types";
 
 /*
  * Rows <-> app types, exactly as supabase/CONTRACT.md "TypeScript <-> rows" lists them.
@@ -159,18 +159,16 @@ export function entryPatch(patch: Partial<Entry>): Row {
   return p;
 }
 
-export function toProfile(r: Row | null, goals: Row[], holdings: Row[], base: Profile): Profile {
+export function toProfile(r: Row | null, goals: Row[], base: Profile): Profile {
   return {
     ...base,
     name: str(r?.name) ?? "",
     initials: str(r?.initials) ?? "",
     income: num(r?.income),
     frequency: ((r?.frequency as Frequency) ?? base.frequency) || base.frequency,
-    sideIncome: ((r?.side_income as SideIncome[] | null) ?? []).map((x) => ({ ...x, amount: num(x.amount) })),
     monthlyBudget: num(r?.monthly_budget),
     categoryBudgets: Object.fromEntries(Object.entries((r?.category_budgets as Record<string, unknown> | null) ?? {}).map(([k, v]) => [k, num(v)])),
     goals: goals.map(toGoal),
-    holdings: holdings.map(toHolding),
   };
 }
 
@@ -180,7 +178,6 @@ export function profilePayload(p: Partial<Profile>): Row {
   if ("initials" in p) r.initials = p.initials;
   if ("income" in p) r.income = p.income;
   if ("frequency" in p) r.frequency = p.frequency;
-  if ("sideIncome" in p) r.side_income = p.sideIncome;
   if ("monthlyBudget" in p) r.monthly_budget = p.monthlyBudget;
   if ("categoryBudgets" in p) r.category_budgets = p.categoryBudgets;
   return r;
@@ -188,22 +185,3 @@ export function profilePayload(p: Partial<Profile>): Row {
 
 export const toGoal = (g: Row): Goal => ({ id: String(g.id), name: String(g.name), saved: num(g.saved), target: num(g.target), by: str(g.by_month) ?? "" });
 export const goalPayload = (g: Goal): Row => ({ id: g.id, name: g.name, saved: g.saved, target: g.target, by_month: g.by });
-
-const toHolding = (h: Row): Holding => ({
-  ticker: String(h.symbol),
-  name: str(h.name) ?? String(h.symbol),
-  shares: num(h.qty),
-  value: num(h.value),
-  change: num(h.change_pct),
-});
-
-/** latest holding_snapshots per account = current holdings */
-export function latestHoldings(rows: Row[]): Row[] {
-  const latest = new Map<string, string>();
-  for (const r of rows) {
-    const a = String(r.account_id);
-    const t = String(r.as_of);
-    if (!latest.has(a) || new Date(t) > new Date(latest.get(a)!)) latest.set(a, t);
-  }
-  return rows.filter((r) => latest.get(String(r.account_id)) === String(r.as_of));
-}

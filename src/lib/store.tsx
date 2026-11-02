@@ -1,5 +1,5 @@
 import * as React from "react";
-import { canRefund } from "./entry-rules";
+import { canRefund, detachAccounts } from "./entry-rules";
 import { localDay } from "./format";
 import { localStoragePhotoStore, localStorageRepository, type LedgerRepository } from "./persistence";
 import { buildDemo, EMPTY_STATE } from "./seed";
@@ -111,12 +111,7 @@ export function reducer(s: LedgerState, a: Action): LedgerState {
       };
     }
     case "remove-account":
-      return {
-        ...s,
-        accounts: s.accounts.filter((x) => x.id !== a.id),
-        // orphaned entries fall into the review queue rather than pointing nowhere
-        entries: s.entries.map((e) => (e.accountId === a.id ? { ...e, accountId: null } : e)),
-      };
+      return { ...s, accounts: s.accounts.filter((x) => x.id !== a.id), entries: detachAccounts(s.entries, (id) => id === a.id) };
     case "update-profile":
       return { ...s, profile: { ...s.profile, ...a.patch } };
     case "ask": {

@@ -1,5 +1,5 @@
-import { addDays, sameDay, startOfDay } from "./format";
-import type { Account, Category, Entry, LedgerState } from "./types";
+import { addDays, MAX_AMOUNT, sameDay, startOfDay } from "./format";
+import type { Account, Category, Entry, Goal, LedgerState } from "./types";
 
 /** Categories that move money between your own pockets — never "spend". */
 const NOT_SPEND: (Category | null)[] = ["Investments", "Transfer", "Adjustment"];
@@ -68,6 +68,22 @@ export function netWorth(accounts: Account[]) {
     else cash += a.balance;
   }
   return { cash, credit, invested, total: cash + invested - credit };
+}
+
+/** Goal progress: share of the target (uncapped), and what is left to save (never negative). */
+export const goalProgress = (g: Pick<Goal, "saved" | "target">) => ({
+  pct: g.target > 0 ? Math.round((g.saved / g.target) * 100) : 0,
+  toGo: Math.max(0, g.target - g.saved),
+});
+
+/**
+ * Add money to a goal: it stays a number on the goal, no account moves. A non-positive or
+ * non-finite amount changes nothing; saved is whole pesos and never above MAX_AMOUNT.
+ * Going past the target is allowed (the goal reads "Reached").
+ */
+export function addToGoal(g: Goal, amount: number): Goal {
+  if (!Number.isFinite(amount) || amount <= 0) return g;
+  return { ...g, saved: Math.min(MAX_AMOUNT, Math.round(g.saved + amount)) };
 }
 
 export function monthlyIncome(s: LedgerState) {
@@ -147,11 +163,6 @@ export function verdict(s: LedgerState, today = new Date()) {
 
 export function entriesOnDay(entries: Entry[], d: Date) {
   return entries.filter((e) => sameDay(new Date(e.date), d));
-}
-
-/** Distinct days with at least one entry. */
-export function daysLogged(entries: Entry[]) {
-  return new Set(entries.map((e) => e.date.slice(0, 10))).size;
 }
 
 /**

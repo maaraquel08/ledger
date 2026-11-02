@@ -179,6 +179,8 @@ export interface CategoryRow {
   amount: number;
   /** % of the period's spending */
   share: number;
+  /** share of the period's spending, 0..1, unrounded: the length of the bar */
+  fraction: number;
   prev: number;
   /** % vs the previous stretch; null = nothing there before (NEW) */
   change: number | null;
@@ -202,6 +204,7 @@ export function categoryRows(cur: Entry[], prev: Entry[]): CategoryRow[] {
         cat,
         amount,
         share: total > 0 ? Math.round((amount / total) * 100) : 0,
+        fraction: total > 0 ? amount / total : 0,
         prev: p,
         change: pctChange(amount, p),
         entries: spends.filter((e) => inBucket(e, cat)),
@@ -303,7 +306,7 @@ export function recurringBills(entries: Entry[], to: Date): Recurring[] {
   const from = new Date(to.getFullYear(), to.getMonth() - 6, to.getDate());
   const out: Recurring[] = [];
   for (const [, list] of groupBy(inRange(entries, from, to).filter(isSpend))) {
-    const months = new Set(list.map((e) => e.date.slice(0, 7)));
+    const months = new Set(list.map((e) => localDay(new Date(e.date)).slice(0, 7)));
     if (months.size < 3 || list.length > months.size + 1) continue;
     const amounts = list.map((e) => -e.amount);
     const typical = median(amounts);

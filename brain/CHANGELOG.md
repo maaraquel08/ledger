@@ -12,6 +12,9 @@ Format: `- kind — what, in one sentence — files`
 
 ## 2026
 
+### 2026-11-03
+- decided — D-0019 narrows Ledger to four pillars (entries with an Expense/Income/Transfer switch, accounts, analytics, chat), removes voice, insights, push, holdings, side income and new credit accounts, adds goal Add money and new chat tools; supersedes D-0016 — `decisions/D-0019-four-pillars.md`
+
 ### 2026-10-29
 - decided — D-0018 removes the Review tab (Owner request): three tabs Today / Money / Analytics, Review opens from Today's "things to review" row, which also counts balance gaps; supersedes D-0017 — `decisions/D-0018-review-has-no-tab.md`, `decisions/D-0017-four-tabs.md`, `features/review.md`, `system-map.md`
 - decided — D-0017 four tabs Today · Money · Analytics · Review on the Owner's request ("Why we don't have analytics page?"); supersedes D-0015 — `decisions/D-0017-four-tabs.md`, `decisions/D-0015-three-tabs.md`

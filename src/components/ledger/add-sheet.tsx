@@ -3,18 +3,16 @@ import { cn } from "@/lib/cn";
 import { fileToCanvas, useCamera } from "@/lib/camera";
 import { addDays, balance, dayName, MAX_AMOUNT, monthShort, peso } from "@/lib/format";
 import { recognize, warmUp } from "@/lib/ocr";
-import { INCOME_CATEGORIES, isUnusualAmount } from "@/lib/entry-rules";
-import { isQuestion, parseEntry, parseSpoken, splitEntries, type Parsed } from "@/lib/parse";
+import { INCOME_CATEGORIES, isUnusualAmount, moveLegs, overdraws } from "@/lib/entry-rules";
+import { parseEntry } from "@/lib/parse";
 import { SPEND_CATEGORIES } from "@/lib/providers";
 import { compressImage, draftToEntry, parseReceipt, splitOf, type ReceiptDraft } from "@/lib/receipt";
 import { accountLabel, canSpendFrom } from "@/lib/selectors";
 import { navigate } from "@/lib/router";
 import { newId, useLedger } from "@/lib/store";
 import type { Account, Category, Entry } from "@/lib/types";
-import { useVoice, type VoiceError } from "@/lib/voice";
 import { capture, dataUrlToBlob, undoEvent, upload, type CaptureResult } from "@/lib/cloud/api";
 import { useCloud } from "@/lib/cloud/provider";
-import { extFor, recorderSupported, useRecorder } from "@/lib/recorder";
 import { CameraGate, ReceiptFrame } from "./camera";
 import {
   AccountPanel,
@@ -23,47 +21,35 @@ import {
   DescPanel,
   DraftRow,
   KeypadPanel,
-  KindPanel,
+  KINDS,
   SourceRow,
   type Kind,
   type Part,
 } from "./entry-draft";
-import { CheckIcon, MicIcon } from "./icons";
-import { Orb } from "./orb";
-import { CategoryChip, Cta, EntryRow, Segmented, Sheet } from "./primitives";
+import { CheckIcon } from "./icons";
+import { CategoryChip, Cta, Segmented, Sheet } from "./primitives";
 import { TOAST_DOCK, useToastPresence } from "./undo-toast";
 
 /*
- * Add entry, three ways in: Manual (the draft row over one swapping picker),
- * Voice (hold the orb) and Camera (a receipt read on the phone).
+ * Add entry, two ways in: Manual (Expense | Income | Transfer over the draft row
+ * and one swapping picker) and Camera (a receipt read on the phone).
  * Every way ends in the same Activity row; missing parts stay gold and open
  * the same pickers. Study B in design-ledger/studies/add-entry-selection.
  */
 
-type Mode = "Manual" | "Voice" | "Camera";
-const MODES: Mode[] = ["Manual", "Voice", "Camera"];
+type Mode = "Manual" | "Camera";
+const MODES: Mode[] = ["Manual", "Camera"];
 
-type VoiceStage = { k: "idle"; hint?: string } | { k: "listening" } | { k: "sending" } | { k: "heard"; text: string; items: Parsed[] };
 type CamStage =
   | { k: "viewfinder" }
   /** cloud: M8 reads it on the server; otherwise the phone's own reader */
   | { k: "reading"; image: string; progress: number; cloud?: boolean }
   | { k: "read"; draft: ReceiptDraft }
   | { k: "unreadable"; failed: boolean };
-/** A Voice or Camera draft part being fixed with its picker. */
-type FixPart = "amount" | "category" | "account";
-type Fix = { i: number; part: FixPart } | null;
+/** A Camera draft part being fixed with its picker. */
+type Fix = { part: "account" } | null;
 
-const KIND_WORD: Record<Kind, string> = { Expense: "Spent", Income: "Got", Invest: "Moved" };
-const HOLD_MS = 280; // shorter than this is a tap, not a hold
-
-const VOICE_ERROR: Record<VoiceError, string> = {
-  denied: "Microphone access is off. Allow it in your browser’s site settings, or use Manual.",
-  unsupported: "Voice isn’t supported in this browser. Use Manual.",
-  "no-speech": "Couldn’t hear that. Hold and try again.",
-  network: "Voice needs a connection in this browser. Use Manual.",
-  other: "Couldn’t hear that. Hold and try again.",
-};
+const KIND_WORD: Record<Kind, string> = { Expense: "Spent", Income: "Got", Transfer: "Moved" };
 
 const inputDay = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const todayInput = () => inputDay(new Date());
@@ -111,7 +97,7 @@ type Saved = {
 };
 const SAVED_MS = 7000; // long enough to read the amount and reach Undo
 
-const saveLabel = (kind: Kind) => (kind === "Income" ? "Save income" : kind === "Invest" ? "Save investment" : "Save expense");
+const saveLabel = (kind: Kind) => (kind === "Income" ? "Save income" : kind === "Transfer" ? "Save transfer" : "Save expense");
 
 export function AddSheet({
   open,
@@ -156,48 +142,11 @@ export function AddSheet({
   // "That's ₱X — is that right?" once, for an amount far outside the usual; holds only for that draft
   const [askedFor, setAskedFor] = React.useState<string | null>(null);
 
-  // Voice and Camera drafts
-  const [voiceStage, setVoiceStage] = React.useState<VoiceStage>({ k: "idle" });
+  // Camera draft
   const [camStage, setCamStage] = React.useState<CamStage>({ k: "viewfinder" });
   const [fix, setFix] = React.useState<Fix>(null);
-  const [fixAmount, setFixAmount] = React.useState("");
 
-  const recorder = useRecorder();
-  const recording = React.useRef(false);
-  // cloud: while the clip goes to the server, the phone's transcript waits here as the fallback
-  const spoken = React.useRef<((text: string) => void) | null>(null);
   const receiptPath = React.useRef<string | undefined>(undefined);
-
-  const hear = (said: string) => {
-      const text = said.trim();
-      if (isQuestion(text)) return setVoiceStage({ k: "idle", hint: "That sounds like a question. Ask M8 from Today." });
-      const items = splitEntries(text)
-        .map((s) => parseSpoken(s, accounts))
-        .filter((p) => p.amount != null);
-      if (!items.length) {
-        // cloud and offline: keep what was said; the capture function files it (or asks) when we're back
-        if (cloud && text && !navigator.onLine) {
-          dispatch({ type: "queue-capture", id: newId("c"), text });
-          done({ ids: [], kind: "Voice note", amount: "Kept", tone: "fg", where: `“${text}” · filed when you’re back online`, later: true });
-          return;
-        }
-        return setVoiceStage({ k: "idle", hint: "I didn’t catch an amount. Try “₱248 Grab, GCash”." });
-      }
-      setVoiceStage({ k: "heard", text, items });
-  };
-  const voice = useVoice({
-    onDone: (said) => {
-      if (spoken.current) return spoken.current(said);
-      hear(said);
-    },
-    onError: (kind, heardNow) => {
-      if (spoken.current) return spoken.current(heardNow);
-      // cloud: the clip is still recording; the server transcribes it without the browser's help
-      if (recording.current && kind === "unsupported") return;
-      setVoiceStage((s) => (s.k === "listening" ? { k: "idle", hint: VOICE_ERROR[kind] } : s));
-    },
-  });
-  const cancelVoice = voice.cancel;
 
   // An entry left half-done stays until it's saved or started over; closing never drops it.
   const hasDraft = React.useRef(false);
@@ -209,7 +158,6 @@ export function AddSheet({
   // Fresh sheet each time it opens, prefilled from the caller, unless a draft was kept.
   React.useEffect(() => {
     if (!open) {
-      cancelVoice();
       keep.current = !savedNow.current && hasDraft.current;
       return;
     }
@@ -219,7 +167,6 @@ export function AddSheet({
     if (keep.current && !accountId && !initialText && !initialDate) {
       keep.current = false;
       setKept(true);
-      setVoiceStage((s) => (s.k === "heard" ? s : { k: "idle" }));
       setCamStage((s) => (s.k === "read" ? s : { k: "viewfinder" }));
       return;
     }
@@ -229,17 +176,18 @@ export function AddSheet({
     const p = initialText?.trim() ? parseEntry(initialText, accountsRef.current) : null;
     setMode("Manual");
     setAcc(accountId ?? p?.accountId ?? null);
-    setCat(p?.category ?? undefined);
-    setKindOverride(p?.amount != null && p.amount > 0 ? "Income" : undefined);
+    // the sentence's guess; the toggle overrides it
+    const guess: Kind | undefined = p?.category === "Investments" || p?.category === "Transfer" ? "Transfer" : p?.amount != null && p.amount > 0 ? "Income" : undefined;
+    setCat(guess === "Transfer" ? undefined : (p?.category ?? undefined));
+    setKindOverride(guess);
     setAmountStr(p?.amount != null ? String(Math.abs(Math.round(p.amount))) : "");
     setDate(initialDate ?? todayInput());
     setNote(p?.desc ?? "");
-    setToAcc(undefined);
+    setToAcc(guess === "Transfer" && p?.category === "Investments" ? accountsRef.current.find((a) => a.type === "investments" && a.id !== (accountId ?? p?.accountId))?.id : undefined);
     setPart("amount");
-    setVoiceStage({ k: "idle" });
     setCamStage({ k: "viewfinder" });
     setFix(null);
-  }, [open, accountId, initialText, initialDate, cancelVoice, restart]);
+  }, [open, accountId, initialText, initialDate, restart]);
 
   // the toast holds while focus is inside it, so Undo can't vanish under a keyboard user
   React.useEffect(() => {
@@ -256,23 +204,35 @@ export function AddSheet({
 
   const kind: Kind = kindOverride ?? "Expense";
   const abs = amountStr && parseFloat(amountStr) > 0 ? parseFloat(amountStr) : null;
-  const category: Category | null = kind === "Invest" ? "Investments" : (cat ?? null);
+  const category: Category | null = kind === "Transfer" ? null : (cat ?? null);
   const account = accounts.find((a) => a.id === acc);
-  // Invest moves money into an investments account (never the one it leaves).
-  const investAccounts = accounts.filter((a) => a.type === "investments" && a.id !== acc);
-  const toAccount = kind === "Invest" ? (investAccounts.find((a) => a.id === toAcc) ?? investAccounts[0]) : undefined;
+  // a transfer goes from any account to any other, investments included: money into an
+  // investments account is how investing works (D-0010)
+  const toOptions = accounts.filter((a) => a.id !== acc);
+  const toAccount = kind === "Transfer" ? toOptions.find((a) => a.id === toAcc) : undefined;
   const signedAmount = abs == null ? null : kind === "Income" ? abs : -abs;
-  const draftNow = abs != null || note.trim() !== "" || voiceStage.k === "heard" || camStage.k === "read";
+  const short = kind === "Transfer" && account != null && abs != null && overdraws(account, abs);
+  const draftNow = abs != null || note.trim() !== "" || camStage.k === "read";
   React.useLayoutEffect(() => {
     hasDraft.current = draftNow;
   });
 
   // first required part still empty, after the change just made
-  const missing = (o: { amt?: boolean; cat?: boolean; acc?: boolean } = {}): Part | null => {
+  const missing = (o: { amt?: boolean; cat?: boolean; acc?: boolean; to?: boolean } = {}): Part | null => {
     if (!(o.amt ?? abs != null)) return "amount";
-    if (kind !== "Invest" && !(o.cat ?? !!category)) return "category";
+    if (kind !== "Transfer" && !(o.cat ?? !!category)) return "category";
     if (!(o.acc ?? !!acc)) return "account";
+    if (kind === "Transfer" && !(o.to ?? !!toAccount)) return "to";
     return null;
+  };
+  const pickKind = (k: Kind) => {
+    if (k === kind) return;
+    setKindOverride(k === "Expense" ? undefined : k);
+    setCat(undefined);
+    setToAcc(undefined);
+    setAskedFor(null);
+    // after the switch: the first thing the new kind still needs
+    setPart(abs == null ? "amount" : k === "Transfer" ? (acc ? "to" : "account") : "category");
   };
 
   // Rank pickers by how often this phone has used each value.
@@ -333,7 +293,7 @@ export function AddSheet({
   };
 
   /** cloud: what the capture function did, as the same toast the phone's own save shows */
-  const captured = (r: CaptureResult, from: { kind: "voice" | "photo"; storagePath?: string; image?: string }) => {
+  const captured = (r: CaptureResult, from: { kind: "photo"; storagePath?: string; image?: string }) => {
     const { image } = from;
     // a question with nothing filed ("I couldn’t find an amount"): keep it in Review, not just in the toast
     if (cloud && r.outcome === "review" && !r.entries.length) {
@@ -380,6 +340,18 @@ export function AddSheet({
     if (signedAmount == null) return;
     if (unusual && !confirmBig) return setAskedFor(draftKey);
     const when = date !== todayInput() ? new Date(`${date}T12:00:00`).toISOString() : new Date().toISOString();
+    if (kind === "Transfer") {
+      if (!account || !toAccount || abs == null || short) return;
+      const legs = moveLegs({ from: account, to: toAccount, amount: abs, date: when, newId, desc: note.trim() || undefined, queued: !navigator.onLine });
+      dispatch({ type: "add-entries", entries: legs });
+      return done({
+        ids: legs.map((l) => l.id),
+        kind: legs[0].category === "Investments" ? "Investment" : "Transfer",
+        amount: peso(abs),
+        tone: "fg",
+        where: `${account.name} → ${toAccount.name}`,
+      });
+    }
     const entry: Entry = {
       id: newId("e"),
       desc: note.trim() || category || kind,
@@ -389,138 +361,14 @@ export function AddSheet({
       date: when,
       queued: !navigator.onLine,
     };
-    const ids = [entry.id];
-    if (toAccount) {
-      const linkId = newId("l");
-      const leg = { ...entry, id: newId("e"), accountId: toAccount.id, amount: -signedAmount, linkId };
-      ids.push(leg.id);
-      dispatch({ type: "add-entries", entries: [{ ...entry, linkId }, leg] });
-    } else dispatch({ type: "add-entry", entry });
+    dispatch({ type: "add-entry", entry });
     const shown = amountOf(abs, kind);
     done({
-      ids,
-      kind: kind === "Income" ? "Income" : kind === "Invest" ? "Investment" : "Expense",
+      ids: [entry.id],
+      kind: kind === "Income" ? "Income" : "Expense",
       amount: shown.text,
       tone: shown.tone === "empty" ? "fg" : shown.tone,
-      where: toAccount ? `${acctName(acc)} → ${toAccount.name}` : `${acctName(acc)} · ${category ?? "Needs category"}`,
-    });
-  };
-
-  /* ---------- voice ------------------------------------------------------ */
-
-  const pressAt = React.useRef<number | null>(null);
-  // cloud + online: record the clip too, so the server can transcribe it
-  const begin = () => {
-    pressAt.current = Date.now();
-    setFix(null);
-    setVoiceStage({ k: "listening" });
-    recording.current = !!cloud && navigator.onLine && recorderSupported;
-    if (recording.current) recorder.start();
-    voice.start();
-  };
-  const sendClip = async () => {
-    const said = new Promise<string>((resolve) => {
-      spoken.current = (t) => {
-        spoken.current = null;
-        resolve(t);
-      };
-    });
-    voice.finish();
-    setVoiceStage({ k: "sending" });
-    const clip = await recorder.stop();
-    if (clip && cloud) {
-      try {
-        const path = await upload("voice", cloud.uid, clip, extFor(clip.type));
-        const r = await capture({ client_id: newId("c"), kind: "voice", storage_path: path });
-        if (r) {
-          spoken.current = null;
-          voice.cancel();
-          captured(r, { kind: "voice", storagePath: path });
-          return;
-        }
-      } catch {
-        /* the phone's transcript below */
-      }
-    }
-    // no AI on the server, offline, or it failed: read the transcript on the phone
-    const text = await Promise.race([said, new Promise<string>((r) => setTimeout(() => r(""), 4000))]);
-    spoken.current = null;
-    if (text.trim()) hear(text);
-    else setVoiceStage({ k: "idle", hint: VOICE_ERROR["no-speech"] });
-  };
-  const release = () => {
-    const t = pressAt.current;
-    pressAt.current = null;
-    if (t == null) return;
-    if (Date.now() - t < HOLD_MS) {
-      voice.cancel();
-      if (recording.current) recorder.cancel();
-      recording.current = false;
-      setVoiceStage({ k: "idle", hint: "Hold the button while you talk." });
-      return;
-    }
-    if (recording.current) {
-      recording.current = false;
-      void sendClip();
-      return;
-    }
-    voice.finish();
-  };
-  const orb = {
-    onDown: (e: React.PointerEvent) => {
-      e.preventDefault();
-      (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
-      begin();
-    },
-    onMove: () => {},
-    onUp: release,
-    onKeyDown: (e: React.KeyboardEvent) => {
-      if ((e.key === " " || e.key === "Enter") && !e.repeat && pressAt.current == null) {
-        e.preventDefault();
-        begin();
-      }
-    },
-    onKeyUp: (e: React.KeyboardEvent) => {
-      if (e.key === " " || e.key === "Enter") release();
-    },
-  };
-
-  const heard = voiceStage.k === "heard" ? voiceStage : null;
-  const setItem = (i: number, patch: Partial<Parsed>) =>
-    setVoiceStage((s) => (s.k === "heard" ? { ...s, items: s.items.map((it, j) => (j === i ? { ...it, ...patch } : it)) } : s));
-  const itemMissing = (p: Parsed): FixPart | null =>
-    p.amount == null ? "amount" : !p.category ? "category" : !p.accountId ? "account" : null;
-
-  const saveVoice = () => {
-    if (!heard) return;
-    const base = Date.now();
-    const ids = heard.items.map(() => newId("e"));
-    heard.items.forEach((p, i) =>
-      dispatch({
-        type: "add-entry",
-        entry: {
-          id: ids[i],
-          desc: p.desc,
-          accountId: p.accountId,
-          category: p.category,
-          amount: p.amount ?? 0,
-          date: new Date(base + i).toISOString(),
-          raw: heard.text,
-          queued: !navigator.onLine,
-          source: "voice",
-        },
-      }),
-    );
-    const total = heard.items.reduce((n, p) => n + (p.amount ?? 0), 0);
-    const one = heard.items.length === 1 ? heard.items[0] : null;
-    const k = kindOf(total);
-    const shown = amountOf(Math.abs(total), k);
-    done({
-      ids,
-      kind: one ? k : `${heard.items.length} entries`,
-      amount: one ? shown.text : balance(total),
-      tone: one ? (shown.tone === "empty" ? "fg" : shown.tone) : "fg",
-      where: one ? `${acctName(one.accountId)} · ${one.category ?? "Needs category"}` : `“${heard.text}”`,
+      where: `${acctName(acc)} · ${category ?? "Needs category"}`,
     });
   };
 
@@ -571,65 +419,32 @@ export function AddSheet({
     });
   };
 
-  /* ---------- fixing a Voice or Camera draft ----------------------------- */
+  /* ---------- fixing a Camera draft ----------------------------- */
 
-  const openFix = (i: number, p: Part) => {
-    if (p !== "amount" && p !== "category" && p !== "account") return;
-    // a receipt's amount and categories come from its items
-    if (mode === "Camera" && p !== "account") return;
-    setFixAmount("");
-    setFix({ i, part: p });
+  // a receipt's amount and categories come from its items; only the account is picked here
+  const openFix = (p: Part) => {
+    if (p === "account") setFix({ part: "account" });
   };
-  const fixPanel = (draft: { amount: number | null; category: Category | null; accountId: string | null }, update: (patch: Partial<Parsed>) => void) => {
+  const fixPanel = (draft: { accountId: string | null }, update: (patch: { accountId: string | null }) => void) => {
     if (!fix) return null;
-    const next = (patch: Partial<Parsed>) => {
-      update(patch);
-      const after = { ...draft, ...patch } as Parsed;
-      const m = mode === "Camera" ? null : itemMissing(after);
-      setFix(m ? { i: fix.i, part: m } : null);
-    };
-    if (fix.part === "amount")
-      return (
-        <KeypadPanel
-          onKey={keyInto(fixAmount, setFixAmount)}
-          note={capNote}
-          canNext={!!fixAmount && parseFloat(fixAmount) > 0}
-          onNext={() => next({ amount: -parseFloat(fixAmount) })}
-        />
-      );
-    if (fix.part === "category")
-      return (
-        <CategoryPanel
-          options={draft.amount != null && draft.amount > 0 ? ranked.income : ranked.spend}
-          value={draft.category}
-          onPick={(c) => next({ category: c })}
-        />
-      );
-    return <AccountPanel options={draft.amount != null && draft.amount > 0 ? ranked.accounts : spendable} value={draft.accountId} onPick={(id) => next({ accountId: id })} />;
+    return (
+      <AccountPanel
+        options={spendable}
+        value={draft.accountId}
+        onPick={(id) => {
+          update({ accountId: id });
+          setFix(null);
+        }}
+      />
+    );
   };
 
   /* ---------- render ----------------------------------------------------- */
 
   const switchMode = (m: Mode) => {
     if (m === mode) return;
-    voice.cancel();
     setFix(null);
-    if (voiceStage.k === "listening") setVoiceStage({ k: "idle" });
     setMode(m);
-  };
-
-  const rowOf = (p: Parsed, active: Part | null, onPart?: (part: Part) => void) => {
-    const k = p.amount != null ? kindOf(p.amount) : "Expense";
-    return (
-      <DraftRow
-        title={p.desc}
-        account={accounts.find((a) => a.id === p.accountId)}
-        amount={amountOf(p.amount == null ? null : Math.abs(p.amount), k)}
-        chip={p.category ? { label: p.category, part: "category" } : { label: "Needs category", part: "category", warn: true }}
-        active={active}
-        onPart={onPart}
-      />
-    );
   };
 
   let body: React.ReactNode;
@@ -638,15 +453,18 @@ export function AddSheet({
   if (mode === "Manual") {
     body = (
       <>
+        <Segmented value={kind} options={KINDS} onChange={pickKind} />
+        <div className="mt-3" />
         <DraftRow
           title={note.trim() || KIND_WORD[kind]}
           account={account}
           amount={amountOf(abs, kind)}
+          missingAccount={kind === "Transfer" ? "FROM WHICH ACCOUNT?" : undefined}
           chip={
-            kind === "Invest"
+            kind === "Transfer"
               ? toAccount
                 ? { label: `To ${accountLabel(toAccount)}`, part: "to" }
-                : { label: "No investments account", part: "to", warn: true }
+                : { label: "Pick where it goes", part: "to", warn: true }
               : category
                 ? { label: category, part: "category" }
                 : { label: "Needs category", part: "category", warn: true }
@@ -655,23 +473,13 @@ export function AddSheet({
           onPart={(p) => setPart(part === p ? null : p)}
         />
         <div className="mt-3">
-          {part === "kind" ? (
-            <KindPanel
-              value={kind}
-              noInvestAccount={!accounts.some((a) => a.type === "investments")}
-              onPick={(k) => {
-                setKindOverride(k);
-                setCat(undefined);
-                setPart(abs == null ? "amount" : k === "Invest" ? missing({ cat: true }) : "category");
-              }}
-            />
-          ) : part === "amount" ? (
+          {part === "amount" ? (
             <KeypadPanel onKey={keyInto(amountStr, setAmountStr)} note={capNote} canNext={abs != null} onNext={() => setPart(missing({ amt: true }))} />
           ) : part === "desc" ? (
             <DescPanel
               value={note}
               onChange={setNote}
-              placeholder={kind === "Expense" ? "Grab, Landers, lunch w/ team" : kind === "Income" ? "Payroll · Acme Inc." : "VOO"}
+              placeholder={kind === "Expense" ? "Grab, Landers, lunch w/ team" : kind === "Income" ? "Payroll · Acme Inc." : "Move to savings"}
               onDone={() => setPart(missing())}
             />
           ) : part === "category" ? (
@@ -687,15 +495,17 @@ export function AddSheet({
             <AccountPanel
               options={kind === "Expense" ? spendable : ranked.accounts}
               value={acc}
-              allowNone
+              allowNone={kind !== "Transfer"}
               onPick={(id) => {
                 setAcc(id);
-                setPart(missing({ acc: true }));
+                // a destination that is now the source has to be picked again
+                if (id && id === toAcc) setToAcc(undefined);
+                setPart(missing({ acc: !!id, to: id !== toAcc && !!toAccount }));
               }}
             />
           ) : part === "to" ? (
             <AccountPanel
-              options={investAccounts}
+              options={toOptions}
               value={toAccount?.id ?? null}
               onPick={(id) => {
                 if (id) setToAcc(id);
@@ -727,9 +537,18 @@ export function AddSheet({
     );
     cta = {
       label: confirmBig ? `Yes, save ${amountOf(abs, kind).text}` : `${saveLabel(kind)}${abs != null ? ` · ${amountOf(abs, kind).text}` : ""}`,
-      disabled: signedAmount == null,
+      disabled: signedAmount == null || (kind === "Transfer" && (!account || !toAccount || short)),
       onClick: saveManual,
     };
+    if (short && account)
+      body = (
+        <>
+          {body}
+          <p role="alert" className="mt-3 text-[13px] text-danger">
+            That would leave {account.name} at {balance(account.balance - (abs ?? 0))}. Move less, or pick another account.
+          </p>
+        </>
+      );
     if (confirmBig && abs != null)
       body = (
         <>
@@ -754,99 +573,13 @@ export function AddSheet({
           {body}
         </>
       );
-  } else if (mode === "Voice") {
-    if (heard && fix) {
-      const item = heard.items[fix.i];
-      body = (
-        <>
-          {rowOf(item, fix.part, (p) => openFix(fix.i, p))}
-          <div className="mt-3">{fixPanel(item, (patch) => setItem(fix.i, patch))}</div>
-          <BackLink onClick={() => setFix(null)}>{heard.items.length > 1 ? "Back to the list" : "Done"}</BackLink>
-        </>
-      );
-    } else if (heard) {
-      const again = (
-        <button
-          type="button"
-          aria-label="Say it again"
-          onClick={() => setVoiceStage({ k: "idle" })}
-          className="flex size-12 items-center justify-center rounded-full bg-highlight text-highlight-fg active:opacity-80"
-        >
-          <MicIcon size={20} />
-        </button>
-      );
-      body =
-        heard.items.length === 1 ? (
-          <>
-            {rowOf(heard.items[0], null, (p) => openFix(0, p))}
-            <div className="mt-3">
-              <SourceRow lead={again} label="HEARD">
-                “{heard.text}”
-              </SourceRow>
-            </div>
-          </>
-        ) : (
-          <>
-            <ManyEntries
-              count={`${heard.items.length} ENTRIES · ${balance(heard.items.reduce((n, p) => n + (p.amount ?? 0), 0))}`}
-              needs={heard.items.filter((p) => itemMissing(p)).length}
-            >
-              {heard.items.map((p, i) => (
-                <ListRow key={i} onClick={() => openFix(i, itemMissing(p) ?? "category")}>
-                  <EntryRow
-                    entry={{ id: `heard-${i}`, desc: p.desc, accountId: p.accountId, category: p.category, amount: p.amount ?? 0, date: "" }}
-                    account={accounts.find((a) => a.id === p.accountId)}
-                  />
-                </ListRow>
-              ))}
-            </ManyEntries>
-            <div className="mt-3">
-              <SourceRow lead={again} label="HEARD">
-                <span className="line-clamp-2">“{heard.text}”</span>
-              </SourceRow>
-            </div>
-          </>
-        );
-    } else {
-      const listening = voiceStage.k === "listening";
-      const sending = voiceStage.k === "sending";
-      body = (
-        <div className="flex h-[300px] flex-col items-center justify-center gap-[46px]">
-          <Orb size={132} tone={listening ? "loud" : "normal"} {...orb} label={listening ? "Release to finish" : "Hold to talk"}>
-            <MicIcon size={40} />
-          </Orb>
-          <div className="flex flex-col items-center gap-1.5 px-6 text-center" role="status">
-            <span className="text-[15px] font-semibold">{listening ? "Listening…" : sending ? "Filing it…" : "Hold to log"}</span>
-            <span className="text-[13px] leading-[1.45] text-fg-subtle">
-              {listening
-                ? voice.heard || "Release when you’re done"
-                : sending
-                  ? voice.heard || "M8 is listening to the clip"
-                  : voiceStage.k === "idle" && voiceStage.hint
-                    ? voiceStage.hint
-                    : "“₱248 Grab to work, GCash”"}
-            </span>
-          </div>
-        </div>
-      );
-    }
-    const total = heard ? heard.items.reduce((n, p) => n + (p.amount ?? 0), 0) : 0;
-    cta = {
-      label: !heard
-        ? "Save expense"
-        : heard.items.length === 1
-          ? `${saveLabel(kindOf(total))} · ${amountOf(Math.abs(total), kindOf(total)).text}`
-          : `Save ${heard.items.length} entries · ${balance(total)}`,
-      disabled: !heard,
-      onClick: saveVoice,
-    };
   } else {
     if (receipt && receiptEntry && fix) {
       body = (
         <>
-          <ReceiptRow entry={receiptEntry} accounts={accounts} active={fix.part} onPart={(p) => openFix(0, p)} />
+          <ReceiptRow entry={receiptEntry} accounts={accounts} active={fix.part} onPart={openFix} />
           <div className="mt-3">
-            {fixPanel({ amount: receiptEntry.amount, category: receiptEntry.category, accountId: receipt.accountId }, (patch) =>
+            {fixPanel({ accountId: receipt.accountId }, (patch) =>
               setCamStage((s) => (s.k === "read" && patch.accountId !== undefined ? { k: "read", draft: { ...s.draft, accountId: patch.accountId } } : s)),
             )}
           </div>
@@ -866,7 +599,7 @@ export function AddSheet({
             <ManyEntries
               count={`${split.length} CATEGORIES · ${balance(receiptEntry.amount)}`}
               needs={split.filter((s) => receipt.items.some((i) => i.category === s.category && i.unsure)).length}
-              header={<ReceiptRow entry={receiptEntry} accounts={accounts} onPart={(p) => openFix(0, p)} />}
+              header={<ReceiptRow entry={receiptEntry} accounts={accounts} onPart={openFix} />}
             >
               {split.map((s) => {
                 const unsure = receipt.items.some((i) => i.category === s.category && i.unsure);
@@ -886,7 +619,7 @@ export function AddSheet({
               })}
             </ManyEntries>
           ) : (
-            <ReceiptRow entry={receiptEntry} accounts={accounts} onPart={(p) => openFix(0, p)} />
+            <ReceiptRow entry={receiptEntry} accounts={accounts} onPart={openFix} />
           )}
           <div className="mt-3">
             <SourceRow
@@ -957,7 +690,7 @@ export function AddSheet({
   // A physical keyboard drives the keypad: digits and Backspace while it shows, Enter saves.
   const keyboard = React.useRef<{ key?: (k: string) => void; save?: () => void }>({});
   const keypadKey =
-    mode === "Manual" && part === "amount" ? keyInto(amountStr, setAmountStr) : fix?.part === "amount" ? keyInto(fixAmount, setFixAmount) : undefined;
+    mode === "Manual" && part === "amount" ? keyInto(amountStr, setAmountStr) : undefined;
   React.useLayoutEffect(() => {
     keyboard.current = { key: keypadKey, save: cta.disabled ? undefined : cta.onClick };
   });

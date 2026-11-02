@@ -40,14 +40,24 @@ export const CHAT_TOOLS = [
   tool("period_summary", "Income, spending, net, savings rate, amount invested, entry count, spending by category and top merchants for a period.", periodProps),
   tool("compare_periods", "A period versus the one before it (previous week, month or year, or the same length before): income, spending, net and per-category changes.", periodProps),
   tool("spending_by_category", "Spending per category for a period, with each category's share.", periodProps),
-  tool("find_entries", "Search entries by words in the description, merchant, category or what the Owner typed (e.g. 'coffee', 'grab', 'meralco'). Returns count, total, spending and income of all matches plus the best matching entries.", {
+  tool("find_entries", "Search entries by words in the description, merchant, category or what the Owner typed (e.g. 'coffee', 'grab', 'meralco'). Optional category filter and period (null period = all time). Returns count, total, spending and income of all matches plus the best matching entries.", {
     query: { type: "string", description: "One or two words" },
+    category: { ...nullable({ type: "string" }), description: "Only entries in this category (use the names from spending_by_category), or null" },
     ...periodProps,
+    period: { anyOf: [{ type: "string", enum: [...PERIODS] }, { type: "null" }], description: "Calendar period in the Owner's timezone, or null for all time. Use 'custom' with start and end for any date range." },
   }),
-  tool("monthly_spend", "Spending per month from January of this year to this month, either for one category or for entries matching a search query (for trends and month-by-month charts).", {
+  tool("top_entries", "The largest individual entries (date, description, amount, category, account) in a period: the biggest expenses or biggest income. Use for 'what was my biggest expense last month'.", {
+    ...periodProps,
+    kind: { type: "string", enum: ["spend", "income"], description: "spend = expenses, income = money received" },
+    n: { type: "integer", description: "How many entries, 1 to 20 (5 if unsure)" },
+    category: { ...nullable({ type: "string" }), description: "Only this category (names from spending_by_category), or null" },
+  }),
+  tool("monthly_spend", "Spending per month for one year (January to this month for the current year, all twelve months for a past year), either for one category or for entries matching a search query (for trends and month-by-month charts).", {
     category: { ...nullable({ type: "string" }), description: "A category name, e.g. 'Food & drink'" },
     query: { ...nullable({ type: "string" }), description: "Search words, e.g. 'coffee'" },
+    year: { ...nullable({ type: "integer" }), description: "A four-digit year such as the one in the Owner's question, or null for this year" },
   }),
+  tool("budget_status", "Budget versus actual: this month's budget, spent and left, each category's budget and spending (budget null when none is set), and income, spending and savings rate for each of the last three full months. Use for advice questions (am I saving enough, over budget, what to cut).", {}),
   tool("goal_progress", "Each savings goal: saved, target, remaining, percent done, months left and the amount needed per month.", {}),
   tool("today_budget", "Today's spending allowance: what's left to spend today, what tomorrow's allowance becomes, spent today, days left in the month.", {}),
   tool("accounts_and_net_worth", "Every account's derived balance (credit cards: amount owed), net worth (cash + investments − credit owed), and any gap between a reported balance and the ledger.", {}),
@@ -107,6 +117,7 @@ export async function resolvePeriod(db: LedgerReader, input: { period?: string |
   return { start: b.start, end: b.end, label, prev: await pb(unit, before(b.start)) };
 }
 
+const text = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
 const MONTH = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
 /** Run one tool; returns the model view (numbers replaced by facts). Throws on bad input. */
@@ -134,19 +145,35 @@ export async function runTool(name: string, input: Record<string, unknown>, ctx:
     case "find_entries": {
       const q = String(input.query ?? "").trim();
       if (!q) throw new Error("query is empty");
+      const category = text(input.category);
       const b = input.period ? await period() : null;
-      const r = await db.rpc("entries_matching", { p_query: q, p_start: b?.start ?? null, p_end: b?.end ?? null, p_limit: 25 });
-      return { period: b?.label ?? "all time", ...(factify(r, reg, { label: `"${q}"${b ? ` ${b.label}` : ""}` }) as object) };
+      const r = await db.rpc("entries_matching", { p_query: q, p_start: b?.start ?? null, p_end: b?.end ?? null, p_limit: 25, p_category: category });
+      return { period: b?.label ?? "all time", ...(factify(r, reg, { label: `"${q}"${category ? ` in ${category}` : ""}${b ? ` ${b.label}` : ""}` }) as object) };
+    }
+    case "top_entries": {
+      const b = await period();
+      const kind = input.kind === "income" ? "income" : "spend";
+      const n = Math.min(20, Math.max(1, Math.round(Number(input.n)) || 5));
+      const category = text(input.category);
+      const r = await db.rpc("top_entries", { p_start: b.start, p_end: b.end, p_kind: kind, p_category: category, p_limit: n });
+      return { period: b.label, ...(factify(r, reg, { label: `largest ${kind} entries ${b.label}`, drop: ["status"] }) as object) };
+    }
+    case "budget_status": {
+      const r = await db.rpc("budget_status", { p_now: now.toISOString() });
+      return factify(r, reg, { label: "budget" });
     }
     case "monthly_spend": {
       const category = typeof input.category === "string" && input.category.trim() ? input.category.trim() : null;
       const query = typeof input.query === "string" && input.query.trim() ? input.query.trim() : null;
       if (!category && !query) throw new Error("give a category or a query");
       const p = localParts(now, tz);
+      const y = input.year == null ? p.year : Math.round(Number(input.year));
+      if (!Number.isFinite(y) || y < 2000 || y > p.year) throw new Error(`year must be between 2000 and ${p.year}`);
       const months: unknown[] = [];
-      for (let m = 0; m < p.month; m++) {
-        const start = zonedStart(`${p.year}-${String(m + 1).padStart(2, "0")}-01`, tz);
-        const end = m + 1 === 12 ? zonedStart(`${p.year + 1}-01-01`, tz) : zonedStart(`${p.year}-${String(m + 2).padStart(2, "0")}-01`, tz);
+      for (let m = 0; m < (y === p.year ? p.month : 12); m++) {
+        const start = zonedStart(`${y}-${String(m + 1).padStart(2, "0")}-01`, tz);
+        if (y !== p.year) reg.allowDate(`${y}-${String(m + 1).padStart(2, "0")}-01`); // "March 2025" may be quoted
+        const end = m + 1 === 12 ? zonedStart(`${y + 1}-01-01`, tz) : zonedStart(`${y}-${String(m + 2).padStart(2, "0")}-01`, tz);
         let fact: { value: number; entry_ids: string[] };
         if (category) {
           const rows = (await db.rpc("spend_by_category", { p_start: start, p_end: end })) as { category_code: string | null; value: number; entry_ids: string[] }[];
@@ -156,10 +183,10 @@ export async function runTool(name: string, input: Record<string, unknown>, ctx:
           const r = (await db.rpc("entries_matching", { p_query: query, p_start: start, p_end: end, p_limit: 0 })) as { spend: { value: number; entry_ids: string[] } };
           fact = { value: Number(r.spend.value), entry_ids: r.spend.entry_ids ?? [] };
         }
-        const id = reg.add(fact.value, "peso", `${category ?? `"${query}"`} spending in ${MONTH[m]}`, fact.entry_ids);
+        const id = reg.add(fact.value, "peso", `${category ?? `"${query}"`} spending in ${MONTH[m]}${y === p.year ? "" : ` ${y}`}`, fact.entry_ids);
         months.push({ month: MONTH[m], spend: { fact: id, shows: reg.display(id), entries: fact.entry_ids.length } });
       }
-      return { filter: category ?? query, months };
+      return { filter: category ?? query, year: y === p.year ? "this year" : String(y), months };
     }
     case "goal_progress": {
       const r = await db.rpc("goal_progress", {});

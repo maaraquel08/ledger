@@ -14,6 +14,7 @@ import {
 } from "@/components/ledger/primitives";
 import { UndoToast, type UndoNote } from "@/components/ledger/undo-toast";
 import { cn } from "@/lib/cn";
+import { overdraws, moveLegs } from "@/lib/entry-rules";
 import { balance, monthShort, peso, signed } from "@/lib/format";
 import { PROVIDERS, providerMeta, TYPE_KIND, TYPE_LABEL } from "@/lib/providers";
 import { back, navigate } from "@/lib/router";
@@ -25,7 +26,8 @@ import type { Account, AccountType, Provider } from "@/lib/types";
 
 const FIELD =
   "h-11 w-full rounded-md border border-line-strong bg-bg px-3 text-[16px] text-fg outline-none placeholder:text-fg-subtle focus:border-accent";
-const TYPES: AccountType[] = ["bank", "ewallet", "cash", "credit", "investments"];
+/** Credit cards are no longer created; existing ones keep working. */
+const TYPES: AccountType[] = ["bank", "ewallet", "cash", "investments"];
 
 const kindLine = (a: Account) => {
   const same = a.name.toLowerCase().startsWith(a.providerLabel.toLowerCase());
@@ -88,10 +90,6 @@ export function AccountsSummary({ onAdd }: { onAdd: (provider?: Provider) => voi
   const credit = state.accounts.filter((a) => a.type === "credit");
   const invested = state.accounts.filter((a) => a.type === "investments");
 
-  const holdings = state.profile.holdings;
-  const hv = holdings.reduce((n, h) => n + h.value, 0);
-  const change = hv > 0 ? holdings.reduce((n, h) => n + h.change * h.value, 0) / hv : null;
-
   if (state.accounts.length === 0) {
     return (
       <div className="px-6 pt-8 pb-6">
@@ -103,7 +101,6 @@ export function AccountsSummary({ onAdd }: { onAdd: (provider?: Provider) => voi
             [
               ["gcash", "GCash", "Wallet"],
               ["bpi", "BPI", "Debit or savings"],
-              ["rcbc", "RCBC", "Credit card"],
               ["cash", "Cash on hand", "Physical"],
             ] as [Provider, string, string][]
           ).map(([p, label, sub]) => (
@@ -145,11 +142,7 @@ export function AccountsSummary({ onAdd }: { onAdd: (provider?: Provider) => voi
       {invested.length > 0 ? (
         <Group title={`INVESTED · ${peso(nw.invested)}`}>
           {invested.map((a) => (
-            <AccountRow
-              key={a.id}
-              a={a}
-              meta={change !== null ? <span className={change < 0 ? "text-danger" : "text-success"}>{change < 0 ? "▼" : "▲"} {Math.abs(change).toFixed(1)}%</span> : null}
-            />
+            <AccountRow key={a.id} a={a} />
           ))}
         </Group>
       ) : null}
@@ -171,7 +164,7 @@ export function AddAccountSheet({ open, onOpenChange, initialProvider }: { open:
     const m = providerMeta(p);
     setProvider(p);
     setName(p === "other" ? "" : p === "cash" ? "Cash on hand" : m.label);
-    setType(m.type);
+    setType(m.type === "credit" ? "bank" : m.type);
   }, []);
 
   React.useEffect(() => {
@@ -397,7 +390,7 @@ function EditAccountSheet({ open, onOpenChange, account, onRemove }: { open: boo
         </Cta>
         {confirm ? (
           <div className="rounded-lg border border-danger/50 p-3.5">
-            <p className="text-[13.5px] leading-[1.45]">Remove {account.name}? Its entries stay in Money but lose their account.</p>
+            <p className="text-[13.5px] leading-[1.45]">Remove {account.name}? Its entries stay in Money but lose their account. Transfers to or from it are removed from this account only; the other side stays as a plain entry.</p>
             <div className="mt-3 flex gap-2.5">
               <ActionButton variant="secondary" className="min-h-11 flex-1" autoFocus onClick={() => setConfirm(false)}>
                 Cancel
@@ -490,40 +483,52 @@ function ReportBalanceSheet({ open, onOpenChange, account, onReport }: { open: b
   );
 }
 
-function TransferSheet({ open, onOpenChange, from }: { open: boolean; onOpenChange: (o: boolean) => void; from: Account }) {
+/**
+ * Move money between two of your accounts, From preset to the account you opened it on.
+ * Same legs, same guards as the Add sheet's Transfer (moveLegs, overdraws).
+ */
+function TransferSheet({ open, onOpenChange, from: preset }: { open: boolean; onOpenChange: (o: boolean) => void; from: Account }) {
   const { state, dispatch } = useLedger();
-  const others = state.accounts.filter((a) => a.id !== from.id);
+  const [fromId, setFromId] = React.useState(preset.id);
   const [to, setTo] = React.useState<string | null>(null);
   const [amount, setAmount] = React.useState("");
 
   React.useEffect(() => {
     if (open) {
+      setFromId(preset.id);
       setTo(null);
       setAmount("");
     }
-  }, [open]);
+  }, [open, preset.id]);
 
-  const value = num(amount);
+  const from = state.accounts.find((a) => a.id === fromId) ?? preset;
+  const others = state.accounts.filter((a) => a.id !== from.id);
+  const value = Math.round(num(amount));
   const dest = others.find((a) => a.id === to);
-  const overdraws = from.type !== "credit" && Number.isFinite(value) && value > from.balance;
-  const valid = !!dest && Number.isFinite(value) && value > 0 && !overdraws;
+  const short = Number.isFinite(value) && overdraws(from, value);
+  const valid = !!dest && Number.isFinite(value) && value > 0 && !short;
 
   const go = () => {
     if (!dest || !valid) return;
-    const date = new Date().toISOString();
-    const linkId = newId("l");
-    dispatch({
-      type: "add-entries",
-      entries: [
-        { id: newId("e"), desc: `Transfer to ${dest.name}`, accountId: from.id, category: "Transfer", amount: -value, date, linkId },
-        { id: newId("e"), desc: `Transfer from ${from.name}`, accountId: dest.id, category: "Transfer", amount: value, date, linkId },
-      ],
-    });
+    dispatch({ type: "add-entries", entries: moveLegs({ from, to: dest, amount: value, date: new Date().toISOString(), newId, queued: !navigator.onLine }) });
     onOpenChange(false);
   };
 
+  const picker = (label: string, options: Account[], picked: string | null, pick: (id: string) => void) => (
+    <div>
+      <Eyebrow className="mb-2.5">{label}</Eyebrow>
+      <div className="flex flex-wrap gap-2">
+        {options.map((a) => (
+          <Pill key={a.id} active={picked === a.id} className="min-h-10 max-w-full px-3.5 text-[12.5px] whitespace-normal text-start" onClick={() => pick(a.id)}>
+            {a.name}
+          </Pill>
+        ))}
+      </div>
+    </div>
+  );
+
   return (
-    <Sheet open={open} onOpenChange={onOpenChange} title={`Transfer from ${from.name}`}>
+    <Sheet open={open} onOpenChange={onOpenChange} title="Transfer">
       <form
         className="space-y-5 pt-5 pb-3"
         onSubmit={(e) => {
@@ -531,25 +536,20 @@ function TransferSheet({ open, onOpenChange, from }: { open: boolean; onOpenChan
           go();
         }}
       >
-        {others.length === 0 ? (
+        {state.accounts.length < 2 ? (
           <p className="text-[14px] text-fg-muted">Add another account to move money between them.</p>
         ) : (
           <>
-            <div>
-              <Eyebrow className="mb-2.5">TO</Eyebrow>
-              <div className="flex flex-wrap gap-2">
-                {others.map((a) => (
-                  <Pill key={a.id} active={to === a.id} className="min-h-10 max-w-full px-3.5 text-[12.5px] whitespace-normal text-start" onClick={() => setTo(a.id)}>
-                    {a.name}
-                  </Pill>
-                ))}
-              </div>
-            </div>
+            {picker("FROM", state.accounts, from.id, (id) => {
+              setFromId(id);
+              if (to === id) setTo(null);
+            })}
+            {picker("TO", others, to, setTo)}
             <label className="block">
               <Eyebrow className="mb-2">AMOUNT (₱)</Eyebrow>
-              <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" placeholder="0" className={cn(FIELD, "font-mono")} />
+              <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="numeric" placeholder="0" className={cn(FIELD, "font-mono")} />
             </label>
-            {overdraws ? <p className="text-[13px] text-danger">That would leave {from.name} at {balance(from.balance - value)}.</p> : null}
+            {short ? <p className="text-[13px] text-danger">That would leave {from.name} at {balance(from.balance - value)}.</p> : null}
             {valid && dest ? (
               <p className="text-[13px] text-fg-muted">
                 <Amount value={-value} /> from {from.name}, <Amount value={value} /> to {dest.name}.

@@ -12,8 +12,9 @@ import { CategoryChip, ProviderMark } from "./primitives";
  * edited. Study B in design-ledger/studies/add-entry-selection.
  */
 
-export type Kind = "Expense" | "Income" | "Invest";
-export type Part = "kind" | "amount" | "desc" | "category" | "account" | "to" | "date";
+export type Kind = "Expense" | "Income" | "Transfer";
+export const KINDS: Kind[] = ["Expense", "Income", "Transfer"];
+export type Part = "amount" | "desc" | "category" | "account" | "to" | "date";
 
 /* ---------- draft row --------------------------------------------------- */
 
@@ -28,6 +29,7 @@ export function DraftRow({
   amount,
   chip,
   active,
+  missingAccount = "WHICH ACCOUNT?",
   onPart,
 }: {
   title: string;
@@ -35,6 +37,8 @@ export function DraftRow({
   amount: { text: string; tone: "danger" | "success" | "fg" | "empty" };
   chip: { label: string; part: Part; warn?: boolean };
   active?: Part | null;
+  /** what the empty account slot asks ("FROM WHICH ACCOUNT?" on a transfer) */
+  missingAccount?: string;
   onPart?: (p: Part) => void;
 }) {
   const part = (p: Part, label: string, className: string, children: React.ReactNode) =>
@@ -56,19 +60,19 @@ export function DraftRow({
         account ? <ProviderMark provider={account.provider} /> : <span className="block size-[42px] rounded-[10px] border border-gold-ink" />,
       )}
       <div className="min-w-0 flex-1">
-        {part("kind", `Kind: ${title}`, "block max-w-full truncate", <span className={cn("text-[14.5px] leading-[1.3]", line("kind"))}>{title}</span>)}
+        {part("desc", `Note: ${title}`, "block max-w-full truncate", <span className={cn("text-[14.5px] leading-[1.3]", line("desc"))}>{title}</span>)}
         <div className="mt-[7px] flex flex-wrap items-center gap-2">
           {part(
             "account",
             account ? `Account: ${accountLabel(account)}` : "Pick an account",
             "",
             <span className={cn("font-mono text-[10.5px] font-medium tracking-[0.05em] whitespace-nowrap", account ? "text-fg-subtle" : "text-gold-ink", line("account"))}>
-              {account ? accountLabel(account) : "WHICH ACCOUNT?"}
+              {account ? accountLabel(account) : missingAccount}
             </span>,
           )}
           {part(
             chip.part,
-            chip.warn ? "Pick a category" : `Category: ${chip.label}`,
+            chip.part !== "category" ? chip.label : chip.warn ? "Pick a category" : `Category: ${chip.label}`,
             cn("rounded-sm", active === chip.part && "outline-1 outline-accent bg-surface"),
             <CategoryChip tone={chip.warn ? "warn" : "neutral"}>{chip.label}</CategoryChip>,
           )}
@@ -121,42 +125,6 @@ export function PickerPanel({ children, className }: { children: React.ReactNode
     <div className="no-scrollbar flex h-[300px] flex-col overflow-y-auto overscroll-contain">
       <div className={cn("mt-auto", className)}>{children}</div>
     </div>
-  );
-}
-
-const KIND_OPTIONS: { kind: Kind; word: string; sign: string; tone: string; meta: string }[] = [
-  { kind: "Expense", word: "Spent", sign: "−", tone: "text-danger", meta: "Money out of an account." },
-  { kind: "Income", word: "Got", sign: "+", tone: "text-success", meta: "Money in: salary, freelance, a refund." },
-  { kind: "Invest", word: "Moved", sign: "→", tone: "text-fg", meta: "Into investments. Adds a “to” account." },
-];
-
-export function KindPanel({ value, onPick, noInvestAccount }: { value: Kind; onPick: (k: Kind) => void; noInvestAccount?: boolean }) {
-  return (
-    <PickerPanel className="flex flex-col gap-2">
-      {KIND_OPTIONS.map((o) => (
-        <button
-          key={o.kind}
-          type="button"
-          aria-pressed={value === o.kind}
-          onClick={() => onPick(o.kind)}
-          className={cn(
-            "flex min-h-[80px] items-center gap-3.5 rounded-md border px-4 text-left transition-colors duration-fast",
-            value === o.kind ? "border-accent bg-surface" : "border-line active:bg-surface",
-          )}
-        >
-          <span aria-hidden className={cn("flex size-9 flex-none items-center justify-center rounded-full border border-line-strong text-[20px] font-medium", o.tone)}>
-            {o.sign}
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block text-[16px] font-medium">{o.word}</span>
-            <span className="mt-1 block text-[12.5px] text-fg-muted">
-              {o.kind === "Invest" && noInvestAccount ? "Add an investments account to track where it goes." : o.meta}
-            </span>
-          </span>
-          {value === o.kind ? <CheckIcon size={18} /> : null}
-        </button>
-      ))}
-    </PickerPanel>
   );
 }
 

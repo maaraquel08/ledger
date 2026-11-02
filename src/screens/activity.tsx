@@ -256,8 +256,9 @@ export function ActivityDetail({ id }: { id: string }) {
           </>
         ) : (
           <>
+            <div className="flex w-full flex-col gap-3">
             {entry.receipt?.items.length ? (
-              <ActionButton variant="secondary" className="min-h-12 flex-1" onClick={() => setSplitting(true)}>
+              <ActionButton variant="secondary" className="min-h-12 w-full" onClick={() => setSplitting(true)}>
                 Edit split
               </ActionButton>
             ) : (
@@ -274,8 +275,12 @@ export function ActivityDetail({ id }: { id: string }) {
                 </div>
               )
             )}
+            </div>
+            <ActionButton variant="secondary" className="min-h-12 flex-1" onClick={() => setEditing(true)}>
+              Edit
+            </ActionButton>
             <ActionButton variant="secondary" className="min-h-12 flex-1 !text-danger" onClick={() => setConfirming(true)}>
-              Delete
+              {other ? "Delete transfer" : "Delete"}
             </ActionButton>
           </>
         )}

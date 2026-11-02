@@ -29,10 +29,12 @@ const STATE_KEY = "ledger:v1";
 const PHOTO_KEY = "ledger:photos:v1";
 export const PHOTO_CAP = 40;
 
-/** Older saves kept goal dates as "Jan 2027" and photos inside entries; bring them forward. */
+/** Older saves kept side income, holdings, goal dates as "Jan 2027" and photos inside entries; bring them forward. */
 function migrate(raw: Partial<LedgerState>, photos: PhotoStore): LedgerState {
   const s: LedgerState = { ...EMPTY_STATE, ...raw };
-  s.profile = { ...EMPTY_STATE.profile, ...s.profile, goals: (s.profile?.goals ?? []).map((g) => ({ ...g, by: normalizeGoalBy(g.by) })) };
+  // side income and holdings were removed; drop them from older saves
+  const { sideIncome: _side, holdings: _held, ...profile } = { ...EMPTY_STATE.profile, ...s.profile };
+  s.profile = { ...profile, goals: (s.profile?.goals ?? []).map((g) => ({ ...g, by: normalizeGoalBy(g.by) })) };
   s.entries = (s.entries ?? []).map((e) => {
     if (!e.receipt) return e;
     if (e.receipt.image) photos.put(e.id, e.receipt.image);
