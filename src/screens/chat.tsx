@@ -1,7 +1,6 @@
 import * as React from "react";
-import { ArrowUpIcon, ChevronLeft, ChevronRight, CloseIcon, MoreIcon, Sparkle } from "@/components/ledger/icons";
-import { AiSummaryLabel, AiSummaryText } from "@/components/ui/ai-summary/ai-summary";
-import { AiEyebrow, AiMark, AiPanel, Cta, Eyebrow, EntryRow, Screen, Sheet } from "@/components/ledger/primitives";
+import { ArrowUpIcon, ChevronLeft, MoreIcon, Sparkle } from "@/components/ledger/icons";
+import { AiEyebrow, AiMark, Cta, Eyebrow, EntryRow, Screen, Sheet } from "@/components/ledger/primitives";
 import { cn } from "@/lib/cn";
 import { addDays, compact, goalLabel, goalMonth, localDay, monthName, monthShort, peso, startOfDay } from "@/lib/format";
 import { back, navigate, query } from "@/lib/router";
@@ -525,8 +524,6 @@ function load(key: string): Msg[] {
   }
 }
 
-const CHIPS = ["How much did I spend today?", "Am I over budget?", "Where does my salary go?"];
-
 export function Chat({ path }: { path: string }) {
   const { state, dispatch } = useLedger();
   // cloud: one conversation per signed-in user; erase and sign-out clear it (lib/chat-history)
@@ -570,7 +567,6 @@ export function Chat({ path }: { path: string }) {
     };
   }, [menu]);
 
-  const tb = todayBudget(state);
   const active = msgs.find((m) => m.status === "loading" || m.status === "streaming");
   const lastDone = [...msgs].reverse().find((m) => m.role === "ai" && m.status === "done");
 
@@ -690,16 +686,14 @@ export function Chat({ path }: { path: string }) {
     <Screen>
       {/* header */}
       <div className="sticky top-0 z-10 bg-bg/95 backdrop-blur-sm">
-        <div className="grid grid-cols-[1fr_auto_1fr] items-center px-4 pt-3 pb-2">
-          <button
-            type="button"
-            onClick={() => back("/today")}
-            className="-ml-1 flex h-11 items-center gap-0.5 justify-self-start rounded-md pr-2 text-[14px] text-fg-subtle active:opacity-60"
-          >
-            <ChevronLeft size={18} />
-            Today
+        <div className="grid grid-cols-[44px_1fr_44px] items-center px-2 pt-2 pb-1">
+          <button type="button" aria-label="Back" onClick={() => back("/today")} className="flex size-11 items-center justify-center rounded-full text-fg-subtle active:bg-surface">
+            <ChevronLeft size={20} />
           </button>
-          <span className="eyebrow">{tb.hasBudget ? (tb.left >= 0 ? `${peso(tb.left)} left today` : `${peso(tb.left)} over today`) : "M8"}</span>
+          <h1 className="flex items-center justify-center gap-1.5 text-[16px] font-semibold">
+            <Sparkle size={13} />
+            M8
+          </h1>
           <div ref={menuRef} className="relative justify-self-end">
             <button type="button" aria-label="More" aria-expanded={menu} onClick={() => { setMenu((x) => !x); setConfirmClear(false); }} className="flex size-11 items-center justify-center rounded-full active:bg-surface">
               <MoreIcon />
@@ -751,75 +745,50 @@ export function Chat({ path }: { path: string }) {
       </p>
 
       {/* thread */}
-      <div className={cn("flex-1 px-6 pt-2 pb-6", msgs.length > 0 && "flex flex-col justify-end")}>
+      <div className={cn("flex flex-1 flex-col px-5 pt-2 pb-6", msgs.length === 0 && "justify-center")}>
         {msgs.length === 0 ? (
-          <div className="pt-10">
-            <div className="mx-auto flex size-12 items-center justify-center rounded-full border border-line-strong font-mono text-[18px] text-fg-muted">?</div>
-            <h1 className="mt-4 text-center text-[20px] font-semibold tracking-[-0.01em]">Ask anything about your money</h1>
-            <p className="mx-auto mt-2 max-w-[300px] text-center text-[13.5px] leading-[1.5] text-fg-muted">
-              I can see your entries, budgets, goals and holdings. I never move money.
-            </p>
-            <Eyebrow className="mt-9">TRY ONE OF THESE</Eyebrow>
-            <ul className="mt-2 flex flex-col gap-1">
-              {suggestionsFor(state).map((s) => (
-                <li key={s}>
-                  <button type="button" onClick={() => send(s)} className="flex min-h-12 w-full items-center justify-between gap-3 py-3 text-left text-[14.5px] active:opacity-60">
-                    {s}
-                    <ChevronRight size={16} className="flex-none text-fg-subtle" />
-                  </button>
-                </li>
+          <div className="pb-16">
+            <h2 className="text-center text-[26px] leading-[1.2] font-semibold tracking-[-0.01em]">Ask me anything about your money</h2>
+            <div className="mt-7 flex flex-wrap justify-center gap-2">
+              {suggestionsFor(state).slice(0, 4).map((s) => (
+                <button key={s} type="button" onClick={() => send(s)} className="min-h-11 rounded-[22px] border border-line-strong px-4 py-2 text-[14px] active:bg-surface">
+                  {s}
+                </button>
               ))}
-            </ul>
+            </div>
           </div>
         ) : (
-          <>
-            <div className="mb-[22px] text-center font-mono text-[9.5px] font-medium tracking-[0.14em] text-fg-subtle">TODAY</div>
-            <div className="flex flex-col gap-[22px]">
-              {msgs.map((m) => {
-                return m.role === "user" ? (
-                  <div key={m.id} className="flex max-w-[80%] flex-col items-end gap-[5px] self-end">
-                    <p className="rounded-[18px_18px_4px_18px] bg-accent px-[15px] py-[11px] text-[14.5px] leading-[1.4] break-words whitespace-pre-wrap text-accent-fg">
-                      {m.text}
-                    </p>
-                    {m.at ? (
-                      <span className="font-mono text-[9.5px] font-medium text-fg-subtle">{clock(m.at)}</span>
-                    ) : null}
-                  </div>
-                ) : (
-                  <AiMessage
-                    key={m.id}
-                    m={m}
-                    copied={copied === m.id}
-                    onCopy={() => copy(m)}
-                    onSources={() => setSources(m.ans?.sources ?? [])}
-                    onOffer={() => addGoal(m)}
-                    onFollow={send}
-                    busy={!!active}
-                  />
-                );
-              })}
-            </div>
-          </>
+          <div className="mt-auto flex flex-col gap-7">
+            {msgs.map((m) =>
+              m.role === "user" ? (
+                <p key={m.id} className="max-w-[85%] self-end rounded-[20px_20px_6px_20px] bg-accent px-4 py-3 text-[16px] leading-[1.45] break-words whitespace-pre-wrap text-accent-fg">
+                  {m.text}
+                </p>
+              ) : (
+                <AiMessage
+                  key={m.id}
+                  m={m}
+                  copied={copied === m.id}
+                  onCopy={() => copy(m)}
+                  onSources={() => setSources(m.ans?.sources ?? [])}
+                  onOffer={() => addGoal(m)}
+                  onFollow={send}
+                  busy={!!active}
+                />
+              ),
+            )}
+          </div>
         )}
       </div>
 
       {/* composer */}
-      <div className="sticky bottom-0 z-10 border-t border-line bg-bg px-4 pt-2.5 pb-[max(12px,env(safe-area-inset-bottom))]">
-        {focused && !text && !active && !lastDone?.ans?.followups.length ? (
-          <div className="no-scrollbar -mx-4 mb-2.5 flex gap-1.5 overflow-x-auto px-4" onPointerDown={(e) => e.preventDefault()}>
-            {CHIPS.map((c) => (
-              <button key={c} type="button" onClick={() => send(c)} className="h-11 rounded-[22px] border border-line-strong px-3 text-[12px] whitespace-nowrap active:bg-surface">
-                {c}
-              </button>
-            ))}
-          </div>
-        ) : null}
+      <div className="sticky bottom-0 z-10 bg-bg px-4 pt-2 pb-[max(12px,env(safe-area-inset-bottom))]">
         <form
           onSubmit={(e) => {
             e.preventDefault();
             send(text);
           }}
-          className={cn("flex items-end gap-2 rounded-[27px] border py-1.5 pr-1.5 pl-4", focused ? "border-accent" : "border-line-strong")}
+          className={cn("flex items-end gap-2 rounded-[26px] border py-1.5 pr-1.5 pl-4", focused ? "border-accent" : "border-line-strong")}
         >
           <textarea
             ref={taRef}
@@ -838,23 +807,10 @@ export function Chat({ path }: { path: string }) {
                 send(text);
               }
             }}
-            className="max-h-36 min-h-10 min-w-0 flex-1 resize-none bg-transparent py-2 text-[16px] leading-[1.4] outline-none placeholder:text-mute"
+            className="max-h-40 min-h-[52px] min-w-0 flex-1 resize-none bg-transparent py-3.5 text-[16px] leading-[1.4] outline-none placeholder:text-mute"
           />
-          {text && !active ? (
-            <button
-              type="button"
-              aria-label="Clear"
-              onClick={() => {
-                setText("");
-                taRef.current?.focus();
-              }}
-              className="hit flex size-10 flex-none items-center justify-center text-fg-subtle active:opacity-60"
-            >
-              <CloseIcon size={14} />
-            </button>
-          ) : null}
           {active ? (
-            <button type="button" aria-label="Stop answering" onClick={stop} className="hit flex size-10 flex-none items-center justify-center rounded-full bg-accent text-accent-fg active:bg-accent-hover">
+            <button type="button" aria-label="Stop answering" onClick={stop} className="mb-1 flex size-11 flex-none items-center justify-center rounded-full bg-accent text-accent-fg active:bg-accent-hover">
               <span className="size-3 rounded-[2px] bg-current" />
             </button>
           ) : (
@@ -862,7 +818,7 @@ export function Chat({ path }: { path: string }) {
               type="submit"
               aria-label="Send"
               disabled={!text.trim()}
-              className="hit flex size-10 flex-none items-center justify-center rounded-full bg-accent text-accent-fg active:bg-accent-hover disabled:bg-fill disabled:text-fg-subtle"
+              className="mb-1 flex size-11 flex-none items-center justify-center rounded-full bg-accent text-accent-fg active:bg-accent-hover disabled:bg-fill disabled:text-fg-subtle"
             >
               <ArrowUpIcon />
             </button>
@@ -894,9 +850,6 @@ export function Chat({ path }: { path: string }) {
     </Screen>
   );
 }
-
-const clock = (t: string | number) => new Date(t).toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit" });
-
 /** Wrap each mark phrase found in `text` in an AiMark. */
 function withMarks(text: string, marks: string[] = []): React.ReactNode {
   const found = marks.filter((m) => m && text.includes(m));
@@ -922,7 +875,7 @@ function AiMessage({
   onFollow: (q: string) => void;
   busy: boolean;
 }) {
-  if (!m.ans && m.status !== "loading") return <p className="text-[14.5px] leading-[1.55]">{m.text}</p>;
+  if (!m.ans && m.status !== "loading") return <p className="text-[16px] leading-[1.6] whitespace-pre-line">{m.text}</p>;
 
   const loading = m.status === "loading";
   const a = m.ans ?? NO_ANSWER; // cloud: waiting for the server, the loading state below shows
@@ -933,12 +886,8 @@ function AiMessage({
 
   if (loading || (m.status === "streaming" && shown === 0))
     return (
-      <div className="flex flex-col gap-2.5">
-        <div className="flex items-center gap-[7px]">
-          <Sparkle size={12} />
-          <span className="eyebrow !text-gold-ink">M8</span>
-        </div>
-        <div className="flex gap-[5px] py-1">
+      <div role="status" aria-label="M8 is thinking" className="flex items-center py-2">
+        <div className="flex gap-[5px]">
           {[100, 60, 30].map((o, i) => (
             <span
               key={i}
@@ -952,27 +901,27 @@ function AiMessage({
 
   return (
     <div>
-      <AiPanel label="M8">
+      <div>
         {shown > 0 ? (
-          <AiSummaryText className="mt-2.5 text-[15px]/[1.6] whitespace-pre-line">
+          <p aria-live="polite" className="text-[16px] leading-[1.6] whitespace-pre-line">
             {complete ? withMarks(a.text, a.marks) : words.slice(0, shown).join(" ")}
-            {m.status === "streaming" ? <span className="ml-0.5 inline-block h-[1em] w-px translate-y-[2px] bg-bg motion-safe:animate-pulse" /> : null}
-          </AiSummaryText>
+            {m.status === "streaming" ? <span className="ml-0.5 inline-block h-[1em] w-px translate-y-[2px] bg-fg motion-safe:animate-pulse" /> : null}
+          </p>
         ) : null}
 
         {complete && a.compare ? (
-          <div className="mt-4 rounded-md border border-bg/15 p-4">
-            <AiSummaryLabel>{a.compare.title}</AiSummaryLabel>
+          <div className="mt-4 rounded-md border border-line p-4">
+            <Eyebrow>{a.compare.title}</Eyebrow>
             {[
               { k: "NOW", v: a.compare.now, tone: "bg-success" },
               { k: "AFTER", v: a.compare.after, tone: a.compare.after < 3 ? "bg-danger" : "bg-success" },
             ].map((r) => (
               <div key={r.k} className="mt-3 flex items-center gap-3">
-                <span className="w-12 font-mono text-[10px] font-semibold tracking-[0.08em] text-bg/66">{r.k}</span>
-                <div className="h-2.5 flex-1 rounded-full bg-bg/15">
+                <span className="w-12 font-mono text-[10px] font-semibold tracking-[0.08em] text-fg-subtle">{r.k}</span>
+                <div className="h-2.5 flex-1 rounded-full bg-fill">
                   <div className={cn("h-full rounded-full", r.tone)} style={{ width: `${Math.min(100, (r.v / Math.max(a.compare!.now, 0.1)) * 100)}%` }} />
                 </div>
-                <span className="tnum w-14 text-right text-[13px] font-semibold text-bg/90">
+                <span className="tnum w-14 text-right text-[13px] font-semibold text-fg">
                   {r.v.toFixed(1)}
                   {a.compare!.unit}
                 </span>
@@ -982,30 +931,30 @@ function AiMessage({
         ) : null}
 
         {complete && a.bars ? (
-          <div className="mt-4 rounded-md border border-bg/15 p-4">
-            <AiSummaryLabel>{a.bars.title}</AiSummaryLabel>
+          <div className="mt-4 rounded-md border border-line p-4">
+            <Eyebrow>{a.bars.title}</Eyebrow>
             {a.bars.kind === "months" ? (
               <div className="mt-3 flex h-24 items-end gap-1.5">
                 {a.bars.items.map((b) => (
                   <div key={b.label} className="flex h-full flex-1 flex-col items-center justify-end gap-1">
-                    <div className="w-full rounded-t-[3px] bg-highlight" style={{ height: `${Math.max(3, (b.value / max) * 85)}%` }}>
+                    <div className="w-full rounded-t-[3px] bg-fg" style={{ height: `${Math.max(3, (b.value / max) * 85)}%` }}>
                       <span className="sr-only">{b.label} {b.display}</span>
                     </div>
-                    <span aria-hidden className="font-mono text-[9.5px] text-bg/66">{b.label[0]}</span>
+                    <span aria-hidden className="font-mono text-[9.5px] text-fg-subtle">{b.label[0]}</span>
                   </div>
                 ))}
               </div>
             ) : (
               <div className="mt-3 flex flex-col gap-2.5">
                 {a.bars.items.map((b) => (
-                  <div key={b.label} className="flex items-center gap-3 text-[12.5px] text-bg/86">
+                  <div key={b.label} className="flex items-center gap-3 text-[12.5px] text-fg-muted">
                     <span className="w-24 break-words">{b.label}</span>
-                    <div className="h-2 flex-1 rounded-full bg-bg/15">
-                      <div className="h-full rounded-full bg-highlight" style={{ width: `${(b.value / max) * 100}%` }}>
+                    <div className="h-2 flex-1 rounded-full bg-fill">
+                      <div className="h-full rounded-full bg-fg" style={{ width: `${(b.value / max) * 100}%` }}>
                         <span className="sr-only">{b.label} {b.display}</span>
                       </div>
                     </div>
-                    <span className="tnum w-10 text-right font-semibold text-bg">{b.display}</span>
+                    <span className="tnum w-10 text-right font-semibold text-fg">{b.display}</span>
                   </div>
                 ))}
               </div>
@@ -1013,9 +962,9 @@ function AiMessage({
           </div>
         ) : null}
 
-        {complete && a.ask ? <AiSummaryText className="mt-4 text-[14.5px]/[1.65]">{a.ask}</AiSummaryText> : null}
-      </AiPanel>
-      {complete && a.basic ? <p className="mt-2 text-[12.5px] leading-[1.4] text-fg-muted">{a.basic}</p> : null}
+        {complete && a.ask ? <p className="mt-4 text-[16px] leading-[1.6]">{a.ask}</p> : null}
+      </div>
+      {complete && a.basic ? <p className="mt-2 text-[12px] leading-[1.4] text-fg-subtle">{a.basic}</p> : null}
       {complete && (a.offer || a.followups.length) ? (
         <div className="mt-3 flex flex-wrap gap-2">
           {a.offer ? (
@@ -1037,7 +986,7 @@ function AiMessage({
       ) : null}
 
       {m.status === "done" ? (
-        <div className="mt-3 flex flex-wrap items-center gap-x-1 font-mono text-[10px] font-semibold tracking-[0.08em] text-fg-subtle">
+        <div className="mt-1 -ml-1.5 flex flex-wrap items-center gap-x-1 font-mono text-[10px] font-semibold tracking-[0.08em] text-fg-subtle">
           <button type="button" onClick={onCopy} className="h-11 px-1.5 active:opacity-60">
             {copied ? "COPIED" : "COPY"}
           </button>

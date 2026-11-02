@@ -1,7 +1,8 @@
 import * as React from "react";
 import { useChrome } from "@/components/ledger/chrome";
+import { AiSummaryText } from "@/components/ui/ai-summary/ai-summary";
 import { ChevronLeft, ChevronRight } from "@/components/ledger/icons";
-import { AiEyebrow, Cta, Delta, EntryRow, Eyebrow, PageTitle, Screen, Segmented, Sheet } from "@/components/ledger/primitives";
+import { AiEyebrow, AiMark, AiPanel, Cta, Delta, EntryRow, Eyebrow, PageTitle, Screen, Segmented, Sheet } from "@/components/ledger/primitives";
 import {
   analyticsHref,
   categoryRows,
@@ -361,16 +362,43 @@ interface Finding {
   filter?: { type?: EntryKind; from?: Date; to?: Date };
 }
 
-function FindingCard({ f, all }: { f: Finding; all: Entry[] }) {
+/** A finding's sentence with its key figure marked, as M8 says it. */
+function markFigure(f: Finding): React.ReactNode {
+  const figure = f.number.replace(/^[+−-]/, "");
+  const i = f.text.indexOf(figure);
+  if (!figure || i < 0) return f.text;
   return (
-    <section className="overflow-hidden rounded-lg border border-line">
-      <div className="p-4">
-        <Eyebrow>{f.eyebrow}</Eyebrow>
-        <div className={cn("tnum mt-2 text-[26px] leading-none font-semibold tracking-[-0.03em]", f.tone === "danger" && "text-danger", f.tone === "success" && "text-success")}>{f.number}</div>
-        <p className="mt-2 text-[14px] leading-[1.5] text-pretty text-fg-muted">{f.text}</p>
-      </div>
-      <SourceLink count={f.entries.length} to={entriesHref(all, f.entries, f.label, f.filter)} />
-    </section>
+    <>
+      {f.text.slice(0, i)}
+      <AiMark>{figure}</AiMark>
+      {f.text.slice(i + figure.length)}
+    </>
+  );
+}
+
+/**
+ * The period read out by M8 in one card: each finding a sentence with its figure marked.
+ * Tapping a sentence opens the entries behind it.
+ */
+function Overview({ cards, all, label }: { cards: Finding[]; all: Entry[]; label: string }) {
+  return (
+    <AiPanel label={`M8 · ${label}`} className="mx-6 mt-9">
+      {cards.map((f) => (
+        <a
+          key={f.key}
+          href={`#${entriesHref(all, f.entries, f.label, f.filter)}`}
+          aria-label={`${f.text} See the ${entriesText(f.entries.length)} behind it.`}
+          className="group block active:opacity-70"
+        >
+          <AiSummaryText className="mt-2.5 text-[14.5px]/[1.65]">
+            {markFigure(f)}
+            <span aria-hidden className="ml-1 inline-block text-bg/50 transition-transform group-hover:translate-x-0.5">
+              ›
+            </span>
+          </AiSummaryText>
+        </a>
+      ))}
+    </AiPanel>
   );
 }
 
@@ -751,13 +779,7 @@ export function Analytics({ path }: { path: string }) {
         <p className="px-6 pt-9 text-[14px] text-fg-muted">Nothing logged in {label}. Step back to an earlier {UNIT[kind]}.</p>
       ) : (
         <>
-          <Section title="WHAT THIS MEANS" ai>
-            <div className="mt-3 flex flex-col gap-3">
-              {cards.map((f) => (
-                <FindingCard key={f.key} f={f} all={all} />
-              ))}
-            </div>
-          </Section>
+          {cards.length ? <Overview cards={cards} all={all} label={label} /> : null}
           <WhereItWent kind={kind} from={from} to={to} label={label} h={h} list={list} prevList={prevList} all={all} />
         </>
       )}
