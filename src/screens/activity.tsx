@@ -367,7 +367,7 @@ function EditEntrySheet({
   const sign: 1 | -1 = fixed ? (entry.amount >= 0 ? 1 : -1) : dir === "in" ? 1 : -1;
   const options = categoriesFor(sign, entry.category);
 
-  // whole pesos only, like the keypad; untouched, the stored amount stays as it was
+  // whole pesos only, like Add; untouched, the stored amount stays as it was
   const untouched = amount.trim() === shown;
   const value = untouched ? Math.abs(entry.amount) : parseWholePesos(amount);
   const date = when ? new Date(when) : null;

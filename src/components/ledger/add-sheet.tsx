@@ -20,7 +20,7 @@ import {
   DatePanel,
   DescPanel,
   DraftRow,
-  KeypadPanel,
+  AmountPanel,
   KINDS,
   SourceRow,
   type Kind,
@@ -137,7 +137,7 @@ export function AddSheet({
   const [toAcc, setToAcc] = React.useState<string | undefined>(undefined);
   // the part being edited; null = draft complete
   const [part, setPart] = React.useState<Part | null>("amount");
-  // the keypad's seven digits are full
+  // a digit past the seven-digit cap was refused
   const [capped, setCapped] = React.useState(false);
   // "That's ₱X — is that right?" once, for an amount far outside the usual; holds only for that draft
   const [askedFor, setAskedFor] = React.useState<string | null>(null);
@@ -254,13 +254,11 @@ export function AddSheet({
   const spendable = React.useMemo(() => ranked.accounts.filter(canSpendFrom), [ranked.accounts]);
 
   // whole pesos only: the row reads like the list does. Seven digits is the cap, and it says so.
-  const keyInto = (value: string, set: React.Dispatch<React.SetStateAction<string>>) => (k: string) => {
-    if (k === "⌫") {
-      setCapped(false);
-      return set(value.slice(0, -1));
-    }
-    if (value.length >= String(MAX_AMOUNT).length) return setCapped(true);
-    set(value === "0" ? k : value + k);
+  const typeAmount = (raw: string) => {
+    const digits = raw.replace(/\D/g, "").replace(/^0+(?=\d)/, "");
+    const max = String(MAX_AMOUNT).length;
+    setCapped(digits.length > max);
+    setAmountStr(digits.slice(0, max));
   };
   const capNote = capped ? `${peso(MAX_AMOUNT)} is the most one entry can hold.` : undefined;
 
@@ -474,7 +472,7 @@ export function AddSheet({
         />
         <div className="mt-3">
           {part === "amount" ? (
-            <KeypadPanel onKey={keyInto(amountStr, setAmountStr)} note={capNote} canNext={abs != null} onNext={() => setPart(missing({ amt: true }))} />
+            <AmountPanel value={amountStr} onChange={typeAmount} note={capNote} canNext={abs != null} onNext={() => setPart(missing({ amt: true }))} />
           ) : part === "desc" ? (
             <DescPanel
               value={note}
@@ -687,12 +685,10 @@ export function AddSheet({
     };
   }
 
-  // A physical keyboard drives the keypad: digits and Backspace while it shows, Enter saves.
-  const keyboard = React.useRef<{ key?: (k: string) => void; save?: () => void }>({});
-  const keypadKey =
-    mode === "Manual" && part === "amount" ? keyInto(amountStr, setAmountStr) : undefined;
+  // Enter saves from anywhere in the sheet but a field or a button (the amount field's Enter means "Next").
+  const keyboard = React.useRef<{ save?: () => void }>({});
   React.useLayoutEffect(() => {
-    keyboard.current = { key: keypadKey, save: cta.disabled ? undefined : cta.onClick };
+    keyboard.current = { save: cta.disabled ? undefined : cta.onClick };
   });
   React.useEffect(() => {
     if (!open) return;
@@ -700,14 +696,8 @@ export function AddSheet({
       if (e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented) return;
       const t = e.target as HTMLElement | null;
       if (t?.closest("input, textarea, select, [contenteditable='true']")) return;
-      const { key, save } = keyboard.current;
-      if (/^[0-9]$/.test(e.key) && key) {
-        e.preventDefault();
-        key(e.key);
-      } else if (e.key === "Backspace" && key) {
-        e.preventDefault();
-        key("⌫");
-      } else if (e.key === "Enter" && !e.repeat && save && (!t?.closest("button, a, [role='button']") || t.closest("[data-keypad]"))) {
+      const { save } = keyboard.current;
+      if (e.key === "Enter" && !e.repeat && save && !t?.closest("button, a, [role='button']")) {
         e.preventDefault();
         save();
       }

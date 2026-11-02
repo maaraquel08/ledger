@@ -128,47 +128,48 @@ export function PickerPanel({ children, className }: { children: React.ReactNode
   );
 }
 
-const KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "next", "0", "⌫"];
-
 /**
- * Whole pesos only; "Next" moves on to the first empty part. `note` says why a
- * key did nothing (the seven-digit cap). Keys carry data-keypad so a physical
- * Enter on a focused key saves instead of pressing it again.
+ * The amount as a plain numeric field, so the phone shows its own number pad.
+ * Whole pesos only; Enter or "Next" moves on to the first empty part. `note`
+ * says why a digit was refused (the seven-digit cap).
  */
-export function KeypadPanel({ onKey, onNext, canNext, note }: { onKey: (k: string) => void; onNext: () => void; canNext: boolean; note?: string }) {
+export function AmountPanel({ value, onChange, onNext, canNext, note }: { value: string; onChange: (v: string) => void; onNext: () => void; canNext: boolean; note?: string }) {
   return (
-    <PickerPanel>
-      <p role="status" className="min-h-6 pb-1.5 text-[12.5px] leading-[1.4] text-gold-ink">
+    <div className="flex flex-col gap-3 pb-1">
+      <label className="flex h-16 items-center gap-2 rounded-lg border border-line-strong bg-bg px-4 focus-within:border-accent">
+        <span aria-hidden className="text-[24px] font-semibold text-fg-subtle">₱</span>
+        <input
+          autoFocus
+          type="text"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          autoComplete="off"
+          enterKeyHint="next"
+          aria-label="Amount in pesos"
+          placeholder="0"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && canNext) {
+              e.preventDefault();
+              onNext();
+            }
+          }}
+          className="tnum min-w-0 flex-1 bg-transparent text-[28px] font-semibold tracking-[-0.01em] outline-none placeholder:text-mute"
+        />
+      </label>
+      <p role="status" className="min-h-5 text-[12.5px] leading-[1.4] text-gold-ink">
         {note}
       </p>
-      <div className="grid grid-cols-3 gap-1.5">
-      {KEYS.map((k) =>
-        k === "next" ? (
-          <button
-            key={k}
-            type="button"
-            onClick={onNext}
-            disabled={!canNext}
-            data-keypad
-            className="h-[62px] rounded-md bg-accent text-[15px] font-semibold text-accent-fg active:bg-accent-hover disabled:bg-fill disabled:text-fg-subtle"
-          >
-            Next
-          </button>
-        ) : (
-          <button
-            key={k}
-            type="button"
-            aria-label={k === "⌫" ? "Delete" : k}
-            onClick={() => onKey(k)}
-            data-keypad
-            className="h-[62px] rounded-md border border-line bg-surface text-[22px] font-medium active:bg-fill"
-          >
-            {k}
-          </button>
-        ),
-      )}
-      </div>
-    </PickerPanel>
+      <button
+        type="button"
+        onClick={onNext}
+        disabled={!canNext}
+        className="h-12 rounded-md bg-accent text-[15px] font-semibold text-accent-fg active:bg-accent-hover disabled:bg-fill disabled:text-fg-subtle"
+      >
+        Next
+      </button>
+    </div>
   );
 }
 

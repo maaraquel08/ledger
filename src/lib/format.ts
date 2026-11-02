@@ -6,7 +6,7 @@ export const wholePesos = (n: number) => Math.round(Math.abs(n));
 /** ₱18,900 — always unsigned, whole pesos. */
 export const peso = (n: number) => `₱${nf.format(wholePesos(n))}`;
 
-/** The most one entry can hold: seven digits on the keypad. */
+/** The most one entry can hold: seven digits. */
 export const MAX_AMOUNT = 9_999_999;
 
 /**
