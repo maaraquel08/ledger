@@ -13,6 +13,7 @@ Format: `- kind — what, in one sentence — files`
 ## 2026
 
 ### 2026-11-03
+- changed — Home is M8 chat with saved conversations; a Budget tab (every spending category with spent, budget, pace; category create/rename/delete with entries moved; goals) replaces the budget block in Analytics; tabs are Chat · Money · Budget · Analytics — `docs/superpowers/specs/2026-11-03-home-chat.md`, `docs/superpowers/specs/2026-11-03-budget-tab.md`
 - decided — D-0019 narrows Ledger to four pillars (entries with an Expense/Income/Transfer switch, accounts, analytics, chat), removes voice, insights, push, holdings, side income and new credit accounts, adds goal Add money and new chat tools; supersedes D-0016 — `decisions/D-0019-four-pillars.md`
 - changed — Credit cards are creatable again (onboarding and Add account) after the Owner reversed the credit removal; D-0019 account types are cash, e-wallet, bank, investments and credit card; demo seed has an RCBC card with spends and a payment from BPI — `decisions/D-0019-four-pillars.md`, `src/screens/accounts.tsx`, `src/screens/onboarding.tsx`, `src/lib/seed.ts`
 

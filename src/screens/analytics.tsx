@@ -25,12 +25,11 @@ import {
 import { cn } from "@/lib/cn";
 import { addDays, balance, compact, dayName, monthName, monthShort, peso, sameDay } from "@/lib/format";
 import { navigate, query } from "@/lib/router";
-import { FIXED, budgetPace, byCategory, inRange, isIncome, isSpend, ledgerStart, monthBounds, monthBudget, netWorth, verdict, type PeriodKind } from "@/lib/selectors";
+import { FIXED, budgetPace, byCategory, inRange, isIncome, isSpend, ledgerStart, monthBudget, type PeriodKind } from "@/lib/selectors";
+import { fixedCategories } from "@/lib/categories";
 import { useLedger } from "@/lib/store";
 import { clearChatHistory } from "@/lib/chat-history";
-import { todayBudget } from "@/lib/today";
-import { MathSheet, ProfileSheet } from "@/screens/today-sheets";
-import { Plan } from "@/screens/plan";
+import { ProfileSheet } from "@/screens/today-sheets";
 import { useGaps } from "@/screens/activity";
 import type { Entry } from "@/lib/types";
 import { entriesHref, needsReview, type EntryKind } from "@/screens/ledger-list";
@@ -421,7 +420,7 @@ export function findings(o: {
   prevList: Entry[];
   all: Entry[];
   /** pace: share of the budget period gone (selectors.budgetPace; prorated in the first month) */
-  budget: { budget: number; current: boolean; pace: number };
+  budget: { budget: number; current: boolean; pace: number; /** fixed bills (categories.fixedCategories); defaults to the built-ins */ fixed?: string[] };
 }): Finding[] {
   const { kind, from, to, now, label, h, list, prevList, all } = o;
   const out: Finding[] = [];
@@ -500,7 +499,7 @@ export function findings(o: {
     if (o.budget.current) {
       // bills are due in full on their date; only the rest is paced (as in Budgets)
       const fixed = byCategory(list)
-        .filter(([c]) => FIXED.includes(c))
+        .filter(([c]) => (o.budget.fixed ?? FIXED).includes(c))
         .reduce((s, [, v]) => s + v, 0);
       const pace = o.budget.pace;
       const allowed = fixed + (b - fixed) * pace;
@@ -748,56 +747,6 @@ function ReviewRow() {
   );
 }
 
-/** Month view: what Today used to show. Current month = left to spend and today's number; past = how it ended. */
-function BudgetGoals({ at, current, now }: { at: Date; current: boolean; now: Date }) {
-  const { state } = useLedger();
-  const [mathOpen, setMathOpen] = React.useState(false);
-  const v = verdict(state, at);
-  const tb = todayBudget(state, now);
-  const [mf, mt] = monthBounds(at);
-  const month = monthName(at).toUpperCase();
-  const worth = netWorth(state.accounts).total;
-  const hasBudget = v.budget > 0;
-  return (
-    <>
-      <section aria-label="Left to spend" className="px-6 pt-6">
-        {current ? (
-          <>
-            <Eyebrow>{v.left < 0 ? `OVER BUDGET · ${month}` : `LEFT TO SPEND · ${month}`}</Eyebrow>
-            <div className={cn("tnum mt-2 text-[40px] leading-none font-semibold tracking-[-0.04em]", v.left < 0 && "text-danger", !tb.hasBudget && "text-fg-subtle")}>
-              {tb.hasBudget ? balance(v.left) : "₱—"}
-            </div>
-          </>
-        ) : (
-          <>
-            <Eyebrow>BUDGET · {month}</Eyebrow>
-            <div className={cn("tnum mt-2 text-[22px] leading-tight font-semibold tracking-[-0.02em]", v.left < 0 && "text-danger", !hasBudget && "text-fg-subtle")}>
-              {hasBudget ? `Ended ${peso(Math.abs(v.left))} ${v.left < 0 ? "over" : "under"} budget` : "No budget set"}
-            </div>
-          </>
-        )}
-        <p className="tnum mt-2 text-[13px] text-fg-muted">
-          Total balance <span className={cn("font-semibold", worth < 0 ? "text-danger" : "text-fg")}>{balance(worth)}</span>
-        </p>
-        {current ? (
-          <button
-            type="button"
-            onClick={() => tb.hasBudget && setMathOpen(true)}
-            aria-label={tb.hasBudget ? `${balance(tb.left)} ${tb.left < 0 ? "over today" : "left today"}. Show the math` : "No budget yet"}
-            className="mt-3 flex min-h-11 flex-wrap items-baseline gap-x-2 text-left active:opacity-60"
-          >
-            <span className={cn("tnum text-[18px] font-semibold tracking-[-0.01em]", !tb.hasBudget ? "text-fg-subtle" : tb.left < 0 ? "text-danger" : "text-fg")}>{tb.hasBudget ? balance(tb.left) : "₱—"}</span>
-            <span className="text-[14px] text-fg-subtle">{!tb.hasBudget ? "no budget yet" : tb.left < 0 ? "over today" : "left today"}</span>
-            {tb.hasBudget ? <span className="text-[13px] text-fg-muted underline underline-offset-4">Show the math</span> : null}
-          </button>
-        ) : null}
-      </section>
-      <Plan at={at} />
-      {current ? <MathSheet open={mathOpen} onOpenChange={setMathOpen} v={v} month={inRange(state.entries, mf, mt)} today={now} /> : null}
-    </>
-  );
-}
-
 export function Analytics({ path }: { path: string }) {
   const { state } = useLedger();
   const { openAdd } = useChrome();
@@ -833,7 +782,7 @@ export function Analytics({ path }: { path: string }) {
   const prevList = inRange(all, h.prior.from, h.prior.to);
   const steps = periodSteps(all, kind, from, now);
   const mb = kind === "month" ? monthBudget(state, current ? now : lastDay(to)) : null;
-  const budget = { budget: mb?.budget ?? 0, current, pace: mb && current ? budgetPace(mb, now) : 1 };
+  const budget = { budget: mb?.budget ?? 0, current, pace: mb && current ? budgetPace(mb, now) : 1, fixed: fixedCategories(state) };
   const cards = findings({ kind, from, to, now, label, h, list, prevList, all, budget });
   const empty = !list.some((e) => isSpend(e) || isIncome(e));
   const prevLabel = priorLabel(kind, h.prior);
@@ -867,12 +816,7 @@ export function Analytics({ path }: { path: string }) {
         <SourceLink bare count={list.filter((e) => isSpend(e) || isIncome(e)).length} to={entriesHref(all, list.filter((e) => isSpend(e) || isIncome(e)), `Income and spending · ${label}`)} />
       </section>
 
-      {kind === "month" ? (
-        <>
-          <ReviewRow />
-          <BudgetGoals at={current ? now : lastDay(to)} current={current} now={now} />
-        </>
-      ) : null}
+      {kind === "month" ? <ReviewRow /> : null}
 
       <TrendChart key={`${kind}${from.getTime()}`} kind={kind} steps={steps} label={label} />
 

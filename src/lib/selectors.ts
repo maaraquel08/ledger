@@ -1,4 +1,5 @@
 import { addDays, MAX_AMOUNT, sameDay, startOfDay } from "./format";
+import { fixedCategories } from "./categories";
 import type { Account, Category, Entry, Goal, LedgerState } from "./types";
 
 /** Categories that move money between your own pockets — never "spend". */
@@ -148,10 +149,11 @@ export function verdict(s: LedgerState, today = new Date()) {
   const daysLeft = Math.max(1, daysInMonth - today.getDate() + 1);
   const pace = budgetPace(mb, today);
 
+  const fixed = fixedCategories(s);
   const over = byCategory(month)
     .map(([c, v]) => ({ category: c, spent: v, budget: s.profile.categoryBudgets[c] ?? 0 }))
     // fixed costs land on a date, not a pace — only discretionary spend is paced
-    .filter((x) => x.budget > 0 && !FIXED.includes(x.category))
+    .filter((x) => x.budget > 0 && !fixed.includes(x.category))
     .map((x) => ({ ...x, delta: x.spent - x.budget * (today.getDate() / daysInMonth) }))
     .sort((a, b) => b.delta - a.delta);
 

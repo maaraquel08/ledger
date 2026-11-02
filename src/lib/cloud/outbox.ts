@@ -161,6 +161,12 @@ export function callsFor(a: Action, prev: LedgerState): Call[] | null {
       if (goals) calls.push(...goalCalls(prev.profile.goals, goals));
       return calls.length ? calls : null;
     }
+    case "add-category":
+      return [{ kind: "rpc", fn: "add_category", args: { p_name: a.def.name.trim(), p_kind: a.def.kind } }];
+    case "rename-category":
+      return [{ kind: "rpc", fn: "rename_category", args: { p_from: a.from, p_to: a.to.trim() } }];
+    case "delete-category":
+      return [{ kind: "rpc", fn: "delete_category", args: { p_name: a.name, p_move_to: a.moveTo } }];
     case "report-balance":
       return [{ kind: "rpc", fn: "report_balance", args: { p_account_id: a.accountId, p_reported: a.reported, p_id: a.id } }];
     case "record-adjustment":

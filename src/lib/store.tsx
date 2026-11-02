@@ -1,10 +1,11 @@
 import * as React from "react";
+import { categoryNameError, SYSTEM_CATEGORIES, userCategories, FIXED_BUILT_INS, MONTHLY_BUILT_INS } from "./categories";
 import { canRefund, detachAccounts } from "./entry-rules";
 import { localDay } from "./format";
 import { localStoragePhotoStore, localStorageRepository, type LedgerRepository } from "./persistence";
 import { buildDemo, EMPTY_STATE } from "./seed";
 import { cloud } from "./supabase";
-import type { Account, Entry, LedgerState, Profile } from "./types";
+import type { Account, Category, CategoryDef, Entry, LedgerState, Profile } from "./types";
 
 export type Action =
   | { type: "load-demo" }
@@ -20,6 +21,10 @@ export type Action =
   | { type: "remove-account"; id: string }
   | { type: "update-profile"; patch: Partial<Profile> }
   | { type: "ask" }
+  /** the Owner's own categories (src/lib/categories.ts): add one, rename one everywhere, or delete one and move its entries */
+  | { type: "add-category"; def: CategoryDef }
+  | { type: "rename-category"; from: Category; to: Category }
+  | { type: "delete-category"; name: Category; moveTo: Category }
   /* cloud mode only (D-0012, D-0014): local mode never dispatches these */
   /** replace the whole state with what the server returned (plus unsent changes) */
   | { type: "hydrate"; state: LedgerState }
@@ -60,6 +65,33 @@ function addEntries(s: LedgerState, entries: Entry[]): LedgerState {
   let accounts = s.accounts;
   for (const e of entries) accounts = applyBalance(accounts, e.accountId, effect(e));
   return { ...s, entries: sortEntries([...entries, ...s.entries]), accounts };
+}
+
+/** Rewrite one category name across entries, splits, receipt items (a split merges if `to` already has a line). */
+function recategorize(entries: Entry[], from: Category, to: Category): Entry[] {
+  const swap = (c: Category) => (c === from ? to : c);
+  return entries.map((e) => {
+    const hit = e.category === from || e.split?.some((p) => p.category === from) || e.receipt?.items.some((i) => i.category === from);
+    if (!hit) return e;
+    let split = e.split?.map((p) => ({ ...p, category: swap(p.category) }));
+    if (split) {
+      const merged: typeof split = [];
+      for (const p of split) {
+        const same = merged.find((m) => m.category === p.category);
+        if (same) {
+          same.amount += p.amount;
+          same.items = [...same.items, ...p.items];
+        } else merged.push({ ...p });
+      }
+      split = merged;
+    }
+    return {
+      ...e,
+      category: e.category == null ? null : swap(e.category),
+      ...(split ? { split } : {}),
+      ...(e.receipt ? { receipt: { ...e.receipt, items: e.receipt.items.map((i) => ({ ...i, category: swap(i.category) })) } } : {}),
+    };
+  });
 }
 
 export function reducer(s: LedgerState, a: Action): LedgerState {
@@ -118,6 +150,51 @@ export function reducer(s: LedgerState, a: Action): LedgerState {
       const day = localDay();
       const n = s.questionsDate === day ? s.questionsToday + 1 : 1;
       return { ...s, questionsToday: n, questionsDate: day };
+    }
+    case "add-category": {
+      const defs = userCategories(s);
+      const name = a.def.name.trim();
+      if (categoryNameError(name, defs)) return s;
+      return { ...s, categories: [...defs, { ...a.def, name }] };
+    }
+    case "rename-category": {
+      const defs = userCategories(s);
+      const to = a.to.trim();
+      const def = defs.find((d) => d.name === a.from);
+      if (!def || SYSTEM_CATEGORIES.includes(a.from) || a.from === to || categoryNameError(to, defs, a.from)) return s;
+      const budgets = { ...s.profile.categoryBudgets };
+      if (a.from in budgets) {
+        budgets[to] = budgets[a.from];
+        delete budgets[a.from];
+      }
+      return {
+        ...s,
+        // a renamed built-in keeps the nature it had
+        categories: defs.map((d) =>
+          d === def
+            ? {
+                ...d,
+                name: to,
+                ...(d.kind === "expense" ? { fixed: d.fixed ?? FIXED_BUILT_INS.includes(a.from), monthly: d.monthly ?? MONTHLY_BUILT_INS.includes(a.from) } : {}),
+              }
+            : d,
+        ),
+        entries: recategorize(s.entries, a.from, to),
+        profile: { ...s.profile, categoryBudgets: budgets },
+      };
+    }
+    case "delete-category": {
+      const defs = userCategories(s);
+      const def = defs.find((d) => d.name === a.name);
+      if (!def || SYSTEM_CATEGORIES.includes(a.name) || a.moveTo === a.name) return s;
+      if (!defs.some((d) => d.name === a.moveTo) && !SYSTEM_CATEGORIES.includes(a.moveTo)) return s;
+      const { [a.name]: _gone, ...budgets } = s.profile.categoryBudgets;
+      return {
+        ...s,
+        categories: defs.filter((d) => d !== def),
+        entries: recategorize(s.entries, a.name, a.moveTo),
+        profile: { ...s.profile, categoryBudgets: budgets },
+      };
     }
     case "hydrate":
       return a.state;

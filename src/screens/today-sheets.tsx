@@ -4,7 +4,8 @@ import { AiMark, AiPanel, Cta, Eyebrow, Sheet } from "@/components/ledger/primit
 import { cn } from "@/lib/cn";
 import { monthShort, peso } from "@/lib/format";
 import { navigate } from "@/lib/router";
-import { byCategory, FIXED, inRange, verdict } from "@/lib/selectors";
+import { fixedCategories } from "@/lib/categories";
+import { byCategory, inRange, verdict } from "@/lib/selectors";
 import { todayBudget } from "@/lib/today";
 import type { Category } from "@/lib/types";
 import { useLedger } from "@/lib/store";
@@ -125,7 +126,7 @@ export function MathSheet({
               <ul className="mt-2 flex flex-col gap-1">
                 {lines.map((l) => {
                   // bills are due in full on their date — compare them to the whole budget
-                  const pace = FIXED.includes(l.c as Category) ? l.b : l.b * frac;
+                  const pace = fixedCategories(state).includes(l.c as Category) ? l.b : l.b * frac;
                   const diff = Math.round(l.s - pace);
                   return (
                     <li key={l.c} className="flex items-center justify-between gap-3 py-2.5 text-[13.5px]">

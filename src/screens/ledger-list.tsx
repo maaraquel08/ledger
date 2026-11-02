@@ -4,11 +4,11 @@ import { CloseIcon, SearchIcon, SortIcon } from "@/components/ledger/icons";
 import { ActionButton, Amount, Cta, EntryRow, Eyebrow, Pill, Sheet } from "@/components/ledger/primitives";
 import { cn } from "@/lib/cn";
 import { addDays, dayHeading, localDay, monthName, monthShort, peso, signed, startOfDay } from "@/lib/format";
-import { SPEND_CATEGORIES } from "@/lib/providers";
+import { incomeCategories, spendCategories } from "@/lib/categories";
 import { navigate, query } from "@/lib/router";
 import { inRange, monthBounds, totals } from "@/lib/selectors";
 import { useLedger } from "@/lib/store";
-import type { Category, Entry } from "@/lib/types";
+import type { Category, CategoryDef, Entry } from "@/lib/types";
 
 /*
  * The ledger: every entry, newest first, filtered by type, account,
@@ -41,7 +41,8 @@ const isKind = (s: string | null): s is EntryKind => s === "income" || s === "ex
 
 type Sort = "new" | "old" | "large";
 const SORT_LABEL: Record<Sort, string> = { new: "Newest", old: "Oldest", large: "Largest" };
-const ALL_CATEGORIES: Category[] = [...SPEND_CATEGORIES, "Income", "Salary", "Investments", "Transfer"];
+/** every category an entry can be filed under, in the Owner's order */
+const allCategories = (s: { categories?: CategoryDef[] }): Category[] => [...spendCategories(s), ...incomeCategories(s), "Investments", "Transfer"];
 const DAY_PAGE = 60;
 const ENTRY_PAGE = 100;
 const ICON_BTN = "flex size-11 items-center justify-center rounded-full text-fg active:bg-surface";
@@ -459,7 +460,7 @@ export function LedgerList({ path, base, accountId }: { path: string; base: stri
           <div>
             <Eyebrow className="mb-3">CATEGORY</Eyebrow>
             <div className="flex flex-wrap gap-2">
-              {ALL_CATEGORIES.map((c) => (
+              {allCategories(state).map((c) => (
                 <Pill key={c} active={cat === c} className="min-h-11 px-4 text-[13px]" onClick={() => setParams({ cat: cat === c ? null : c })}>
                   {c}
                 </Pill>

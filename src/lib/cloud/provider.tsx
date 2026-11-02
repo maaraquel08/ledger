@@ -83,6 +83,9 @@ const WHAT: Partial<Record<Action["type"], string>> = {
   "report-balance": "a reported balance",
   "record-adjustment": "an adjustment",
   "queue-capture": "a voice note to file",
+  "add-category": "a new category",
+  "rename-category": "a renamed category",
+  "delete-category": "a deleted category",
 };
 
 export function CloudLedgerProvider({ uid, email, children }: { uid: string; email: string; children: React.ReactNode }) {
@@ -168,6 +171,7 @@ export function CloudLedgerProvider({ uid, email, children }: { uid: string; ema
     window.clearTimeout(retry.current);
     let stuck = false;
     let refused = false;
+    let recategorized = false;
     try {
       // one tab sends at a time; the others wait for the lock, then find little or nothing left
       await outbox.exclusive(async () => {
@@ -184,6 +188,8 @@ export function CloudLedgerProvider({ uid, email, children }: { uid: string; ema
             }
             outbox.remove(c.id);
             acks.current++;
+            // renaming or deleting moved rows on the server: read them again
+            if (c.action.type === "rename-category" || c.action.type === "delete-category") recategorized = true;
             for (const r of results) ackServer(r);
             setTick((t) => t + 1);
           } catch (e) {
@@ -206,7 +212,11 @@ export function CloudLedgerProvider({ uid, email, children }: { uid: string; ema
             if (err.permanent) {
               outbox.remove(c.id);
               refused = true;
-              setSyncError(`Your account didn’t accept ${WHAT[c.action.type] ?? "a change"} (${err.message}). It was taken back.`);
+              setSyncError(
+                /category_kind_clash/.test(err.message)
+                  ? "You already have a category with that name, but it’s the other kind (spending or income). Pick a different name."
+                  : `Your account didn’t accept ${WHAT[c.action.type] ?? "a change"} (${err.message}). It was taken back.`,
+              );
               continue;
             }
             const tries = c.tries + 1;
@@ -226,7 +236,7 @@ export function CloudLedgerProvider({ uid, email, children }: { uid: string; ema
     }
     const wake = outbox.nextWake();
     if (wake != null) retry.current = window.setTimeout(() => void drain(), Math.min(2 ** 31 - 1, Math.max(1000, wake - Date.now())));
-    if (refused) await load();
+    if (refused || recategorized) await load();
     else if (!stuck) await refreshBalances();
   }, [ackServer, apply, load, outbox, refreshBalances]);
 

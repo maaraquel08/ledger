@@ -1,6 +1,6 @@
 import { addDays, sameDay, startOfDay } from "./format";
-import { FIXED, inRange, isSpend, monthBounds, monthBudget, spendParts } from "./selectors";
-import type { Category } from "./types";
+import { monthlyCategories } from "./categories";
+import { inRange, isSpend, monthBounds, monthBudget, spendParts } from "./selectors";
 import type { LedgerState } from "./types";
 
 /**
@@ -10,8 +10,6 @@ import type { LedgerState } from "./types";
  * so neither touches today; both come out of the pool from tomorrow. The
  * month the ledger starts in has a prorated budget (selectors.monthBudget).
  */
-const MONTHLY: Category[] = [...FIXED, "Groceries", "Household"];
-
 export function todayBudget(s: LedgerState, now = new Date()) {
   // the first month is prorated from the ledger's first day (selectors.monthBudget)
   const { budget, full, proratedFrom } = monthBudget(s, now);
@@ -20,10 +18,11 @@ export function todayBudget(s: LedgerState, now = new Date()) {
   const today = startOfDay(now);
   const month = inRange(s.entries, from, to).filter(isSpend);
   const before = month.filter((e) => new Date(e.date) < today).reduce((n, e) => n - e.amount, 0);
+  const monthly = monthlyCategories(s);
   const todays = month.filter((e) => sameDay(new Date(e.date), now));
   const spentToday = todays
     .flatMap(spendParts)
-    .filter((p) => !MONTHLY.includes(p.category))
+    .filter((p) => !monthly.includes(p.category))
     .reduce((n, p) => n + p.amount, 0);
   const daysLeft = Math.round((to.getTime() - today.getTime()) / 86400000);
   const allowance = Math.max(0, (budget - before) / Math.max(1, daysLeft));

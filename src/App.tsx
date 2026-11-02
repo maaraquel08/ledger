@@ -9,6 +9,7 @@ import { cloud } from "@/lib/supabase";
 import { AccountDetail } from "@/screens/accounts";
 import { Analytics } from "@/screens/analytics";
 import { ActivityDetail, Review } from "@/screens/activity";
+import { Budget } from "@/screens/budget";
 import { Chat } from "@/screens/chat";
 import { Money } from "@/screens/money";
 import { Onboarding } from "@/screens/onboarding";
@@ -17,7 +18,7 @@ import { DataScreen } from "@/screens/settings";
 import { ImportOffer, localLedger, OpenFailed, Opening, SignIn } from "@/screens/sign-in";
 import { Welcome } from "@/screens/welcome";
 
-const TAB_ROOTS = ["/today", "/money", "/analytics"];
+const TAB_ROOTS = ["/today", "/money", "/budget", "/analytics"];
 
 /**
  * Old routes and where they live now. Insights became Analytics (D-0017),
@@ -28,7 +29,7 @@ function redirect(path: string): string | null {
   let m: Record<string, string> | null;
   if (base === "/home") return "/today";
   if (base === "/insights") return "/analytics";
-  if (base === "/budgets") return "/analytics?p=month";
+  if (base === "/budgets") return "/budget";
   // the chat is the home tab (spec 2026-11-03-home-chat); old links keep their question
   if (base === "/chat") return `/today${qs ? `?${qs}` : ""}`;
   if (base === "/accounts") return "/money";
@@ -81,6 +82,7 @@ function Router() {
   else if ((m = match("/onboarding/:step", base))) screen = <Onboarding step={m.step} />;
   else if (base === "/today") screen = <Chat path={path} />;
   else if (base === "/money") screen = <Money path={path} />;
+  else if (base === "/budget") screen = <Budget path={path} />;
   else if (base === "/analytics") screen = <Analytics path={path} />;
   else if ((m = match("/money/:id", base))) screen = <AccountDetail id={m.id} path={path} />;
   else if (base === "/review") screen = <Review />;

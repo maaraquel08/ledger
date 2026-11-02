@@ -55,6 +55,15 @@ export const AnalyticsIcon = ({ size, filled, ...p }: P & { filled?: boolean }) 
   </svg>
 );
 
+/** Budget: a coin purse split into a pie slice. */
+export const BudgetIcon = ({ size, filled, ...p }: P & { filled?: boolean }) => (
+  <svg {...stroke(size, p)}>
+    <circle cx="12" cy="12" r="8.4" fill={filled ? "currentColor" : "none"} />
+    <path d="M12 3.6V12h8.4" stroke={filled ? "var(--color-bg)" : "currentColor"} />
+    <path d="M12 12 6.1 17.9" stroke={filled ? "var(--color-bg)" : "currentColor"} />
+  </svg>
+);
+
 export const ChartIcon = ({ size = 17, ...p }: P) => (
   <svg {...stroke(size, p)}>
     <polyline points="4 15.5 9 10.5 13 14 20 6.5" />

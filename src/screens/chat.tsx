@@ -5,6 +5,7 @@ import { AiEyebrow, AiMark, Cta, Eyebrow, EntryRow, Screen, Sheet } from "@/comp
 import { cn } from "@/lib/cn";
 import { addDays, compact, goalLabel, goalMonth, localDay, monthName, monthShort, peso, startOfDay } from "@/lib/format";
 import { navigate, query } from "@/lib/router";
+import { userCategories } from "@/lib/categories";
 import { byCategory, inRange, isIncome, isSpend, monthBounds, netWorth, priorPeriod, spendParts, totals, verdict, weekBounds } from "@/lib/selectors";
 import { newId, useLedger } from "@/lib/store";
 import { todayBudget } from "@/lib/today";
@@ -47,6 +48,15 @@ const CATEGORY_WORDS: [RegExp, Category][] = [
   [/household/, "Household"],
   [/health|medic|pharma/, "Health"],
 ];
+
+/** the built-in words that still point at a category the Owner has, plus their own category names */
+function categoryWords(s: LedgerState): [RegExp, Category][] {
+  const have = new Set(userCategories(s).map((d) => d.name));
+  const own = userCategories(s)
+    .filter((d) => d.kind === "expense" && !CATEGORY_WORDS.some(([, c]) => c === d.name))
+    .map((d): [RegExp, Category] => [new RegExp(d.name.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), d.name]);
+  return [...CATEGORY_WORDS.filter(([, c]) => have.has(c)), ...own];
+}
 
 const MONTH_RE = /\b(?:in|during|for|of|on)\s+(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b/;
 const MONTH_KEYS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
@@ -283,10 +293,11 @@ export function respond(q: string, s: LedgerState, today = new Date()): Answer {
   }
 
   const monthAsked = namedMonth(lower, today);
-  const catWord = CATEGORY_WORDS.some(([re]) => re.test(lower));
+  const words = categoryWords(s);
+  const catWord = words.some(([re]) => re.test(lower));
   if ((/spen[dt]|spending/.test(lower) && /how much|what did i|total|so far/.test(lower)) || (monthAsked && (catWord || /spen[dt]|spending/.test(lower)))) {
     const p = periodOf(lower, today);
-    const cat = CATEGORY_WORDS.find(([re]) => re.test(lower))?.[1];
+    const cat = words.find(([re]) => re.test(lower))?.[1];
     const inPeriod = inRange(s.entries, p.from, p.to).filter(isSpend);
     const m = cat ? inPeriod.filter((e) => spendParts(e).some((x) => x.category === cat)) : inPeriod;
     const sum = cat ? m.flatMap(spendParts).filter((x) => x.category === cat).reduce((a, x) => a + x.amount, 0) : m.reduce((a, e) => a - e.amount, 0);

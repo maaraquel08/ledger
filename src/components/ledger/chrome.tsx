@@ -1,7 +1,7 @@
 import * as React from "react";
 import { cn } from "@/lib/cn";
 import { navigate } from "@/lib/router";
-import { AccountsIcon, AnalyticsIcon, ChatIcon, PlusIcon } from "./icons";
+import { AccountsIcon, AnalyticsIcon, BudgetIcon, ChatIcon, PlusIcon } from "./icons";
 
 /* ---------- global UI: the add sheet is reachable from every tab ------ */
 
@@ -18,12 +18,13 @@ export const useChrome = () => React.useContext(ChromeCtx);
 const TABS = [
   { path: "/today", label: "Chat", Icon: ChatIcon },
   { path: "/money", label: "Money", Icon: AccountsIcon },
+  { path: "/budget", label: "Budget", Icon: BudgetIcon },
   { path: "/analytics", label: "Analytics", Icon: AnalyticsIcon },
 ] as const;
 
 /**
- * Three tabs: Chat (home), Money, Analytics. Adding an entry is the yellow
- * floating action above the nav on Money and Analytics; on Chat it would sit on
+ * Four tabs: Chat (home), Money, Budget, Analytics. Adding an entry is the yellow
+ * floating action above the nav on Money, Budget and Analytics; on Chat it would sit on
  * the composer, so the chat header carries a + instead. #FCC305 is used nowhere else.
  */
 export function TabBar({ path }: { path: string }) {
@@ -43,7 +44,7 @@ export function TabBar({ path }: { path: string }) {
         <PlusIcon size={26} />
       </button>
       )}
-      <div className="grid grid-cols-3 px-3 pt-[7px] pb-[max(14px,env(safe-area-inset-bottom))]">
+      <div className="grid grid-cols-4 px-3 pt-[7px] pb-[max(14px,env(safe-area-inset-bottom))]">
         {TABS.map(({ path: p, label, Icon }) => {
           const active = path === p || path.startsWith(`${p}/`);
           return (
