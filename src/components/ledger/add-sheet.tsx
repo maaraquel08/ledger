@@ -22,7 +22,7 @@ import {
   DraftRow,
   KINDS,
   NoteField,
-  SelectField,
+  PickField,
   SourceRow,
   type Kind,
   type Part,
@@ -436,7 +436,7 @@ export function AddSheet({
         <div className="mt-5 flex flex-col gap-4">
           <AmountInput ref={amountRef} value={amountStr} onChange={typeAmount} sign={abs != null ? sign : ""} note={capNote} onEnter={() => canSave && saveManual()} />
           {kind !== "Transfer" ? (
-            <SelectField
+            <PickField
               label="Category"
               value={category ?? ""}
               onChange={(v) => setCat(v as Category)}
@@ -444,7 +444,7 @@ export function AddSheet({
               options={(kind === "Income" ? ranked.income : ranked.spend).map((c) => ({ value: c, label: c }))}
             />
           ) : null}
-          <SelectField
+          <PickField
             label={kind === "Transfer" ? "From" : kind === "Income" ? "Into" : "Paid with"}
             value={accId ?? ""}
             onChange={(id) => {
@@ -455,7 +455,7 @@ export function AddSheet({
             options={accOptions.map(accountOption)}
           />
           {kind === "Transfer" ? (
-            <SelectField label="To" value={toAccount?.id ?? ""} onChange={setToAcc} placeholder="Pick an account" options={toOptions.map(accountOption)} />
+            <PickField label="To" value={toAccount?.id ?? ""} onChange={setToAcc} placeholder="Pick an account" options={toOptions.map(accountOption)} />
           ) : null}
           <DateField value={date} max={todayInput()} onChange={setDate} />
           <NoteField

@@ -1,4 +1,5 @@
 import * as React from "react";
+import { Select } from "@base-ui/react/select";
 import { cn } from "@/lib/cn";
 import { balance } from "@/lib/format";
 import { accountLabel } from "@/lib/selectors";
@@ -220,44 +221,82 @@ export const AmountInput = React.forwardRef<
 
 const fieldClass = "h-12 w-full rounded-md border border-line-strong bg-bg px-3.5 text-[16px] outline-none focus:border-accent";
 
-/** A native select, so the phone shows its own list. An empty value reads as the placeholder. */
-export function SelectField({
+export interface PickOption {
+  value: string;
+  label: string;
+  /** right-aligned, e.g. the balance */
+  meta?: string;
+  /** a logo or mark before the label */
+  lead?: React.ReactNode;
+}
+
+/** A field that opens a popover list (logos and balances in view), keyboard and screen-reader ready. */
+export function PickField({
   label,
   value,
   onChange,
   options,
-  placeholder,
+  placeholder = "Pick one",
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
-  options: { value: string; label: string }[];
+  options: PickOption[];
   placeholder?: string;
 }) {
+  const current = options.find((o) => o.value === value);
   return (
-    <label className="block">
+    <div>
       <FieldLabel>{label}</FieldLabel>
-      <span className="relative block">
-        <select value={value} onChange={(e) => onChange(e.target.value)} className={cn(fieldClass, "appearance-none pr-10", !value && "text-mute")}>
-          {placeholder ? (
-            <option value="" disabled>
-              {placeholder}
-            </option>
-          ) : null}
-          {options.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-        <ChevronDown size={16} className="pointer-events-none absolute top-1/2 right-3.5 -translate-y-1/2 text-fg-subtle" />
-      </span>
-    </label>
+      <Select.Root value={value || null} onValueChange={(v) => v != null && onChange(String(v))}>
+        <Select.Trigger aria-label={label} className={cn(fieldClass, "flex items-center gap-2.5 text-left data-popup-open:border-accent")}>
+          {current ? (
+            <>
+              {current.lead}
+              <span className="min-w-0 flex-1 truncate">{current.label}</span>
+              {current.meta ? <span className="tnum text-[13px] text-fg-muted">{current.meta}</span> : null}
+            </>
+          ) : (
+            <span className="min-w-0 flex-1 truncate text-mute">{placeholder}</span>
+          )}
+          <ChevronDown size={16} className="flex-none text-fg-subtle" />
+        </Select.Trigger>
+        <Select.Portal>
+          <Select.Positioner className="z-50 outline-none" sideOffset={6} alignItemWithTrigger={false}>
+            <Select.Popup className="min-w-[var(--anchor-width)] origin-[var(--transform-origin)] rounded-lg border border-line bg-bg p-1 shadow-[var(--brand-shadow-overlay)] outline-none transition-[scale,opacity] duration-fast ease-out data-ending-style:scale-[0.98] data-ending-style:opacity-0 data-starting-style:scale-[0.98] data-starting-style:opacity-0">
+              <Select.List className="max-h-[min(320px,var(--available-height))] overflow-y-auto overscroll-contain">
+                {options.map((o) => (
+                  <Select.Item
+                    key={o.value}
+                    value={o.value}
+                    className="flex min-h-12 cursor-default items-center gap-3 rounded-md px-2.5 text-[15px] outline-none select-none data-highlighted:bg-surface data-selected:font-medium"
+                  >
+                    {o.lead}
+                    <Select.ItemText className="min-w-0 flex-1 truncate">{o.label}</Select.ItemText>
+                    {o.meta ? <span className="tnum text-[13px] font-normal text-fg-muted">{o.meta}</span> : null}
+                    <span className="flex w-4 flex-none justify-end">
+                      <Select.ItemIndicator>
+                        <CheckIcon size={16} />
+                      </Select.ItemIndicator>
+                    </span>
+                  </Select.Item>
+                ))}
+              </Select.List>
+            </Select.Popup>
+          </Select.Positioner>
+        </Select.Portal>
+      </Select.Root>
+    </div>
   );
 }
 
-/** "Daily wallet · ₱19,400": how account options read in a select. */
-export const accountOption = (a: Account) => ({ value: a.id, label: `${a.name} · ${balance(a.type === "credit" ? -a.balance : a.balance)}` });
+/** An account as a pick option: its logo, its name, its balance. */
+export const accountOption = (a: Account): PickOption => ({
+  value: a.id,
+  label: a.name,
+  meta: balance(a.type === "credit" ? -a.balance : a.balance),
+  lead: <ProviderMark provider={a.provider} size={26} radius={7} />,
+});
 
 /** The native date picker; no later than today. */
 export function DateField({ value, max, onChange }: { value: string; max: string; onChange: (d: string) => void }) {
