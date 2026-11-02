@@ -1,13 +1,13 @@
 import * as React from "react";
 import { cn } from "@/lib/cn";
 import { fileToCanvas, useCamera } from "@/lib/camera";
-import { addDays, balance, dayName, MAX_AMOUNT, monthShort, peso } from "@/lib/format";
+import { addDays, balance, MAX_AMOUNT, peso } from "@/lib/format";
 import { recognize, warmUp } from "@/lib/ocr";
 import { INCOME_CATEGORIES, isUnusualAmount, moveLegs, overdraws } from "@/lib/entry-rules";
 import { parseEntry } from "@/lib/parse";
 import { SPEND_CATEGORIES } from "@/lib/providers";
 import { compressImage, draftToEntry, parseReceipt, splitOf, type ReceiptDraft } from "@/lib/receipt";
-import { accountLabel, canSpendFrom } from "@/lib/selectors";
+import { canSpendFrom } from "@/lib/selectors";
 import { navigate } from "@/lib/router";
 import { newId, useLedger } from "@/lib/store";
 import type { Account, Category, Entry } from "@/lib/types";
@@ -15,14 +15,15 @@ import { capture, dataUrlToBlob, undoEvent, upload, type CaptureResult } from "@
 import { useCloud } from "@/lib/cloud/provider";
 import { CameraGate, ReceiptFrame } from "./camera";
 import {
+  AccountChips,
   AccountPanel,
-  CategoryPanel,
-  DatePanel,
-  DescPanel,
+  AmountInput,
+  CategoryChips,
   DraftRow,
-  AmountPanel,
+  FieldLabel,
   KINDS,
   SourceRow,
+  WhenAndNote,
   type Kind,
   type Part,
 } from "./entry-draft";
@@ -31,10 +32,9 @@ import { CategoryChip, Cta, Segmented, Sheet } from "./primitives";
 import { TOAST_DOCK, useToastPresence } from "./undo-toast";
 
 /*
- * Add entry, two ways in: Manual (Expense | Income | Transfer over the draft row
- * and one swapping picker) and Camera (a receipt read on the phone).
- * Every way ends in the same Activity row; missing parts stay gold and open
- * the same pickers. Study B in design-ledger/studies/add-entry-selection.
+ * Add entry, two ways in: Manual (Expense | Income | Transfer, then one form with
+ * every field in view: amount, category, account, date, note) and Camera (a
+ * receipt read on the phone). The account starts on the most-used one.
  */
 
 type Mode = "Manual" | "Camera";
@@ -49,20 +49,9 @@ type CamStage =
 /** A Camera draft part being fixed with its picker. */
 type Fix = { part: "account" } | null;
 
-const KIND_WORD: Record<Kind, string> = { Expense: "Spent", Income: "Got", Transfer: "Moved" };
-
 const inputDay = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const todayInput = () => inputDay(new Date());
 const yesterdayInput = () => inputDay(addDays(new Date(), -1));
-
-/** "Today · Thu 29 Oct", "Yesterday · Wed 28 Oct", "Tue 20 Oct" */
-function dayLabel(day: string) {
-  const d = new Date(`${day}T12:00:00`);
-  const short = `${dayName(d).slice(0, 3)} ${d.getDate()} ${monthShort(d)}`;
-  if (day === todayInput()) return `Today · ${short}`;
-  if (day === yesterdayInput()) return `Yesterday · ${short}`;
-  return short;
-}
 
 /** Most-used first, from this phone's own entries (D-0002); ties keep `base` order. */
 function rankBy<T>(base: T[], counts: Map<T, number>) {
@@ -135,8 +124,7 @@ export function AddSheet({
   const [date, setDate] = React.useState(todayInput);
   const [note, setNote] = React.useState("");
   const [toAcc, setToAcc] = React.useState<string | undefined>(undefined);
-  // the part being edited; null = draft complete
-  const [part, setPart] = React.useState<Part | null>("amount");
+  const amountRef = React.useRef<HTMLInputElement>(null);
   // a digit past the seven-digit cap was refused
   const [capped, setCapped] = React.useState(false);
   // "That's ₱X — is that right?" once, for an amount far outside the usual; holds only for that draft
@@ -184,7 +172,6 @@ export function AddSheet({
     setDate(initialDate ?? todayInput());
     setNote(p?.desc ?? "");
     setToAcc(guess === "Transfer" && p?.category === "Investments" ? accountsRef.current.find((a) => a.type === "investments" && a.id !== (accountId ?? p?.accountId))?.id : undefined);
-    setPart("amount");
     setCamStage({ k: "viewfinder" });
     setFix(null);
   }, [open, accountId, initialText, initialDate, restart]);
@@ -205,34 +192,18 @@ export function AddSheet({
   const kind: Kind = kindOverride ?? "Expense";
   const abs = amountStr && parseFloat(amountStr) > 0 ? parseFloat(amountStr) : null;
   const category: Category | null = kind === "Transfer" ? null : (cat ?? null);
-  const account = accounts.find((a) => a.id === acc);
-  // a transfer goes from any account to any other, investments included: money into an
-  // investments account is how investing works (D-0010)
-  const toOptions = accounts.filter((a) => a.id !== acc);
-  const toAccount = kind === "Transfer" ? toOptions.find((a) => a.id === toAcc) : undefined;
   const signedAmount = abs == null ? null : kind === "Income" ? abs : -abs;
-  const short = kind === "Transfer" && account != null && abs != null && overdraws(account, abs);
   const draftNow = abs != null || note.trim() !== "" || camStage.k === "read";
   React.useLayoutEffect(() => {
     hasDraft.current = draftNow;
   });
 
-  // first required part still empty, after the change just made
-  const missing = (o: { amt?: boolean; cat?: boolean; acc?: boolean; to?: boolean } = {}): Part | null => {
-    if (!(o.amt ?? abs != null)) return "amount";
-    if (kind !== "Transfer" && !(o.cat ?? !!category)) return "category";
-    if (!(o.acc ?? !!acc)) return "account";
-    if (kind === "Transfer" && !(o.to ?? !!toAccount)) return "to";
-    return null;
-  };
   const pickKind = (k: Kind) => {
     if (k === kind) return;
     setKindOverride(k === "Expense" ? undefined : k);
     setCat(undefined);
     setToAcc(undefined);
     setAskedFor(null);
-    // after the switch: the first thing the new kind still needs
-    setPart(abs == null ? "amount" : k === "Transfer" ? (acc ? "to" : "account") : "category");
   };
 
   // Rank pickers by how often this phone has used each value.
@@ -252,6 +223,15 @@ export function AddSheet({
   // money is spent from cash, banks, wallets and cards: an investments account is offered only
   // where money can come in or move (income, invest), not as the source of a purchase
   const spendable = React.useMemo(() => ranked.accounts.filter(canSpendFrom), [ranked.accounts]);
+  // the account starts on the most-used one the kind allows, so most entries are amount + category
+  const accOptions = kind === "Expense" ? spendable : ranked.accounts;
+  const accId = acc != null && accOptions.some((x) => x.id === acc) ? acc : (accOptions[0]?.id ?? null);
+  const account = accounts.find((x) => x.id === accId);
+  // a transfer goes from any account to any other, investments included: money into an
+  // investments account is how investing works (D-0010)
+  const toOptions = accounts.filter((x) => x.id !== accId);
+  const toAccount = kind === "Transfer" ? toOptions.find((x) => x.id === toAcc) : undefined;
+  const short = kind === "Transfer" && account != null && abs != null && overdraws(account, abs);
 
   // whole pesos only: the row reads like the list does. Seven digits is the cap, and it says so.
   const typeAmount = (raw: string) => {
@@ -353,7 +333,7 @@ export function AddSheet({
     const entry: Entry = {
       id: newId("e"),
       desc: note.trim() || category || kind,
-      accountId: acc,
+      accountId: accId,
       category,
       amount: signedAmount,
       date: when,
@@ -366,7 +346,7 @@ export function AddSheet({
       kind: kind === "Income" ? "Income" : "Expense",
       amount: shown.text,
       tone: shown.tone === "empty" ? "fg" : shown.tone,
-      where: `${acctName(acc)} · ${category ?? "Needs category"}`,
+      where: `${acctName(accId)} · ${category ?? "Needs category"}`,
     });
   };
 
@@ -449,93 +429,53 @@ export function AddSheet({
   let cta: { label: string; disabled: boolean; onClick: () => void };
 
   if (mode === "Manual") {
+    const sign = kind === "Expense" ? "−" : kind === "Income" ? "+" : "";
+    const canSave = signedAmount != null && (kind !== "Transfer" || (!!account && !!toAccount && !short));
     body = (
       <>
         <Segmented value={kind} options={KINDS} onChange={pickKind} />
-        <div className="mt-3" />
-        <DraftRow
-          title={note.trim() || KIND_WORD[kind]}
-          account={account}
-          amount={amountOf(abs, kind)}
-          missingAccount={kind === "Transfer" ? "FROM WHICH ACCOUNT?" : undefined}
-          chip={
-            kind === "Transfer"
-              ? toAccount
-                ? { label: `To ${accountLabel(toAccount)}`, part: "to" }
-                : { label: "Pick where it goes", part: "to", warn: true }
-              : category
-                ? { label: category, part: "category" }
-                : { label: "Needs category", part: "category", warn: true }
-          }
-          active={part}
-          onPart={(p) => setPart(part === p ? null : p)}
-        />
-        <div className="mt-3">
-          {part === "amount" ? (
-            <AmountPanel value={amountStr} onChange={typeAmount} note={capNote} canNext={abs != null} onNext={() => setPart(missing({ amt: true }))} />
-          ) : part === "desc" ? (
-            <DescPanel
-              value={note}
-              onChange={setNote}
-              placeholder={kind === "Expense" ? "Grab, Landers, lunch w/ team" : kind === "Income" ? "Payroll · Acme Inc." : "Move to savings"}
-              onDone={() => setPart(missing())}
-            />
-          ) : part === "category" ? (
-            <CategoryPanel
-              options={kind === "Income" ? ranked.income : ranked.spend}
-              value={category}
-              onPick={(c) => {
-                setCat(c);
-                setPart(missing({ cat: true }));
-              }}
-            />
-          ) : part === "account" ? (
-            <AccountPanel
-              options={kind === "Expense" ? spendable : ranked.accounts}
-              value={acc}
-              allowNone={kind !== "Transfer"}
+        <div className="mt-5 flex flex-col gap-5">
+          <AmountInput ref={amountRef} value={amountStr} onChange={typeAmount} sign={abs != null ? sign : ""} note={capNote} onEnter={() => canSave && saveManual()} />
+          {kind !== "Transfer" ? (
+            <div>
+              <FieldLabel>Category</FieldLabel>
+              <CategoryChips options={kind === "Income" ? ranked.income : ranked.spend} value={category} onPick={setCat} />
+            </div>
+          ) : null}
+          <div>
+            <FieldLabel>{kind === "Transfer" ? "From" : kind === "Income" ? "Into" : "Paid with"}</FieldLabel>
+            <AccountChips
+              label={kind === "Transfer" ? "From account" : "Account"}
+              options={accOptions}
+              value={accId}
               onPick={(id) => {
                 setAcc(id);
                 // a destination that is now the source has to be picked again
-                if (id && id === toAcc) setToAcc(undefined);
-                setPart(missing({ acc: !!id, to: id !== toAcc && !!toAccount }));
+                if (id === toAcc) setToAcc(undefined);
               }}
             />
-          ) : part === "to" ? (
-            <AccountPanel
-              options={toOptions}
-              value={toAccount?.id ?? null}
-              onPick={(id) => {
-                if (id) setToAcc(id);
-                setPart(null);
-              }}
-            />
-          ) : part === "date" ? (
-            <DatePanel
-              value={date}
-              today={todayInput()}
-              yesterday={yesterdayInput()}
-              onPick={(d) => {
-                setDate(d);
-                setPart(null);
-              }}
-            />
-          ) : (
-            <div className="flex h-12 items-center justify-between border-y border-line text-[14px]">
-              <button type="button" onClick={() => setPart("date")} className="text-fg-muted active:opacity-60">
-                {dayLabel(date)}
-              </button>
-              <button type="button" onClick={() => setPart("desc")} className="font-medium underline underline-offset-4 active:opacity-60">
-                {note.trim() ? "Edit note" : "Add note"}
-              </button>
+          </div>
+          {kind === "Transfer" ? (
+            <div>
+              <FieldLabel>To</FieldLabel>
+              <AccountChips label="To account" options={toOptions} value={toAccount?.id ?? null} onPick={setToAcc} />
             </div>
-          )}
+          ) : null}
+          <WhenAndNote
+            date={date}
+            today={todayInput()}
+            yesterday={yesterdayInput()}
+            onDate={setDate}
+            note={note}
+            onNote={setNote}
+            placeholder={kind === "Expense" ? "Note (optional): Grab, lunch w/ team" : kind === "Income" ? "Note (optional): Payroll" : "Note (optional): Move to savings"}
+          />
         </div>
       </>
     );
     cta = {
       label: confirmBig ? `Yes, save ${amountOf(abs, kind).text}` : `${saveLabel(kind)}${abs != null ? ` · ${amountOf(abs, kind).text}` : ""}`,
-      disabled: signedAmount == null || (kind === "Transfer" && (!account || !toAccount || short)),
+      disabled: !canSave,
       onClick: saveManual,
     };
     if (short && account)
@@ -553,7 +493,7 @@ export function AddSheet({
           {body}
           <p role="alert" className="mt-3 text-[14px] leading-[1.5]">
             That’s <span className="tnum font-semibold">{peso(abs)}</span>. Is that right?{" "}
-            <button type="button" onClick={() => { setAskedFor(null); setPart("amount"); }} className="relative font-medium underline underline-offset-4 after:absolute after:-inset-3 after:content-[''] active:opacity-60">
+            <button type="button" onClick={() => { setAskedFor(null); amountRef.current?.focus(); }} className="relative font-medium underline underline-offset-4 after:absolute after:-inset-3 after:content-[''] active:opacity-60">
               Change it
             </button>
           </p>

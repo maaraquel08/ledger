@@ -128,73 +128,6 @@ export function PickerPanel({ children, className }: { children: React.ReactNode
   );
 }
 
-/**
- * The amount as a plain numeric field, so the phone shows its own number pad.
- * Whole pesos only; Enter or "Next" moves on to the first empty part. `note`
- * says why a digit was refused (the seven-digit cap).
- */
-export function AmountPanel({ value, onChange, onNext, canNext, note }: { value: string; onChange: (v: string) => void; onNext: () => void; canNext: boolean; note?: string }) {
-  return (
-    <div className="flex flex-col gap-3 pb-1">
-      <label className="flex h-16 items-center gap-2 rounded-lg border border-line-strong bg-bg px-4 focus-within:border-accent">
-        <span aria-hidden className="text-[24px] font-semibold text-fg-subtle">₱</span>
-        <input
-          autoFocus
-          type="text"
-          inputMode="numeric"
-          pattern="[0-9]*"
-          autoComplete="off"
-          enterKeyHint="next"
-          aria-label="Amount in pesos"
-          placeholder="0"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && canNext) {
-              e.preventDefault();
-              onNext();
-            }
-          }}
-          className="tnum min-w-0 flex-1 bg-transparent text-[28px] font-semibold tracking-[-0.01em] outline-none placeholder:text-mute"
-        />
-      </label>
-      <p role="status" className="min-h-5 text-[12.5px] leading-[1.4] text-gold-ink">
-        {note}
-      </p>
-      <button
-        type="button"
-        onClick={onNext}
-        disabled={!canNext}
-        className="h-12 rounded-md bg-accent text-[15px] font-semibold text-accent-fg active:bg-accent-hover disabled:bg-fill disabled:text-fg-subtle"
-      >
-        Next
-      </button>
-    </div>
-  );
-}
-
-/** Ranked category tiles, short enough that four rows (all ten spend categories) fit the panel. */
-export function CategoryPanel({ options, value, onPick }: { options: Category[]; value: Category | null; onPick: (c: Category) => void }) {
-  return (
-    <PickerPanel className="grid grid-cols-3 gap-2">
-      {options.map((c) => (
-        <button
-          key={c}
-          type="button"
-          aria-pressed={value === c}
-          onClick={() => onPick(c)}
-          className={cn(
-            "flex h-16 items-center rounded-md border px-2.5 text-left text-[13px] leading-[1.25] font-medium transition-colors duration-fast",
-            value === c ? "border-accent bg-surface" : "border-line-strong active:bg-surface",
-          )}
-        >
-          {c}
-        </button>
-      ))}
-    </PickerPanel>
-  );
-}
-
 /** Ranked accounts, named the way entry rows name them: GCASH ·8871. */
 export function AccountPanel({
   options,
@@ -231,49 +164,149 @@ export function AccountPanel({
   );
 }
 
-export function DescPanel({ value, onChange, onDone, placeholder }: { value: string; onChange: (v: string) => void; onDone: () => void; placeholder: string }) {
+
+/* ---------- the manual form: every field in view, one tap each ---------- */
+
+/** Mono eyebrow over a form field. */
+export function FieldLabel({ children, aside }: { children: React.ReactNode; aside?: React.ReactNode }) {
   return (
-    <PickerPanel className="flex flex-col gap-3">
-      <input
-        autoFocus
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        onKeyDown={(e) => e.key === "Enter" && onDone()}
-        maxLength={80}
-        enterKeyHint="done"
-        placeholder={placeholder}
-        aria-label="Where or what"
-        className="h-14 rounded-lg border border-line-strong bg-bg px-4 text-[18px] outline-none placeholder:text-mute focus:border-accent"
-      />
-      <p className="text-[12.5px] text-fg-muted">Optional. Leave it empty and the category names the entry.</p>
-      <button type="button" onClick={onDone} className="h-12 rounded-md border border-line-strong text-[13px] font-medium active:bg-surface">
-        Done
-      </button>
-    </PickerPanel>
+    <div className="mb-2 flex items-baseline justify-between gap-3">
+      <span className="font-mono text-[10.5px] font-medium tracking-[0.08em] text-fg-subtle uppercase">{children}</span>
+      {aside}
+    </div>
   );
 }
 
-export function DatePanel({ value, today, yesterday, onPick }: { value: string; today: string; yesterday: string; onPick: (d: string) => void }) {
-  const chip = (label: string, d: string) => (
-    <button
-      type="button"
-      aria-pressed={value === d}
-      onClick={() => onPick(d)}
-      className={cn("h-12 flex-1 rounded-md border text-[14px] font-medium", value === d ? "border-accent bg-surface" : "border-line-strong active:bg-surface")}
-    >
-      {label}
-    </button>
+const chipClass = (on: boolean) =>
+  cn(
+    "flex flex-none items-center gap-2 rounded-full border whitespace-nowrap transition-colors duration-fast",
+    on ? "border-accent bg-accent text-accent-fg" : "border-line-strong text-fg active:bg-surface",
   );
+
+/** The amount, big and typed with the phone's own number pad. Whole pesos only. */
+export const AmountInput = React.forwardRef<
+  HTMLInputElement,
+  { value: string; onChange: (v: string) => void; onEnter: () => void; sign: "−" | "+" | ""; note?: string }
+>(function AmountInput({ value, onChange, onEnter, sign, note }, ref) {
   return (
-    <PickerPanel className="flex flex-col gap-3">
-      <div className="flex gap-2">
-        {chip("Today", today)}
-        {chip("Yesterday", yesterday)}
-      </div>
-      <label className="flex h-12 items-center justify-between gap-4 rounded-md border border-line-strong px-4 text-[14px]">
-        <span className="text-fg-muted">Another day</span>
-        <input type="date" value={value} max={today} onChange={(e) => e.target.value && onPick(e.target.value)} className="bg-transparent text-right text-[16px]" />
+    <div>
+      <label className="flex items-baseline gap-1.5 border-b border-line-strong pb-2 focus-within:border-accent">
+        <span aria-hidden className={cn("text-[30px] font-semibold", value ? "text-fg" : "text-mute")}>
+          {sign}₱
+        </span>
+        <input
+          ref={ref}
+          autoFocus
+          type="text"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          autoComplete="off"
+          enterKeyHint="done"
+          aria-label="Amount in pesos"
+          placeholder="0"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              onEnter();
+            }
+          }}
+          className="tnum min-w-0 flex-1 bg-transparent text-[40px] leading-none font-semibold tracking-[-0.02em] outline-none placeholder:text-mute"
+        />
       </label>
-    </PickerPanel>
+      {note ? (
+        <p role="status" className="mt-1.5 text-[12.5px] text-gold-ink">
+          {note}
+        </p>
+      ) : null}
+    </div>
+  );
+});
+
+/** Accounts as one swipeable row of chips, most-used first. */
+export function AccountChips({ options, value, onPick, label }: { options: Account[]; value: string | null; onPick: (id: string) => void; label: string }) {
+  return (
+    <div role="radiogroup" aria-label={label} className="no-scrollbar -mx-1 flex gap-2 overflow-x-auto px-1 pb-0.5">
+      {options.map((a) => (
+        <button key={a.id} type="button" role="radio" aria-checked={value === a.id} onClick={() => onPick(a.id)} className={cn(chipClass(value === a.id), "h-11 pr-3.5 pl-1.5")}>
+          <ProviderMark provider={a.provider} size={28} radius={14} />
+          <span className="text-left leading-tight">
+            <span className="block text-[13px] font-medium">{a.name}</span>
+            <span className={cn("tnum block text-[11px]", value === a.id ? "text-accent-fg/70" : "text-fg-subtle")}>{balance(a.type === "credit" ? -a.balance : a.balance)}</span>
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** Categories as wrapping chips, most-used first. */
+export function CategoryChips({ options, value, onPick }: { options: Category[]; value: Category | null; onPick: (c: Category) => void }) {
+  return (
+    <div role="radiogroup" aria-label="Category" className="flex flex-wrap gap-2">
+      {options.map((c) => (
+        <button key={c} type="button" role="radio" aria-checked={value === c} onClick={() => onPick(c)} className={cn(chipClass(value === c), "h-9 px-3.5 text-[13px] font-medium")}>
+          {c}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** Today, Yesterday, or any earlier day; then an optional note. */
+export function WhenAndNote({
+  date,
+  today,
+  yesterday,
+  onDate,
+  note,
+  onNote,
+  placeholder,
+}: {
+  date: string;
+  today: string;
+  yesterday: string;
+  onDate: (d: string) => void;
+  note: string;
+  onNote: (v: string) => void;
+  placeholder: string;
+}) {
+  const other = date !== today && date !== yesterday;
+  return (
+    <div className="flex flex-col gap-3">
+      <div role="radiogroup" aria-label="Date" className="flex gap-2">
+        {(
+          [
+            ["Today", today],
+            ["Yesterday", yesterday],
+          ] as const
+        ).map(([l, d]) => (
+          <button key={l} type="button" role="radio" aria-checked={date === d} onClick={() => onDate(d)} className={cn(chipClass(date === d), "h-9 px-3.5 text-[13px] font-medium")}>
+            {l}
+          </button>
+        ))}
+        <label className={cn(chipClass(other), "relative h-9 px-3.5 text-[13px] font-medium")}>
+          {other ? new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { day: "numeric", month: "short" }) : "Other day"}
+          <input
+            type="date"
+            aria-label="Another day"
+            value={date}
+            max={today}
+            onChange={(e) => e.target.value && onDate(e.target.value)}
+            className="absolute inset-0 cursor-pointer opacity-0"
+          />
+        </label>
+      </div>
+      <input
+        value={note}
+        onChange={(e) => onNote(e.target.value)}
+        maxLength={80}
+        enterKeyHint="done"
+        placeholder={placeholder}
+        aria-label="Note"
+        className="h-11 rounded-md border border-line-strong bg-bg px-3.5 text-[16px] outline-none placeholder:text-mute focus:border-accent"
+      />
+    </div>
   );
 }
