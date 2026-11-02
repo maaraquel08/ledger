@@ -183,13 +183,28 @@ function HeadlineGrid({ h }: { h: Headline }) {
 
 /* ---------- trend ----------------------------------------------------------- */
 
+type Series = "in" | "out";
+const SERIES: { key: Series; label: string; dot: string; stroke: string }[] = [
+  { key: "in", label: "Income", dot: "bg-chart-in", stroke: "var(--color-chart-in)" },
+  { key: "out", label: "Spending", dot: "bg-chart-out", stroke: "var(--color-chart-out)" },
+];
+
+/**
+ * Income and spending as two lines over the last few periods. The legend is a filter: either
+ * line, or both (never neither). Each period is a tap target that opens it.
+ */
 function TrendChart({ kind, points, onPick }: { kind: PeriodKind; points: TrendPoint[]; onPick: (from: Date) => void }) {
   const [table, setTable] = React.useState(false);
-  const max = Math.max(...points.map((p) => Math.max(p.in, p.out)), 1);
+  const [shown, setShown] = React.useState<Record<Series, boolean>>({ in: true, out: true });
+  const visible = SERIES.filter((x) => shown[x.key]);
+  const max = Math.max(...points.flatMap((p) => visible.map((x) => p[x.key])), 1);
   const sel = points.find((p) => p.selected) ?? points[points.length - 1];
   const title = points.length === 1 ? `ONE ${UNIT[kind].toUpperCase()}` : `LAST ${points.length} ${UNIT[kind].toUpperCase()}S`;
   const name = (p: TrendPoint) => `${periodLabel(kind, p.from)}${p.current ? " so far" : ""}`;
-  const h = (v: number) => `${(v / max) * 100}%`;
+  // each point sits mid-column, so lines, dots and tick labels line up
+  const x = (i: number) => ((i + 0.5) / points.length) * 100;
+  const y = (v: number) => 100 - (v / max) * 92;
+  const toggle = (k: Series) => setShown((s) => (s[k] && !s[k === "in" ? "out" : "in"] ? s : { ...s, [k]: !s[k] }));
 
   return (
     <Section
@@ -200,13 +215,22 @@ function TrendChart({ kind, points, onPick }: { kind: PeriodKind; points: TrendP
         </button>
       }
     >
-      <div className="mt-3 flex items-center gap-4 text-[12px] text-fg-muted" aria-hidden>
-        <span className="flex items-center gap-1.5">
-          <span className="size-2.5 rounded-[2px] bg-chart-in" /> Income
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="size-2.5 rounded-[2px] bg-chart-out" /> Spending
-        </span>
+      <div role="group" aria-label="Lines to show" className="mt-3 flex items-center gap-2">
+        {SERIES.map((x) => (
+          <button
+            key={x.key}
+            type="button"
+            aria-pressed={shown[x.key]}
+            onClick={() => toggle(x.key)}
+            className={cn(
+              "flex h-8 items-center gap-1.5 rounded-full border px-3 text-[12px] transition-colors duration-fast",
+              shown[x.key] ? "border-line-strong text-fg" : "border-line text-fg-subtle",
+            )}
+          >
+            <span className={cn("size-2 rounded-full", shown[x.key] ? x.dot : "bg-fill")} />
+            {x.label}
+          </button>
+        ))}
       </div>
 
       {table ? (
@@ -245,17 +269,46 @@ function TrendChart({ kind, points, onPick }: { kind: PeriodKind; points: TrendP
         </table>
       ) : (
         <>
-          <div className="relative mt-3">
-            {/* hairline grid: top, middle, baseline; compact tick labels at the right */}
-            <div className="pointer-events-none absolute inset-x-0 top-0 h-[132px]" aria-hidden>
-              {[0, 0.5].map((f) => (
-                <div key={f} className="absolute inset-x-0 border-t border-line" style={{ top: `${f * 100}%` }}>
-                  <span className="tnum absolute right-0 -top-[13px] bg-bg pl-1 font-mono text-[9.5px] text-fg-subtle">{compact(max * (1 - f)).replace("₱", "")}</span>
-                </div>
-              ))}
-              <div className="absolute inset-x-0 bottom-0 border-t border-line-strong" />
+          <div className="relative mt-4 pl-8">
+            <div className="relative h-[132px]">
+              {/* hairline grid: top, middle, baseline; compact tick labels in the left gutter */}
+              <div className="pointer-events-none absolute inset-0" aria-hidden>
+                {[0.08, 0.54].map((f) => (
+                  <div key={f} className="absolute inset-x-0 border-t border-dashed border-line" style={{ top: `${f * 100}%` }}>
+                    <span className="tnum absolute right-full -top-[7px] pr-1.5 font-mono text-[9.5px] text-fg-subtle">{compact(max * (f === 0.08 ? 1 : 0.5)).replace("₱", "")}</span>
+                  </div>
+                ))}
+                <div className="absolute inset-x-0 bottom-0 border-t border-line-strong" />
+              </div>
+              {/* the selected period's column */}
+              <div className="pointer-events-none absolute inset-y-0 rounded-[4px] bg-surface" style={{ left: `${x(points.indexOf(sel)) - 50 / points.length}%`, width: `${100 / points.length}%` }} aria-hidden />
+              <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="absolute inset-0 size-full overflow-visible" aria-hidden>
+                {visible.map((sr) => (
+                  <polyline
+                    key={sr.key}
+                    points={points.map((p, i) => `${x(i)},${y(p[sr.key])}`).join(" ")}
+                    fill="none"
+                    stroke={sr.stroke}
+                    strokeWidth={2.25}
+                    strokeLinejoin="round"
+                    strokeLinecap="round"
+                    vectorEffect="non-scaling-stroke"
+                  />
+                ))}
+              </svg>
+              {/* dots as HTML so they stay round on a stretched chart */}
+              {visible.map((sr) =>
+                points.map((p, i) => (
+                  <span
+                    key={`${sr.key}${i}`}
+                    aria-hidden
+                    className={cn("pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-bg", sr.dot, p.selected ? "size-3" : "size-2")}
+                    style={{ left: `${x(i)}%`, top: `${y(p[sr.key])}%` }}
+                  />
+                )),
+              )}
             </div>
-            <div role="group" aria-label={`Income and spending per ${UNIT[kind]}. Tap a ${UNIT[kind]} to open it.`} className="relative grid" style={{ gridTemplateColumns: `repeat(${points.length}, minmax(0, 1fr))` }}>
+            <div role="group" aria-label={`Income and spending per ${UNIT[kind]}. Tap a ${UNIT[kind]} to open it.`} className="absolute inset-y-0 right-0 left-8 grid" style={{ gridTemplateColumns: `repeat(${points.length}, minmax(0, 1fr))` }}>
               {points.map((p) => (
                 <button
                   key={p.from.toISOString()}
@@ -263,29 +316,29 @@ function TrendChart({ kind, points, onPick }: { kind: PeriodKind; points: TrendP
                   aria-current={p.selected ? "true" : undefined}
                   aria-label={`${name(p)}: income ${peso(p.in)}, spending ${peso(p.out)}`}
                   onClick={() => onPick(p.from)}
-                  className="group flex min-w-0 flex-col items-stretch active:opacity-60"
+                  className="flex min-w-0 flex-col justify-end active:opacity-60"
                 >
-                  <span className={cn("mx-[1px] flex h-[132px] items-end justify-center gap-[2px] rounded-t-[4px] px-[2px]", p.selected && "bg-surface")}>
-                    <span className="w-full max-w-3 rounded-t-[4px] bg-chart-in" style={{ height: h(p.in) }} />
-                    <span className="w-full max-w-3 rounded-t-[4px] bg-chart-out" style={{ height: h(p.out) }} />
-                  </span>
-                  <span className={cn("truncate pt-1.5 text-center font-mono text-[10px]", p.selected ? "font-semibold text-fg" : "text-fg-subtle")}>
+                  <span className={cn("translate-y-full truncate pt-1.5 text-center font-mono text-[10px]", p.selected ? "font-semibold text-fg" : "text-fg-subtle")}>
                     {kind === "month" ? tickLabel(kind, p.from)[0] : tickLabel(kind, p.from)}
                   </span>
                 </button>
               ))}
             </div>
           </div>
-          <div className="mt-3 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-[13px]" aria-live="polite">
+          <div className="mt-8 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-[13px]" aria-live="polite">
             <span className="font-medium">{name(sel)}</span>
-            <span className="flex items-center gap-1.5 text-fg-muted">
-              <span className="h-0.5 w-3 rounded-full bg-chart-in" aria-hidden />
-              In <span className="tnum font-medium text-fg">{peso(sel.in)}</span>
-            </span>
-            <span className="flex items-center gap-1.5 text-fg-muted">
-              <span className="h-0.5 w-3 rounded-full bg-chart-out" aria-hidden />
-              Out <span className="tnum font-medium text-fg">{peso(sel.out)}</span>
-            </span>
+            {shown.in ? (
+              <span className="flex items-center gap-1.5 text-fg-muted">
+                <span className="h-0.5 w-3 rounded-full bg-chart-in" aria-hidden />
+                In <span className="tnum font-medium text-fg">{peso(sel.in)}</span>
+              </span>
+            ) : null}
+            {shown.out ? (
+              <span className="flex items-center gap-1.5 text-fg-muted">
+                <span className="h-0.5 w-3 rounded-full bg-chart-out" aria-hidden />
+                Out <span className="tnum font-medium text-fg">{peso(sel.out)}</span>
+              </span>
+            ) : null}
           </div>
         </>
       )}
