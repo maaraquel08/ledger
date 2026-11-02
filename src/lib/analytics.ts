@@ -1,5 +1,5 @@
 import { addDays, localDay, monthShort, startOfDay } from "./format";
-import { FIXED, inRange, isIncome, isSpend, monthBounds, priorPeriod, spendParts, totals, weekBounds, type PeriodKind } from "./selectors";
+import { inRange, isSpend, monthBounds, priorPeriod, spendParts, totals, weekBounds, type PeriodKind } from "./selectors";
 import type { Category, Entry } from "./types";
 
 /*
@@ -250,32 +250,7 @@ function displayName(list: Entry[]) {
   return [...n.entries()].sort((a, b) => b[1] - a[1])[0][0];
 }
 
-export function topMerchants(entries: Entry[], limit = 5) {
-  return [...groupBy(entries.filter(isSpend))]
-    .map(([key, list]) => ({ key, name: displayName(list), amount: list.reduce((s, e) => s - e.amount, 0), entries: list }))
-    .sort((a, b) => b.amount - a.amount)
-    .slice(0, limit);
-}
 
-/**
- * Spending by weekday (Monday first) over the elapsed part of [from, to) since the ledger began: total, the
- * number of those weekdays elapsed, and the average per day. Rent, bills and
- * subscriptions land on a date, not a habit, so they are left out.
- */
-export function weekdayPattern(entries: Entry[], from: Date, to: Date, now = new Date(), start = from) {
-  const end = Math.min(to.getTime(), addDays(startOfDay(now), 1).getTime());
-  // days before the ledger began aren't "no spending" days
-  const begin = new Date(Math.max(from.getTime(), startOfDay(start).getTime()));
-  const days = Array.from({ length: 7 }, () => ({ total: 0, days: 0, entries: [] as Entry[] }));
-  for (let d = new Date(begin); d.getTime() < end; d = addDays(d, 1)) days[(d.getDay() + 6) % 7].days++;
-  for (const e of inRange(entries, begin, new Date(end))) {
-    if (!isSpend(e) || FIXED.includes(e.category ?? "Other")) continue;
-    const slot = days[(new Date(e.date).getDay() + 6) % 7];
-    slot.total -= e.amount;
-    slot.entries.push(e);
-  }
-  return days.map((x, i) => ({ ...x, dow: i, avg: x.days ? x.total / x.days : 0 }));
-}
 
 /* ---------- recurring ------------------------------------------------------- */
 
@@ -327,47 +302,7 @@ export function recurringBills(entries: Entry[], to: Date): Recurring[] {
   return out.sort((a, b) => b.amount - a.amount);
 }
 
-/* ---------- income ---------------------------------------------------------- */
 
-export function incomeSources(cur: Entry[], prev: Entry[]) {
-  const before = groupBy(prev.filter(isIncome));
-  return [...groupBy(cur.filter(isIncome))]
-    .map(([key, list]) => {
-      const amount = list.reduce((s, e) => s + e.amount, 0);
-      const p = (before.get(key) ?? []).reduce((s, e) => s + e.amount, 0);
-      return { key, name: displayName(list), category: list[0].category, amount, prev: p, change: pctChange(amount, p), entries: list };
-    })
-    .sort((a, b) => b.amount - a.amount);
-}
-
-/**
- * Monthly income over the last (up to) 6 finished months since the ledger began:
- * range, average and a plain verdict by how much it varies (coefficient of variation:
- * under 10% steady, under 25% varies, else irregular). null under 2 months.
- */
-export function incomeConsistency(entries: Entry[], now = new Date(), start = now) {
-  const cur = monthBounds(now)[0];
-  const first = monthBounds(start)[0].getTime();
-  const months: { from: Date; in: number; entries: Entry[] }[] = [];
-  for (let k = 1; k <= 6; k++) {
-    const from = new Date(cur.getFullYear(), cur.getMonth() - k, 1);
-    if (from.getTime() < first) break;
-    const list = inRange(entries, from, new Date(from.getFullYear(), from.getMonth() + 1, 1)).filter(isIncome);
-    months.unshift({ from, in: list.reduce((s, e) => s + e.amount, 0), entries: list });
-  }
-  if (months.length < 2) return null;
-  const xs = months.map((m) => m.in);
-  const avg = xs.reduce((a, b) => a + b, 0) / xs.length;
-  const sd = Math.sqrt(xs.reduce((s, x) => s + (x - avg) ** 2, 0) / xs.length);
-  const cv = avg > 0 ? sd / avg : 1;
-  return {
-    months,
-    min: Math.min(...xs),
-    max: Math.max(...xs),
-    avg,
-    verdict: (cv < 0.1 ? "steady" : cv < 0.25 ? "varies" : "irregular") as "steady" | "varies" | "irregular",
-  };
-}
 
 export type SpendDay = { date: Date; day: number; spent: number; level: 0 | 1 | 2 | 3 | 4 | 5; entries: Entry[]; future: boolean };
 

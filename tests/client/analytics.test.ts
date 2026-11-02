@@ -3,18 +3,14 @@ import {
   analyticsHref,
   categoryRows,
   headline,
-  incomeConsistency,
-  incomeSources,
   movers,
   periodLabel,
   readAnalyticsQuery,
   recurringBills,
   shiftPeriod,
   spendCalendar,
-  topMerchants,
   trailingAverage,
   trendSeries,
-  weekdayPattern,
 } from "../../src/lib/analytics";
 import { priorPeriod } from "../../src/lib/selectors";
 import type { Entry } from "../../src/lib/types";
@@ -160,24 +156,9 @@ describe("spending habits", () => {
     expect(m.down!.entries).toHaveLength(1);
   });
 
-  test("merchants merge spellings and skip moves", () => {
-    const t = topMerchants(cur);
-    expect(t[0]).toMatchObject({ amount: 1000 });
-    expect(t.find((x) => x.key === "grab")).toMatchObject({ amount: 500, name: "Grab" });
-    expect(t.some((x) => x.key === "move")).toBe(false);
-  });
 
-  test("weekday pattern averages over elapsed weekdays and leaves bills out", () => {
-    const list = [...cur, e("Rent", "Rent & bills", -18_000, at(2026, 9, 26))];
-    const w = weekdayPattern(list, new Date(2026, 9, 26), new Date(2026, 10, 2), NOW);
-    expect(w[0]).toMatchObject({ dow: 0, total: 300, days: 1 }); // Monday, rent left out
-    expect(w[1]).toMatchObject({ total: 700, days: 1 });
-    expect(w[4].days).toBe(0); // Friday hasn't come yet
-    // a ledger begun on Wednesday has no Monday or Tuesday to average
-    const late = weekdayPattern(list, new Date(2026, 9, 26), new Date(2026, 10, 2), NOW, new Date(2026, 9, 28));
-    expect(late[0]).toMatchObject({ days: 0, total: 0 });
-    expect(late[2]).toMatchObject({ days: 1, total: 1000 });
-  });
+
+
 });
 
 /* ---------- recurring ----------------------------------------------------- */
@@ -212,26 +193,7 @@ describe("recurringBills", () => {
 
 /* ---------- income -------------------------------------------------------- */
 
-describe("income", () => {
-  test("sources by name with change; NEW when absent before", () => {
-    const s = incomeSources(
-      [e("Payroll", "Salary", 48_000, at(2026, 9, 5)), e("Payroll", "Salary", 48_000, at(2026, 9, 20)), e("Freelance", "Income", 12_000, at(2026, 9, 25))],
-      [e("Payroll", "Salary", 96_000, at(2026, 8, 5))],
-    );
-    expect(s.map((x) => [x.name, x.amount, x.change])).toEqual([
-      ["Payroll", 96_000, 0],
-      ["Freelance", 12_000, null],
-    ]);
-  });
 
-  test("consistency over finished months since the ledger began", () => {
-    const list = [5, 6, 7, 8, 9].map((m) => e("Payroll", "Salary", m === 7 ? 60_000 : 100_000, at(2026, m, 5)));
-    const c = incomeConsistency(list, NOW, new Date(2026, 5, 1))!;
-    expect(c.months).toHaveLength(4); // Jun–Sep; October is still going
-    expect(c).toMatchObject({ min: 60_000, max: 100_000, avg: 90_000, verdict: "varies" });
-    expect(incomeConsistency(list, NOW, new Date(2026, 8, 1))).toBeNull();
-  });
-});
 
 describe("spendCalendar", () => {
   const oct = new Date(2026, 9, 1);

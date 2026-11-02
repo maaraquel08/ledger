@@ -6,8 +6,6 @@ import {
   analyticsHref,
   categoryRows,
   headline,
-  incomeConsistency,
-  incomeSources,
   isCurrent,
   movers,
   pctChange,
@@ -19,9 +17,7 @@ import {
   shiftPeriod,
   spendCalendar,
   tickLabel,
-  topMerchants,
   trendSeries,
-  weekdayPattern,
   type Headline,
   type SpendDay,
   type TrendPoint,
@@ -44,7 +40,6 @@ import { entriesHref, type EntryKind } from "@/screens/ledger-list";
 const KIND_LABEL: Record<PeriodKind, "Week" | "Month" | "Year"> = { week: "Week", month: "Month", year: "Year" };
 const UNIT: Record<PeriodKind, string> = { week: "week", month: "month", year: "year" };
 const lastDay = (to: Date) => addDays(to, -1);
-const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
 const entriesText = (n: number) => `${n} ${n === 1 ? "entry" : "entries"}`;
 
 /** "Sep 1–29", "Sep 29–Oct 5", "Jan 1–Oct 29, 2025": an inclusive span of days. */
@@ -550,24 +545,16 @@ export function findings(o: {
   return out;
 }
 
-/* ---------- habits ---------------------------------------------------------- */
+/* ---------- where it went ---------------------------------------------------------- */
 
-const DOW = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-const ordinal = (n: number) => `${n}${n % 10 === 1 && n !== 11 ? "st" : n % 10 === 2 && n !== 12 ? "nd" : n % 10 === 3 && n !== 13 ? "rd" : "th"}`;
 
-function Habits({ kind, from, to, now, start, label, h, list, prevList, all }: { kind: PeriodKind; from: Date; to: Date; now: Date; start: Date; label: string; h: Headline; list: Entry[]; prevList: Entry[]; all: Entry[] }) {
+function WhereItWent({ kind, from, to, label, h, list, prevList, all }: { kind: PeriodKind; from: Date; to: Date; label: string; h: Headline; list: Entry[]; prevList: Entry[]; all: Entry[] }) {
   const [allCats, setAllCats] = React.useState(false);
   const go = (es: Entry[], l: string, f?: Parameters<typeof entriesHref>[3]) => navigate(entriesHref(all, es, l, f));
   const range = { from, to: lastDay(to) };
   const rows = categoryRows(list, prevList);
   const shown = allCats ? rows : rows.slice(0, 6);
-  const mv = h.prev ? movers(list, prevList) : null;
   const prevLabel = priorLabel(kind, h.prior);
-  const merchants = topMerchants(list);
-  const week = weekdayPattern(all, from, to, now, start);
-  const maxAvg = Math.max(...week.map((d) => d.avg), 1);
-  const peak = week.reduce((a, b) => (b.avg > a.avg ? b : a));
-  const recurring = recurringBills(all, new Date(Math.min(to.getTime(), addDays(now, 1).getTime())));
 
   return (
     <>
@@ -597,129 +584,10 @@ function Habits({ kind, from, to, now, start, label, h, list, prevList, all }: {
         {h.prev ? <p className="mt-1 font-mono text-[10.5px] tracking-[0.04em] text-fg-subtle uppercase">Change vs. {prevLabel}</p> : null}
       </Section>
 
-      {mv && (mv.up || mv.down) ? (
-        <Section title={`MOVERS · VS. ${prevLabel.toUpperCase()}`}>
-          <div className="mt-1 divide-y divide-line">
-            {mv.up ? (
-              <Row label={`Up: ${mv.up.cat}`} meta="Spent more" value={`+${peso(mv.up.diff)}`} onClick={() => go(mv.up!.entries, `${mv.up!.cat} · ${label} and ${prevLabel}`)} />
-            ) : null}
-            {mv.down ? (
-              <Row label={`Down: ${mv.down.cat}`} meta="Spent less" value={`−${peso(mv.down.diff)}`} onClick={() => go(mv.down!.entries, `${mv.down!.cat} · ${label} and ${prevLabel}`)} />
-            ) : null}
-          </div>
-        </Section>
-      ) : null}
-
-      {merchants.length ? (
-        <Section title="TOP MERCHANTS">
-          <div className="mt-1 divide-y divide-line">
-            {merchants.map((m) => (
-              <Row key={m.key} label={m.name} meta={`${m.entries.length}×`} value={peso(m.amount)} onClick={() => go(m.entries, `${m.name} · ${label}`)} />
-            ))}
-          </div>
-        </Section>
-      ) : null}
-
-      <Section title="BY DAY OF THE WEEK">
-        <p className="mt-2 text-[13px] leading-[1.45] text-fg-muted">
-          {peak.avg > 0
-            ? `${DOW[peak.dow]}s cost the most: ${peso(peak.avg)} a day on average. Rent, bills and subscriptions left out.`
-            : "No day-to-day spending yet. Rent, bills and subscriptions are left out."}
-        </p>
-        <div className="mt-3 grid grid-cols-7 gap-1.5" role="group" aria-label="Average spending a day, by day of the week">
-          {week.map((d) => (
-            <button
-              key={d.dow}
-              type="button"
-              disabled={!d.entries.length}
-              aria-label={`${DOW[d.dow]}: ${peso(d.avg)} a day on average, ${entriesText(d.entries.length)}`}
-              onClick={() => go(d.entries, `${DOW[d.dow]}s · ${label}`)}
-              className="flex min-w-0 flex-col items-center gap-1.5 active:opacity-60"
-            >
-              <span className="tnum h-3 font-mono text-[9.5px] text-fg-muted">{d === peak && d.avg > 0 ? compact(d.avg).replace("₱", "") : ""}</span>
-              <span className="flex h-[64px] w-full items-end justify-center">
-                <span className={cn("w-full max-w-6 rounded-t-[4px]", d === peak && d.avg > 0 ? "bg-chart-out" : "bg-fill")} style={{ height: `${(d.avg / maxAvg) * 100}%` }} />
-              </span>
-              <span className={cn("font-mono text-[10px]", d === peak && d.avg > 0 ? "font-semibold text-fg" : "text-fg-subtle")}>{DOW[d.dow][0]}</span>
-            </button>
-          ))}
-        </div>
-      </Section>
-
-      <Section title="RECURRING BILLS" aside={recurring.length ? <span className="tnum text-[13px] text-fg-muted">≈ {peso(recurring.reduce((s, r) => s + r.amount, 0))} a month</span> : null}>
-        {recurring.length ? (
-          <div className="mt-1 divide-y divide-line">
-            {recurring.map((r) => (
-              <Row
-                key={r.name}
-                label={r.name}
-                meta={`Monthly · around the ${ordinal(r.day)} · ${plural(r.months, "month")}`}
-                value={peso(r.amount)}
-                onClick={() => go(r.entries, `${r.name} · last 6 months`)}
-              />
-            ))}
-          </div>
-        ) : (
-          <p className="mt-2 text-[13.5px] leading-[1.45] text-fg-muted">None found yet. A bill shows here once the same merchant is charged about monthly for three months.</p>
-        )}
-      </Section>
     </>
   );
 }
 
-/* ---------- income ---------------------------------------------------------- */
-
-const VERDICT = { steady: "Steady", varies: "Varies a little", irregular: "Irregular" } as const;
-
-function Income({ from, to, label, h, list, prevList, all, now, start }: { from: Date; to: Date; label: string; h: Headline; list: Entry[]; prevList: Entry[]; all: Entry[]; now: Date; start: Date }) {
-  const sources = incomeSources(list, prevList);
-  const c = incomeConsistency(all, now, start);
-  const go = (es: Entry[], l: string) => navigate(entriesHref(all, es, l, { type: "income", from, to: lastDay(to) }));
-  return (
-    <>
-      <Section title="INCOME SOURCES" aside={<span className="tnum text-[13px] text-fg-muted">{peso(h.cur.in)}</span>}>
-        {sources.length ? (
-          <div className="mt-1 divide-y divide-line">
-            {sources.map((s) => (
-              <Row
-                key={s.key}
-                label={s.name}
-                meta={`${s.category ?? "Income"} · ${entriesText(s.entries.length)}`}
-                value={peso(s.amount)}
-                trail={<span className="flex w-[58px] flex-none justify-end">{h.prev ? <Delta value={s.change} invert /> : null}</span>}
-                onClick={() => go(s.entries, `${s.name} · ${label}`)}
-              />
-            ))}
-          </div>
-        ) : (
-          <p className="mt-2 text-[13.5px] text-fg-muted">No income logged in {label}.</p>
-        )}
-      </Section>
-      <Section title="INCOME CONSISTENCY · LAST 6 MONTHS">
-        {c ? (
-          <div className="mt-3 overflow-hidden rounded-lg border border-line">
-            <div className="p-4">
-              <div className="text-[19px] leading-[1.3] font-semibold tracking-[-0.01em]">{VERDICT[c.verdict]}</div>
-              <p className="tnum mt-1.5 text-[14px] leading-[1.5] text-fg-muted">
-                {peso(c.min)}–{peso(c.max)} a month over the last {c.months.length} finished months, {peso(c.avg)} on average.
-              </p>
-            </div>
-            <SourceLink
-              count={c.months.reduce((n, m) => n + m.entries.length, 0)}
-              to={entriesHref(
-                all,
-                c.months.flatMap((m) => m.entries),
-                "Income · last 6 months",
-              )}
-            />
-          </div>
-        ) : (
-          <p className="mt-2 text-[13.5px] leading-[1.45] text-fg-muted">Needs two finished months of entries.</p>
-        )}
-      </Section>
-    </>
-  );
-}
 
 /* ---------- screen ---------------------------------------------------------- */
 
@@ -884,8 +752,7 @@ export function Analytics({ path }: { path: string }) {
               ))}
             </div>
           </Section>
-          <Habits kind={kind} from={from} to={to} now={now} start={start} label={label} h={h} list={list} prevList={prevList} all={all} />
-          <Income from={from} to={to} label={label} h={h} list={list} prevList={prevList} all={all} now={now} start={start} />
+          <WhereItWent kind={kind} from={from} to={to} label={label} h={h} list={list} prevList={prevList} all={all} />
         </>
       )}
     </Screen>
