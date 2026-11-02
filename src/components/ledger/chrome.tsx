@@ -1,7 +1,7 @@
 import * as React from "react";
 import { cn } from "@/lib/cn";
 import { navigate } from "@/lib/router";
-import { AccountsIcon, AnalyticsIcon, HomeIcon, PlusIcon } from "./icons";
+import { AccountsIcon, AnalyticsIcon, ChatIcon, PlusIcon } from "./icons";
 
 /* ---------- global UI: the add sheet is reachable from every tab ------ */
 
@@ -16,15 +16,15 @@ export const useChrome = () => React.useContext(ChromeCtx);
 /* ---------- tab bar ---------------------------------------------------- */
 
 const TABS = [
-  { path: "/today", label: "Today", Icon: HomeIcon },
+  { path: "/today", label: "Chat", Icon: ChatIcon },
   { path: "/money", label: "Money", Icon: AccountsIcon },
   { path: "/analytics", label: "Analytics", Icon: AnalyticsIcon },
 ] as const;
 
 /**
- * Three tabs (D-0018); Review opens from Today's "to review" row. Adding an
- * entry is the yellow floating action above the nav, bottom right, on every
- * tab. #FCC305 is used nowhere else.
+ * Three tabs: Chat (home), Money, Analytics. Adding an entry is the yellow
+ * floating action above the nav on Money and Analytics; on Chat it would sit on
+ * the composer, so the chat header carries a + instead. #FCC305 is used nowhere else.
  */
 export function TabBar({ path }: { path: string }) {
   const { openAdd } = useChrome();
@@ -33,6 +33,7 @@ export function TabBar({ path }: { path: string }) {
       aria-label="Main"
       className="fixed inset-x-0 bottom-0 z-20 mx-auto w-full max-w-[430px] border-t border-line bg-bg/95 backdrop-blur-sm"
     >
+      {path === "/today" ? null : (
       <button
         type="button"
         aria-label="Add entry"
@@ -41,6 +42,7 @@ export function TabBar({ path }: { path: string }) {
       >
         <PlusIcon size={26} />
       </button>
+      )}
       <div className="grid grid-cols-3 px-3 pt-[7px] pb-[max(14px,env(safe-area-inset-bottom))]">
         {TABS.map(({ path: p, label, Icon }) => {
           const active = path === p || path.startsWith(`${p}/`);

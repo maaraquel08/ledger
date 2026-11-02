@@ -1,17 +1,18 @@
 import * as React from "react";
-import { ArrowUpIcon, ChevronLeft, MoreIcon, Sparkle } from "@/components/ledger/icons";
+import { useChrome } from "@/components/ledger/chrome";
+import { ArrowUpIcon, ComposeIcon, HistoryIcon, PlusIcon, Sparkle, TrashIcon } from "@/components/ledger/icons";
 import { AiEyebrow, AiMark, Cta, Eyebrow, EntryRow, Screen, Sheet } from "@/components/ledger/primitives";
 import { cn } from "@/lib/cn";
 import { addDays, compact, goalLabel, goalMonth, localDay, monthName, monthShort, peso, startOfDay } from "@/lib/format";
-import { back, navigate, query } from "@/lib/router";
+import { navigate, query } from "@/lib/router";
 import { byCategory, inRange, isIncome, isSpend, monthBounds, netWorth, priorPeriod, spendParts, totals, verdict, weekBounds } from "@/lib/selectors";
 import { newId, useLedger } from "@/lib/store";
 import { todayBudget } from "@/lib/today";
 import type { Category, Entry, LedgerState } from "@/lib/types";
-import { callFunction, timezone } from "@/lib/cloud/api";
+import { callFunction, deleteThread, listThreads, loadThread, timezone } from "@/lib/cloud/api";
 import { cloud, sb } from "@/lib/supabase";
 import { useCloud } from "@/lib/cloud/provider";
-import { chatKey } from "@/lib/chat-history";
+import { chatKey, currentKey, localThreads, threadTitle, type Thread } from "@/lib/chat-history";
 
 /* ---------- the local responder (no network) -------------------------- */
 
@@ -430,7 +431,7 @@ export function respond(q: string, s: LedgerState, today = new Date()): Answer {
 
 const NO_ANSWER: Answer = { read: 0, matched: { n: 0, label: "" }, compareYear: 0, text: "", sources: [], followups: [] };
 
-type CloudReply = { kind: "answer"; ans: Answer } | { kind: "local"; why: string } | { kind: "error"; text: string };
+type CloudReply = { kind: "answer"; ans: Answer; threadId?: string } | { kind: "local"; why: string } | { kind: "error"; text: string };
 
 /** The note under an answer that did not come from the AI. */
 export const basicNote = (why: string) => `Basic answer: ${why}`;
@@ -457,29 +458,31 @@ export function chatMessages(history: Pick<Msg, "role" | "text" | "ans">[]): { r
   return out.slice(-12);
 }
 
-export async function askCloud(history: Msg[]): Promise<CloudReply> {
+export async function askCloud(history: Msg[], threadId?: string | null): Promise<CloudReply> {
   const messages = chatMessages(history);
+  const body = { messages, tz: timezone(), ...(threadId ? { thread_id: threadId } : {}) };
   if (!navigator.onLine) return { kind: "local", why: WHY_OFFLINE };
   let res;
   try {
-    res = await callFunction("chat", { messages, tz: timezone() });
+    res = await callFunction("chat", body);
     if (res.status === 401) {
       // the session lapsed: refresh it once, then ask again (as capture does)
       await sb().auth.refreshSession();
-      res = await callFunction("chat", { messages, tz: timezone() });
+      res = await callFunction("chat", body);
     }
   } catch {
     return { kind: "local", why: WHY_UNREACHABLE };
   }
   if (res.status === 503 || res.status === 404) return { kind: "local", why: WHY_UNREACHABLE };
-  const d = (res.data ?? {}) as Partial<Answer> & { error?: string; message?: string; fallback?: boolean };
+  const d = (res.data ?? {}) as Partial<Answer> & { error?: string; message?: string; fallback?: boolean; thread_id?: string };
   if (res.status === 429)
     return { kind: "error", text: typeof d.message === "string" && d.message ? d.message : "You’ve asked me a lot today. I can answer again tomorrow; everything you log still saves." };
   if (!res.ok || typeof d.text !== "string")
     return { kind: "error", text: "I couldn’t answer just now. Try again in a moment." };
-  const { fallback, ...rest } = d;
+  const { fallback, thread_id, ...rest } = d;
   return {
     kind: "answer",
+    threadId: typeof thread_id === "string" ? thread_id : undefined,
     ans: {
       ...NO_ANSWER,
       ...rest,
@@ -524,16 +527,46 @@ function load(key: string): Msg[] {
   }
 }
 
+function readCurrent(key: string) {
+  try {
+    return sessionStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+/** A stored turn (chat_messages) as an on-screen message. */
+function fromStored(r: { role: "user" | "assistant"; text: string; answer: unknown; createdAt: string }): Msg {
+  const at = Date.parse(r.createdAt) || undefined;
+  if (r.role === "user") return { id: newId("m"), role: "user", text: r.text, at };
+  const a = r.answer as Partial<Answer> | null;
+  if (!a || typeof a.text !== "string") return { id: newId("m"), role: "ai", status: "done", text: r.text, at };
+  const ans = { ...NO_ANSWER, ...a, sources: Array.isArray(a.sources) ? a.sources : [], followups: Array.isArray(a.followups) ? a.followups : [] } as Answer;
+  return { id: newId("m"), role: "ai", status: "done", ans, words: wordsOf(ans).length, offerDone: true, at };
+}
+
+/** "Today · 9:41", "Yesterday", "Mon 2 Nov" */
+function whenText(iso: string) {
+  const d = new Date(iso);
+  const today = startOfDay(new Date());
+  if (d >= today) return `Today · ${d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`;
+  if (d >= addDays(today, -1)) return "Yesterday";
+  return d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
+}
+
 export function Chat({ path }: { path: string }) {
   const { state, dispatch } = useLedger();
-  // cloud: one conversation per signed-in user; erase and sign-out clear it (lib/chat-history)
-  const store = chatKey(useCloud()?.uid);
+  const { openAdd } = useChrome();
+  // the conversation on screen is cached per signed-in user; erase and sign-out clear it (lib/chat-history)
+  const uid = useCloud()?.uid;
+  const store = chatKey(uid);
   const [msgs, setMsgs] = React.useState<Msg[]>(() => load(store));
+  // which past conversation this is: the cloud's thread id (set by the chat function), or a local one
+  const [threadId, setThreadId] = React.useState<string | null>(() => readCurrent(currentKey(uid)));
+  const [history, setHistory] = React.useState<Thread[] | null>(null);
+  const [historyError, setHistoryError] = React.useState(false);
   const [text, setText] = React.useState("");
   const [focused, setFocused] = React.useState(false);
-  const [menu, setMenu] = React.useState(false);
-  const [confirmClear, setConfirmClear] = React.useState(false);
-  const menuRef = React.useRef<HTMLDivElement>(null);
   const [sources, setSources] = React.useState<string[] | null>(null);
   const [copied, setCopied] = React.useState<string | null>(null);
   const endRef = React.useRef<HTMLDivElement>(null);
@@ -543,32 +576,24 @@ export function Chat({ path }: { path: string }) {
   React.useEffect(() => {
     try {
       sessionStorage.setItem(store, JSON.stringify(msgs));
+      if (threadId) sessionStorage.setItem(currentKey(uid), threadId);
+      else sessionStorage.removeItem(currentKey(uid));
     } catch {
       /* ignore */
     }
-  }, [msgs, store]);
-
-  // close the More menu on Escape or a tap outside it
-  React.useEffect(() => {
-    if (!menu) return;
-    const close = () => {
-      setMenu(false);
-      setConfirmClear(false);
-    };
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && close();
-    const onDown = (e: PointerEvent) => {
-      if (!menuRef.current?.contains(e.target as Node)) close();
-    };
-    document.addEventListener("keydown", onKey);
-    document.addEventListener("pointerdown", onDown);
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.removeEventListener("pointerdown", onDown);
-    };
-  }, [menu]);
+  }, [msgs, store, threadId, uid]);
 
   const active = msgs.find((m) => m.status === "loading" || m.status === "streaming");
   const lastDone = [...msgs].reverse().find((m) => m.role === "ai" && m.status === "done");
+
+  // local mode keeps its own history: save the conversation once an answer has settled
+  React.useEffect(() => {
+    if (cloud || active || !msgs.length) return;
+    const id = threadId ?? newId("t");
+    if (!threadId) setThreadId(id);
+    const first = msgs.find((m) => m.role === "user")?.text ?? "Conversation";
+    localThreads.save({ id, title: threadTitle(first), msgs }, uid);
+  }, [msgs, active, threadId, uid]);
 
   // Drive the answer lifecycle from elapsed time: steps, then word-by-word.
   const activeId = active?.id;
@@ -615,7 +640,8 @@ export function Chat({ path }: { path: string }) {
     const ai: Msg = { id: newId("m"), role: "ai", q: question, status: "loading", t0: Date.now(), words: 0 };
     setMsgs((ms) => [...ms, user, ai]);
     const snapshot = state;
-    askCloud([...msgs, user]).then((r) =>
+    askCloud([...msgs, user], threadId).then((r) => {
+      if (r.kind === "answer" && r.threadId) setThreadId(r.threadId);
       setMsgs((ms) =>
         ms.map((m) => {
           if (m.id !== ai.id || m.status !== "loading") return m; // stopped meanwhile
@@ -623,8 +649,47 @@ export function Chat({ path }: { path: string }) {
           // skip the reading steps: the server already read
           return { ...m, ans: r.kind === "answer" ? r.ans : { ...respond(question, snapshot), basic: basicNote(r.why) }, t0: Date.now() - STREAM_AT };
         }),
-      ),
+      );
+    });
+  };
+
+  const newChat = () => {
+    if (active) return;
+    setMsgs([]);
+    setThreadId(null);
+    setText("");
+    taRef.current?.focus();
+  };
+
+  const openHistory = () => {
+    setHistoryError(false);
+    if (!cloud) return setHistory(localThreads.list(uid));
+    setHistory([]);
+    listThreads().then(setHistory, () => setHistoryError(true));
+  };
+
+  const openThread = (t: Thread) => {
+    setHistory(null);
+    if (t.id === threadId) return;
+    if (!cloud) {
+      setMsgs(localThreads.load<Msg>(t.id, uid));
+      setThreadId(t.id);
+      return;
+    }
+    loadThread(t.id).then(
+      (rows) => {
+        setMsgs(rows.map(fromStored));
+        setThreadId(t.id);
+      },
+      () => setHistoryError(true),
     );
+  };
+
+  const removeThread = (t: Thread) => {
+    if (t.id === threadId) newChat();
+    setHistory((h) => h?.filter((x) => x.id !== t.id) ?? null);
+    if (!cloud) return localThreads.remove(t.id, uid);
+    deleteThread(t.id).catch(() => setHistoryError(true));
   };
 
   const send = (raw: string) => {
@@ -641,7 +706,7 @@ export function Chat({ path }: { path: string }) {
     const q = query(path).get("q");
     if (q) {
       send(q);
-      navigate("/chat", { replace: true });
+      navigate("/today", { replace: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -683,59 +748,24 @@ export function Chat({ path }: { path: string }) {
   const sourceEntries = (sources ?? []).map((id) => state.entries.find((e) => e.id === id)).filter((e): e is Entry => !!e);
 
   return (
-    <Screen>
-      {/* header */}
+    <Screen className="pb-[calc(66px+env(safe-area-inset-bottom))]">
+      {/* header: history · M8 · new chat, log an entry */}
       <div className="sticky top-0 z-10 bg-bg/95 backdrop-blur-sm">
-        <div className="grid grid-cols-[44px_1fr_44px] items-center px-2 pt-2 pb-1">
-          <button type="button" aria-label="Back" onClick={() => back("/today")} className="flex size-11 items-center justify-center rounded-full text-fg-subtle active:bg-surface">
-            <ChevronLeft size={20} />
+        <div className="grid grid-cols-[88px_1fr_88px] items-center px-2 pt-2 pb-1">
+          <button type="button" aria-label="Past conversations" onClick={openHistory} className="flex size-11 items-center justify-center rounded-full text-fg-muted active:bg-surface">
+            <HistoryIcon />
           </button>
           <h1 className="flex items-center justify-center gap-1.5 text-[16px] font-semibold">
             <Sparkle size={13} />
             M8
           </h1>
-          <div ref={menuRef} className="relative justify-self-end">
-            <button type="button" aria-label="More" aria-expanded={menu} onClick={() => { setMenu((x) => !x); setConfirmClear(false); }} className="flex size-11 items-center justify-center rounded-full active:bg-surface">
-              <MoreIcon />
+          <div className="flex justify-self-end">
+            <button type="button" aria-label="New conversation" disabled={!msgs.length || !!active} onClick={newChat} className="flex size-11 items-center justify-center rounded-full text-fg-muted active:bg-surface disabled:opacity-30">
+              <ComposeIcon />
             </button>
-            {menu ? (
-              <div className="absolute right-0 z-20 mt-1 w-52 rounded-md border border-line bg-bg p-1 shadow-overlay">
-                {confirmClear ? (
-                  <div role="alertdialog" aria-label="Confirm clear conversation" className="flex flex-col gap-1">
-                    <button
-                      type="button"
-                      autoFocus
-                      onClick={() => {
-                        setConfirmClear(false);
-                        setMenu(false);
-                      }}
-                      className="flex h-11 w-full items-center rounded-sm px-3 text-left text-[14px] active:bg-surface"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setMsgs([]);
-                        setConfirmClear(false);
-                        setMenu(false);
-                      }}
-                      className="flex h-11 w-full items-center rounded-sm px-3 text-left text-[14px] font-semibold text-danger active:bg-surface"
-                    >
-                      Clear conversation
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setConfirmClear(true)}
-                    className="flex h-11 w-full items-center rounded-sm px-3 text-left text-[14px] active:bg-surface"
-                  >
-                    Clear conversation
-                  </button>
-                )}
-              </div>
-            ) : null}
+            <button type="button" aria-label="Add entry" onClick={() => openAdd()} className="flex size-11 items-center justify-center rounded-full text-fg-muted active:bg-surface">
+              <PlusIcon size={20} />
+            </button>
           </div>
         </div>
       </div>
@@ -782,7 +812,7 @@ export function Chat({ path }: { path: string }) {
       </div>
 
       {/* composer */}
-      <div className="sticky bottom-0 z-10 bg-bg px-4 pt-2 pb-[max(12px,env(safe-area-inset-bottom))]">
+      <div className="sticky bottom-[calc(66px+env(safe-area-inset-bottom))] z-10 bg-bg px-4 pt-2 pb-3">
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -826,6 +856,33 @@ export function Chat({ path }: { path: string }) {
         </form>
         {showCounter ? <p className="tnum mt-1.5 pr-3 text-right font-mono text-[10.5px] text-fg-subtle">{text.length} / {MAX}</p> : null}
       </div>
+
+      <Sheet open={history !== null} onOpenChange={(o) => !o && setHistory(null)} title="Conversations">
+        <div className="pt-3">
+          <button type="button" onClick={() => { setHistory(null); newChat(); }} className="flex min-h-12 w-full items-center gap-3 rounded-md text-left text-[15px] font-medium active:bg-surface">
+            <ComposeIcon size={18} />
+            New conversation
+          </button>
+          {historyError ? <p role="alert" className="py-2 text-[13px] text-danger">Couldn’t reach your conversations. Try again in a moment.</p> : null}
+          {history && history.length ? (
+            <ul className="mt-1 divide-y divide-line border-t border-line">
+              {history.map((t) => (
+                <li key={t.id} className="flex items-center gap-2">
+                  <button type="button" onClick={() => openThread(t)} aria-current={t.id === threadId ? "true" : undefined} className="min-w-0 flex-1 py-3 text-left active:opacity-60">
+                    <span className={cn("block truncate text-[15px]", t.id === threadId && "font-semibold")}>{t.title}</span>
+                    <span className="mt-0.5 block font-mono text-[10.5px] tracking-[0.04em] text-fg-subtle uppercase">{whenText(t.updatedAt)}</span>
+                  </button>
+                  <button type="button" aria-label={`Delete “${t.title}”`} onClick={() => removeThread(t)} className="flex size-11 flex-none items-center justify-center rounded-full text-fg-subtle active:bg-surface">
+                    <TrashIcon />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : !historyError ? (
+            <p className="py-3 text-[13.5px] text-fg-muted">Your past conversations show here.</p>
+          ) : null}
+        </div>
+      </Sheet>
 
       <Sheet open={sources !== null} onOpenChange={(o) => !o && setSources(null)} title={<AiEyebrow>SOURCES · {sourceEntries.length}</AiEyebrow>}>
         <div className="flex flex-col gap-4 pt-5">

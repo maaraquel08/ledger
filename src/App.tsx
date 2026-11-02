@@ -15,7 +15,6 @@ import { Onboarding } from "@/screens/onboarding";
 import { Scan } from "@/screens/scan";
 import { DataScreen } from "@/screens/settings";
 import { ImportOffer, localLedger, OpenFailed, Opening, SignIn } from "@/screens/sign-in";
-import { Today } from "@/screens/today";
 import { Welcome } from "@/screens/welcome";
 
 const TAB_ROOTS = ["/today", "/money", "/analytics"];
@@ -29,7 +28,9 @@ function redirect(path: string): string | null {
   let m: Record<string, string> | null;
   if (base === "/home") return "/today";
   if (base === "/insights") return "/analytics";
-  if (base === "/budgets") return "/today?plan=1";
+  if (base === "/budgets") return "/analytics?p=month";
+  // the chat is the home tab (spec 2026-11-03-home-chat); old links keep their question
+  if (base === "/chat") return `/today${qs ? `?${qs}` : ""}`;
   if (base === "/accounts") return "/money";
   if ((m = match("/accounts/:id", base))) return `/money/${encodeURIComponent(m.id)}`;
   // Activity's own filters (acct, cat, q, sort) carry over; its old period filter does not
@@ -48,6 +49,7 @@ function routeName(base: string) {
   if (seg === "activity") return "Entry";
   if (seg === "money" && base !== "/money") return "Account";
   if (seg === "data") return "Your data";
+  if (seg === "today") return "M8";
   return seg ? seg.charAt(0).toUpperCase() + seg.slice(1) : "Welcome";
 }
 
@@ -77,13 +79,12 @@ function Router() {
   const base = path.split("?")[0];
   if (base === "/") screen = <Welcome />;
   else if ((m = match("/onboarding/:step", base))) screen = <Onboarding step={m.step} />;
-  else if (base === "/today") screen = <Today path={path} />;
+  else if (base === "/today") screen = <Chat path={path} />;
   else if (base === "/money") screen = <Money path={path} />;
   else if (base === "/analytics") screen = <Analytics path={path} />;
   else if ((m = match("/money/:id", base))) screen = <AccountDetail id={m.id} path={path} />;
   else if (base === "/review") screen = <Review />;
   else if ((m = match("/activity/:id", base))) screen = <ActivityDetail id={m.id} />;
-  else if (base === "/chat") screen = <Chat path={path} />;
   else if (base === "/scan") screen = <Scan />;
   else if (cloud && base === "/data") screen = <DataScreen />;
 

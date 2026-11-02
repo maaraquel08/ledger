@@ -25,10 +25,15 @@ import {
 import { cn } from "@/lib/cn";
 import { addDays, balance, compact, dayName, monthName, monthShort, peso, sameDay } from "@/lib/format";
 import { navigate, query } from "@/lib/router";
-import { FIXED, budgetPace, byCategory, inRange, isIncome, isSpend, ledgerStart, monthBudget, type PeriodKind } from "@/lib/selectors";
+import { FIXED, budgetPace, byCategory, inRange, isIncome, isSpend, ledgerStart, monthBounds, monthBudget, netWorth, verdict, type PeriodKind } from "@/lib/selectors";
 import { useLedger } from "@/lib/store";
+import { clearChatHistory } from "@/lib/chat-history";
+import { todayBudget } from "@/lib/today";
+import { MathSheet, ProfileSheet } from "@/screens/today-sheets";
+import { Plan } from "@/screens/plan";
+import { useGaps } from "@/screens/activity";
 import type { Entry } from "@/lib/types";
-import { entriesHref, type EntryKind } from "@/screens/ledger-list";
+import { entriesHref, needsReview, type EntryKind } from "@/screens/ledger-list";
 
 /*
  * Analytics: one week, month or year at a time, against the period before
@@ -702,6 +707,97 @@ function SpendCalendar({ from, now }: { from: Date; now: Date }) {
   );
 }
 
+/** Profile avatar: opens the profile / settings sheet (it lived on Today). */
+function ProfileButton() {
+  const { state, dispatch } = useLedger();
+  const [open, setOpen] = React.useState(false);
+  return (
+    <>
+      <button type="button" aria-label="Profile" onClick={() => setOpen(true)} className="-mr-[7px] flex size-11 items-center justify-center">
+        <span className="flex size-[30px] items-center justify-center rounded-full border border-line-strong font-mono text-[10px] font-semibold">{state.profile.initials || "?"}</span>
+      </button>
+      <ProfileSheet
+        open={open}
+        onOpenChange={setOpen}
+        name={state.profile.name}
+        onReset={() => {
+          dispatch({ type: "reset" });
+          clearChatHistory();
+          navigate("/");
+        }}
+      />
+    </>
+  );
+}
+
+/** "N things to review": Review has no tab (D-0018), so this row is its door; balance gaps count too. */
+function ReviewRow() {
+  const { state } = useLedger();
+  const gaps = useGaps();
+  const n = state.entries.filter(needsReview).length + gaps.list.length;
+  if (n === 0) return null;
+  return (
+    <div className="px-6 pt-4">
+      <button type="button" onClick={() => navigate("/review")} className="flex min-h-12 w-full items-center gap-3 rounded-lg border border-line px-4 text-left active:bg-surface">
+        <span className="min-w-0 flex-1 text-[14px]">
+          <span className="tnum font-semibold">{n}</span> {n === 1 ? "thing" : "things"} to review
+        </span>
+        <ChevronRight size={14} className="flex-none text-fg-subtle" />
+      </button>
+    </div>
+  );
+}
+
+/** Month view: what Today used to show. Current month = left to spend and today's number; past = how it ended. */
+function BudgetGoals({ at, current, now }: { at: Date; current: boolean; now: Date }) {
+  const { state } = useLedger();
+  const [mathOpen, setMathOpen] = React.useState(false);
+  const v = verdict(state, at);
+  const tb = todayBudget(state, now);
+  const [mf, mt] = monthBounds(at);
+  const month = monthName(at).toUpperCase();
+  const worth = netWorth(state.accounts).total;
+  const hasBudget = v.budget > 0;
+  return (
+    <>
+      <section aria-label="Left to spend" className="px-6 pt-6">
+        {current ? (
+          <>
+            <Eyebrow>{v.left < 0 ? `OVER BUDGET · ${month}` : `LEFT TO SPEND · ${month}`}</Eyebrow>
+            <div className={cn("tnum mt-2 text-[40px] leading-none font-semibold tracking-[-0.04em]", v.left < 0 && "text-danger", !tb.hasBudget && "text-fg-subtle")}>
+              {tb.hasBudget ? balance(v.left) : "₱—"}
+            </div>
+          </>
+        ) : (
+          <>
+            <Eyebrow>BUDGET · {month}</Eyebrow>
+            <div className={cn("tnum mt-2 text-[22px] leading-tight font-semibold tracking-[-0.02em]", v.left < 0 && "text-danger", !hasBudget && "text-fg-subtle")}>
+              {hasBudget ? `Ended ${peso(Math.abs(v.left))} ${v.left < 0 ? "over" : "under"} budget` : "No budget set"}
+            </div>
+          </>
+        )}
+        <p className="tnum mt-2 text-[13px] text-fg-muted">
+          Total balance <span className={cn("font-semibold", worth < 0 ? "text-danger" : "text-fg")}>{balance(worth)}</span>
+        </p>
+        {current ? (
+          <button
+            type="button"
+            onClick={() => tb.hasBudget && setMathOpen(true)}
+            aria-label={tb.hasBudget ? `${balance(tb.left)} ${tb.left < 0 ? "over today" : "left today"}. Show the math` : "No budget yet"}
+            className="mt-3 flex min-h-11 flex-wrap items-baseline gap-x-2 text-left active:opacity-60"
+          >
+            <span className={cn("tnum text-[18px] font-semibold tracking-[-0.01em]", !tb.hasBudget ? "text-fg-subtle" : tb.left < 0 ? "text-danger" : "text-fg")}>{tb.hasBudget ? balance(tb.left) : "₱—"}</span>
+            <span className="text-[14px] text-fg-subtle">{!tb.hasBudget ? "no budget yet" : tb.left < 0 ? "over today" : "left today"}</span>
+            {tb.hasBudget ? <span className="text-[13px] text-fg-muted underline underline-offset-4">Show the math</span> : null}
+          </button>
+        ) : null}
+      </section>
+      <Plan at={at} />
+      {current ? <MathSheet open={mathOpen} onOpenChange={setMathOpen} v={v} month={inRange(state.entries, mf, mt)} today={now} /> : null}
+    </>
+  );
+}
+
 export function Analytics({ path }: { path: string }) {
   const { state } = useLedger();
   const { openAdd } = useChrome();
@@ -720,7 +816,7 @@ export function Analytics({ path }: { path: string }) {
   if (all.length === 0) {
     return (
       <Screen tabbed>
-        <PageTitle>Analytics</PageTitle>
+        <PageTitle right={<ProfileButton />}>Analytics</PageTitle>
         <div className="flex flex-col items-center px-8 pt-16 text-center">
           <h2 className="text-[19px] leading-[1.25] font-semibold tracking-[-0.01em] text-balance">Nothing to analyse yet</h2>
           <p className="mt-2.5 max-w-[280px] text-[14px] leading-[1.5] text-fg-muted">Log what you spend and earn. “grab gcash 248” is enough. Your weeks, months and years show here.</p>
@@ -745,7 +841,7 @@ export function Analytics({ path }: { path: string }) {
   const btn = "flex size-11 items-center justify-center rounded-md active:opacity-60 disabled:opacity-25";
   return (
     <Screen tabbed>
-      <PageTitle>Analytics</PageTitle>
+      <PageTitle right={<ProfileButton />}>Analytics</PageTitle>
       <div className="px-6 pt-4">
         <Segmented value={KIND_LABEL[kind]} options={["Week", "Month", "Year"]} onChange={(v) => pick(v.toLowerCase() as PeriodKind)} />
       </div>
@@ -770,6 +866,13 @@ export function Analytics({ path }: { path: string }) {
         <HeadlineGrid h={h} />
         <SourceLink bare count={list.filter((e) => isSpend(e) || isIncome(e)).length} to={entriesHref(all, list.filter((e) => isSpend(e) || isIncome(e)), `Income and spending · ${label}`)} />
       </section>
+
+      {kind === "month" ? (
+        <>
+          <ReviewRow />
+          <BudgetGoals at={current ? now : lastDay(to)} current={current} now={now} />
+        </>
+      ) : null}
 
       <TrendChart key={`${kind}${from.getTime()}`} kind={kind} steps={steps} label={label} />
 

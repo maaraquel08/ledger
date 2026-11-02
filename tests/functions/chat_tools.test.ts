@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
-import { fallbackAnswer } from "../../supabase/functions/_shared/answer";
-import { CHAT_TOOLS, type LedgerReader, runTool } from "../../supabase/functions/_shared/chat_tools";
+import { buildAnswer, fallbackAnswer } from "../../supabase/functions/_shared/answer";
+import { buildSnapshot, CHAT_TOOLS, type LedgerReader, persistChat, runTool, threadTitle } from "../../supabase/functions/_shared/chat_tools";
 import { FactRegistry } from "../../supabase/functions/_shared/facts";
 import { toOpenAiTools } from "../../supabase/functions/_shared/openai_compat";
 import { CHAT_SYSTEM } from "../../supabase/functions/_shared/prompts";
@@ -106,5 +106,120 @@ describe("budget_status", () => {
 describe("fallback flag", () => {
   test("the server's template answer says it is one", () => {
     expect(fallbackAnswer(new FactRegistry(), { year: 2026 }).fallback).toBe(true);
+  });
+});
+
+describe("ledger snapshot", () => {
+  const snapReader = (over: Partial<Record<string, unknown>> = {}, fail: string[] = []): LedgerReader => ({
+    async rpc(name) {
+      if (fail.includes(name)) throw new Error(`${name} down`);
+      if (name in over) return over[name];
+      if (name === "period_bounds") return { start: "2026-11-01T00:00:00+08:00", end: "2026-12-01T00:00:00+08:00" };
+      if (name === "metrics_period") return { income: { value: 50000, entry_ids: ["i1"] }, spend: { value: 12000, entry_ids: ["s1"] }, net: { value: 38000, entry_ids: [] } };
+      if (name === "today_budget") return { has_budget: true, budget: 30000, timezone: "Asia/Manila", left: { value: 900, entry_ids: [] }, allowance: { value: 1000, entry_ids: [] }, days_left: 27 };
+      if (name === "goal_progress") return [{ goal_id: "g", name: "Trip", saved: 2000, target: 10000, remaining: 8000, pct: 20, by_month: null }];
+      return null;
+    },
+    async accounts() {
+      return { balances: [{ account_id: "a", name: "Bank", type: "bank", balance: 15000, user_id: "u" }], netWorth: null, reconciliation: [] };
+    },
+  });
+
+  test("registers every number as a fact the model can cite, with amounts and names", async () => {
+    const reg = new FactRegistry("Asia/Manila");
+    const out = await buildSnapshot(snapReader(), reg, "Asia/Manila", NOW);
+    const shown = reg.all().map((f) => reg.display(f.id));
+    expect(shown).toEqual(expect.arrayContaining(["₱50,000", "₱12,000", "₱900", "₱1,000", "₱15,000", "₱2,000", "₱10,000"]));
+    expect(out).toMatch(/Bank/);
+    expect(out).toMatch(/Trip/);
+    expect(out).not.toMatch(/user_id|timezone/);
+    // a prose number that is not one of those facts is still rejected
+    const f = reg.all().find((x) => reg.display(x.id) === "₱900")!;
+    expect(buildAnswer({ text: `You can spend {{${f.id}}} today.`, marks: [], matched_label: "x", matched_fact: null, bars: null, compare: null, ask: null, offer: null, source_facts: [f.id], followups: [] } as never, reg, { year: 2026 }).violations).toEqual([]);
+  });
+
+  test("caps accounts and goals", async () => {
+    const reg = new FactRegistry("Asia/Manila");
+    const many = Array.from({ length: 30 }, (_, i) => ({ name: `G${i}`, saved: 1, target: 2, by_month: null }));
+    const out = await buildSnapshot(snapReader({ goal_progress: many }), reg, "Asia/Manila", NOW);
+    expect(out).toMatch(/G11"/);
+    expect(out).not.toMatch(/G12"/);
+  });
+
+  test("a part that fails is left out; all failing gives an empty snapshot", async () => {
+    const reg = new FactRegistry("Asia/Manila");
+    const out = await buildSnapshot(snapReader({}, ["goal_progress"]), reg, "Asia/Manila", NOW);
+    expect(out).toMatch(/Bank/);
+    expect(out).not.toMatch(/Trip/);
+    const none: LedgerReader = { rpc: async () => { throw new Error("down"); }, accounts: async () => { throw new Error("down"); } };
+    expect(await buildSnapshot(none, new FactRegistry("Asia/Manila"), "Asia/Manila", NOW)).toBe("");
+  });
+
+  test("no budget set is said plainly, without facts", async () => {
+    const out = await buildSnapshot(snapReader({ today_budget: { has_budget: false } }), new FactRegistry(), "Asia/Manila", NOW);
+    expect(out).toMatch(/"has_budget":false/);
+  });
+
+  test("the prompt tells the model about the snapshot", () => {
+    expect(CHAT_SYSTEM).toMatch(/ledger snapshot/);
+  });
+});
+
+describe("thread persistence", () => {
+  test("titles: the first question, trimmed; over 60 characters is cut with an ellipsis", () => {
+    expect(threadTitle("  How much did I spend\n on food? ")).toBe("How much did I spend on food?");
+    const long = threadTitle("x".repeat(100));
+    expect(long.length).toBe(60);
+    expect(long.endsWith("…")).toBe(true);
+    expect(threadTitle("y".repeat(60))).toBe("y".repeat(60));
+  });
+
+  /** a supabase-js-shaped fake that records writes */
+  function fakeDb(opts: { existing?: string; failOn?: string } = {}) {
+    const writes: { table: string; op: string; row?: any }[] = [];
+    const db = {
+      from(table: string) {
+        const fail = opts.failOn === table;
+        const res = (data: unknown) => ({ data: fail ? null : data, error: fail ? { message: `${table} failed` } : null });
+        const q: any = {
+          select: () => q,
+          eq: () => q,
+          maybeSingle: async () => res(opts.existing ? { id: opts.existing } : null),
+          insert: (row: unknown) => { writes.push({ table, op: "insert", row }); return { select: () => ({ single: async () => res({ id: "new-thread" }) }), then: (ok: any) => ok(res(null)) }; },
+          update: (row: unknown) => { writes.push({ table, op: "update", row }); return { eq: async () => res(null) }; },
+        };
+        return q;
+      },
+    };
+    return { db: db as never, writes };
+  }
+  const ANSWER = { text: "You spent ₱12,000.", read: 1 };
+
+  test("a missing thread_id creates a thread titled by the question, then saves both turns", async () => {
+    const { db, writes } = fakeDb();
+    expect(await persistChat(db, undefined, "How much on food?", ANSWER)).toBe("new-thread");
+    expect(writes[0]).toMatchObject({ table: "chat_threads", op: "insert", row: { title: "How much on food?" } });
+    const msgs = writes.find((w) => w.table === "chat_messages")!.row;
+    expect(msgs.map((m: any) => [m.thread_id, m.role, m.text])).toEqual([["new-thread", "user", "How much on food?"], ["new-thread", "assistant", "You spent ₱12,000."]]);
+    expect(msgs[1].answer).toEqual(ANSWER);
+    expect(writes.at(-1)).toMatchObject({ table: "chat_threads", op: "update" });
+  });
+
+  test("a known thread_id is reused (no new thread); an unknown one starts a new thread", async () => {
+    const tid = "0b8f6c1e-3d2a-4f5b-9c7d-1a2b3c4d5e6f";
+    const known = fakeDb({ existing: tid });
+    expect(await persistChat(known.db, tid, "q", ANSWER)).toBe(tid);
+    expect(known.writes.some((w) => w.table === "chat_threads" && w.op === "insert")).toBe(false);
+    const unknown = fakeDb();
+    expect(await persistChat(unknown.db, tid, "q", ANSWER)).toBe("new-thread");
+    expect(await persistChat(fakeDb().db, "not-a-uuid", "q", ANSWER)).toBe("new-thread");
+  });
+
+  test("a failing save does not throw and returns null", async () => {
+    for (const failOn of ["chat_threads", "chat_messages"]) {
+      const { db } = fakeDb({ failOn });
+      const r = await persistChat(db, undefined, "q", ANSWER);
+      expect(r).toBeNull();
+    }
   });
 });

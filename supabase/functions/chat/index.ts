@@ -1,9 +1,10 @@
 // POST /chat — M8 answers a question with read-only tools over the ledger.
-// Request {messages: {role, text}[], tz} → the client's `Answer` (src/screens/chat.tsx).
+// Request {messages: {role, text}[], tz, thread_id?} → the client's `Answer` plus `thread_id` (src/screens/chat.tsx).
+// The exchange is saved to chat_threads / chat_messages; a failed save never fails the answer.
 // Every number in the answer is a fact rendered by the server; prose with a digit that did not
 // come from a fact is re-asked once, then replaced by a deterministic template.
 import { type Answer, buildAnswer, fallbackAnswer, type ModelAnswer } from "../_shared/answer.ts";
-import { CHAT_TOOLS, chatTurns, type LedgerReader, runTool } from "../_shared/chat_tools.ts";
+import { buildSnapshot, CHAT_TOOLS, chatTurns, type LedgerReader, persistChat, runTool } from "../_shared/chat_tools.ts";
 import { AiError, aiClient, aiFailure, call, type MessageParam, MODEL, parseJson, system, type ToolParam } from "../_shared/claude.ts";
 import { type Db, rpc, userClient, userId } from "../_shared/clients.ts";
 import { FactRegistry, userNumbers } from "../_shared/facts.ts";
@@ -16,6 +17,8 @@ interface ChatBody {
   /** {role, text}; `content` (string) is accepted too, see chatTurns */
   messages: unknown;
   tz: string;
+  /** an existing thread of the caller; missing or unknown starts a new one */
+  thread_id?: unknown;
 }
 
 /** Server-side daily cap on questions (D-0016: a cost guard, not UI scarcity). */
@@ -54,12 +57,13 @@ Deno.serve(async (req) => {
   while (turns.length && turns[0].role !== "user") turns.shift();
   const messages: MessageParam[] = turns.slice(0, -1).map((t) => ({ role: t.role, content: t.text.slice(0, MAX_TEXT) }));
   const askedNote = asked.length ? `\nnumbers in this question: ${asked.map((id) => `${id} = ${reg.display(id)}`).join(", ")}` : "";
+  const reader = ledgerReader(db);
+  const snapshot = await buildSnapshot(reader, reg, tz, now).catch(() => "");
   messages.push({
     role: "user",
-    content: `<context>\nnow: ${localIso(now, tz)}\ntimezone: ${tz}${askedNote}\n</context>\n${question}`,
+    content: `<context>\nnow: ${localIso(now, tz)}\ntimezone: ${tz}${askedNote}${snapshot ? `\n${snapshot}` : ""}\n</context>\n${question}`,
   });
 
-  const reader = ledgerReader(db);
   const tools = CHAT_TOOLS as unknown as ToolParam[];
   try {
     let model = await converse(messages, { db: reader, reg, tz, now, tools });
@@ -75,10 +79,13 @@ Deno.serve(async (req) => {
     }
     const answer: Answer = built.violations.length ? fallbackAnswer(reg, { year }) : built.answer;
     if (built.violations.length) console.warn("chat: fell back to the template", built.violations);
-    return json(answer);
+    return json({ ...answer, thread_id: await persistChat(db, b!.thread_id, question, answer) });
   } catch (e) {
     console.error("chat failed", e);
-    if (e instanceof AiError && e.code !== "refused") return json(fallbackAnswer(reg, { year }));
+    if (e instanceof AiError && e.code !== "refused") {
+      const answer = fallbackAnswer(reg, { year });
+      return json({ ...answer, thread_id: await persistChat(db, b!.thread_id, question, answer) });
+    }
     const f = aiFailure(e);
     return error(f.status, f.code);
   }

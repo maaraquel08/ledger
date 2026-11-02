@@ -478,3 +478,23 @@ the metric RPCs with `p_user`.
 - **001500** `private.allowed_emails(email)` + trigger `ledger_signup_allowlist` (before insert or
   update of email on `auth.users`): any other email fails with `42501 sign-ups are closed`.
   Seeded with the Owner. See `README.md` §3.
+
+## Home chat history (migration 20261103000100)
+
+- `chat_threads (id, user_id, title, created_at, updated_at)`, index `(user_id, updated_at desc)`;
+  `chat_messages (id, thread_id → chat_threads on delete cascade, user_id, role 'user'|'assistant',
+  text, answer jsonb null, created_at)`, index `(thread_id, created_at)`. RLS `owner_all`
+  (`user_id = auth.uid()`; a message must also sit in one of the caller's threads). `updated_at`
+  is touched on update. The client lists/deletes/renames threads directly with supabase-js; sort
+  messages by `created_at`. `answer` holds the assistant turn's full `Answer` JSON.
+- `erase_my_data()` now also deletes `chat_messages` and `chat_threads` (counts appear in `deleted`).
+  Any client-side "export my data" table list must add both tables.
+- `POST /functions/v1/chat` body `{messages, tz, thread_id?}`; response is the `Answer` plus
+  `thread_id` (uuid, or null when saving failed: the answer is still returned). A missing,
+  malformed or unknown `thread_id` starts a new thread titled by the question (≤ 60 chars, "…"
+  when cut). The function saves the user turn, the assistant turn (also for the fallback answer)
+  and bumps `updated_at`. Save failures are logged, never surfaced. Other threads are not sent
+  to the model; it still gets the last 12 turns of `messages`.
+- Every request's `<context>` carries a ledger snapshot (month income/spend so far, `today_budget`
+  left/allowance, non-archived account balances, goals; lists capped at 12), registered as facts
+  so the model cites `{{fN}}`. A part that fails to load is omitted.

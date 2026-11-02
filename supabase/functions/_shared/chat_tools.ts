@@ -1,6 +1,7 @@
 // M8's read-only chat tools, mapped to the metric RPCs and views (supabase/CONTRACT.md).
 // Pure module: the database is injected, so the mapping is unit-testable. Every number a tool
 // returns is registered as a fact (facts.ts) before Claude sees it.
+import type { Db } from "./clients.ts";
 import { factify, type FactRegistry } from "./facts.ts";
 import { localParts, tzOffsetMs } from "./time.ts";
 
@@ -259,4 +260,93 @@ export function chatTurns(messages: unknown, max: number): ChatTurn[] {
     if (t.trim()) out.push({ role, text: t });
   }
   return out.slice(-max);
+}
+
+/** Rows kept per list in the snapshot: it rides on every request, so it stays small. */
+export const SNAPSHOT_CAP = 12;
+
+/**
+ * The always-on "ledger snapshot" for the <context> block: this month so far, what is left to
+ * spend, account balances and goals. Every number is registered as a fact (same path as the
+ * tools), so the model cites {{fN}} and the answer validator accepts it. Each part fails alone:
+ * a part that cannot be read is left out, and a fully failed snapshot is "" (the chat proceeds
+ * without it).
+ */
+export async function buildSnapshot(db: LedgerReader, reg: FactRegistry, tz: string, now: Date): Promise<string> {
+  const parts: Record<string, unknown> = {};
+  const part = async (key: string, f: () => Promise<unknown>) => {
+    try {
+      const v = await f();
+      if (v != null) parts[key] = v;
+    } catch (e) {
+      console.warn(`chat: snapshot ${key} unavailable`, (e as Error).message);
+    }
+  };
+  await Promise.all([
+    part("this_month", async () => {
+      const pb = (await db.rpc("period_bounds", { p_period: "month", p_anchor: now.toISOString() })) as PB;
+      const m = (await db.rpc("metrics_period", { p_start: pb.start, p_end: pb.end })) as Record<string, unknown>;
+      return factify({ income: m.income, spend: m.spend }, reg, { label: "this month so far" });
+    }),
+    part("budget", async () => {
+      const tb = (await db.rpc("today_budget", { p_now: now.toISOString() })) as { has_budget?: boolean };
+      return tb?.has_budget
+        ? factify(tb, reg, { label: "today's budget", drop: ["timezone", "tomorrow", "tomorrow_date", "spent_before", "full_budget", "prorated_from"] })
+        : { has_budget: false };
+    }),
+    part("accounts", async () => {
+      const a = await db.accounts();
+      return factify(a.balances.slice(0, SNAPSHOT_CAP).map((r) => ({ name: r.name, type: r.type, balance: r.balance })), reg, { label: "balance" });
+    }),
+    part("goals", async () => {
+      const g = (await db.rpc("goal_progress", {})) as Record<string, unknown>[];
+      const rows = (Array.isArray(g) ? g : []).slice(0, SNAPSHOT_CAP).map((r) => ({ name: r.name, saved: r.saved, target: r.target, by_month: r.by_month }));
+      return factify(rows, reg, { label: "goal" });
+    }),
+  ]);
+  if (!Object.keys(parts).length) return "";
+  // fixed key order, whatever order the fetches finished in
+  const ordered = Object.fromEntries(["this_month", "budget", "accounts", "goals"].filter((k) => k in parts).map((k) => [k, parts[k]]));
+  return `ledger snapshot (${tz}; facts, cite as {{fN}}):\n${JSON.stringify(ordered)}`;
+}
+
+/** Thread title: the first question, trimmed, at most 60 characters ("…" marks a cut). */
+export function threadTitle(question: string): string {
+  const t = question.replace(/\s+/g, " ").trim();
+  return t.length > 60 ? `${t.slice(0, 59).trimEnd()}…` : t || "New chat";
+}
+
+/**
+ * Save the exchange: find the caller's thread (RLS scopes the lookup) or create one titled by
+ * the first question, then append the user turn and the assistant turn and bump updated_at.
+ * Never throws: history is secondary to the answer. Returns the thread id, or null when even the
+ * thread could not be made (a missing id then tells the client nothing was saved).
+ */
+export async function persistChat(db: Db, threadId: unknown, question: string, answer: { text: string }): Promise<string | null> {
+  try {
+    let id: string | null = null;
+    if (typeof threadId === "string" && /^[0-9a-f-]{36}$/i.test(threadId)) {
+      const { data, error } = await db.from("chat_threads").select("id").eq("id", threadId).maybeSingle();
+      if (error) throw new Error(error.message);
+      id = (data as { id: string } | null)?.id ?? null;
+    }
+    if (!id) {
+      const { data, error } = await db.from("chat_threads").insert({ title: threadTitle(question) }).select("id").single();
+      if (error) throw new Error(error.message);
+      id = (data as { id: string }).id;
+    }
+    // created_at is set apart so the user turn sorts before the answer
+    const at = Date.now();
+    const { error } = await db.from("chat_messages").insert([
+      { thread_id: id, role: "user", text: question, created_at: new Date(at).toISOString() },
+      { thread_id: id, role: "assistant", text: answer.text, answer, created_at: new Date(at + 1).toISOString() },
+    ]);
+    if (error) throw new Error(error.message);
+    const up = await db.from("chat_threads").update({ updated_at: new Date().toISOString() }).eq("id", id);
+    if (up.error) throw new Error(up.error.message);
+    return id;
+  } catch (e) {
+    console.error("chat: could not save the thread", (e as Error).message);
+    return null;
+  }
 }

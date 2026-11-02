@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { backTarget, depthOf, parentOf } from "../../src/lib/router";
-import { clearChatHistory, chatKey } from "../../src/lib/chat-history";
+import { clearChatHistory, chatKey, localThreads, threadTitle } from "../../src/lib/chat-history";
 import { ledgerStart, monthBudget, priorPeriod, verdict, weekBounds } from "../../src/lib/selectors";
 import { todayBudget } from "../../src/lib/today";
 import { EMPTY_STATE } from "../../src/lib/seed";
@@ -131,6 +131,27 @@ test("chat history is keyed per user and cleared on erase / switch", () => {
   clearChatHistory(undefined, st); // sign-out / erase
   expect(st.getItem(chatKey("u2"))).toBeNull();
   expect(st.getItem("ledger:today-period")).toBe("Week");
+});
+
+test("conversation history: newest first, reopen, delete, cleared on erase", () => {
+  const st = new MemoryStorage();
+  localThreads.save({ id: "t1", title: "Food in August?", msgs: [1] }, null, st, new Date(2026, 10, 1));
+  localThreads.save({ id: "t2", title: "Biggest expense?", msgs: [2] }, null, st, new Date(2026, 10, 2));
+  localThreads.save({ id: "t1", title: "Food in August?", msgs: [1, 3] }, null, st, new Date(2026, 10, 3));
+  expect(localThreads.list(null, st).map((t) => t.id)).toEqual(["t1", "t2"]);
+  expect(localThreads.load("t1", null, st)).toEqual([1, 3]);
+  localThreads.remove("t2", null, st);
+  expect(localThreads.list(null, st).map((t) => t.id)).toEqual(["t1"]);
+  clearChatHistory(undefined, new MemoryStorage(), st); // sign-out / erase
+  expect(localThreads.list(null, st)).toEqual([]);
+});
+
+test("a conversation is titled by its first question, cut on a word", () => {
+  expect(threadTitle("  how much   on food? ")).toBe("how much on food?");
+  const long = "what was my biggest expense last month and how does it compare with the month before";
+  const t = threadTitle(long);
+  expect(t.length).toBeLessThanOrEqual(60);
+  expect(t.endsWith("…")).toBe(true);
 });
 
 /* ---------- #12 / #20 local chat intents --------------------------------- */

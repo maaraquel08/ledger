@@ -50,10 +50,11 @@ const num = (s: string) => {
 
 const BUDGET_CATS: Category[] = ["Food & drink", "Groceries", "Transport", "Shopping", "Rent & bills", "Subscriptions", "Gifts", "Health", "Other"];
 
-export function Plan() {
+/** `at`: any day of the month to show (default today); a past month reads as it ended. */
+export function Plan({ at }: { at?: Date } = {}) {
   const { state, dispatch } = useLedger();
   const { profile } = state;
-  const now = new Date();
+  const now = at ?? new Date();
   const v = verdict(state, now);
   const [from, to] = monthBounds(now);
   const spentBy = new Map(byCategory(inRange(state.entries, from, to)));

@@ -284,6 +284,8 @@ const EXPORT_TABLES = [
   "push_subscriptions",
   "notification_log",
   "entry_events",
+  "chat_threads",
+  "chat_messages",
 ];
 
 /** Every row the Owner can read, table by table (RLS scopes it to them). */
@@ -325,4 +327,20 @@ export async function loadGaps(): Promise<Gap[]> {
 export async function importState(state: LedgerState) {
   const slim = { ...state, entries: state.entries.map((e) => (e.receipt?.image ? { ...e, receipt: { ...e.receipt, image: undefined } } : e)) };
   return check(await sb().rpc("import_state", { p_state: slim })) as Row;
+}
+
+/* ---------- M8 conversations (chat_threads / chat_messages; the chat function writes them) --- */
+
+export async function listThreads(): Promise<{ id: string; title: string; updatedAt: string }[]> {
+  const rows = check(await sb().from("chat_threads").select("id,title,updated_at").order("updated_at", { ascending: false }).limit(100)) as Row[];
+  return rows.map((r) => ({ id: String(r.id), title: String(r.title), updatedAt: String(r.updated_at) }));
+}
+
+export async function loadThread(id: string): Promise<{ role: "user" | "assistant"; text: string; answer: unknown; createdAt: string }[]> {
+  const rows = check(await sb().from("chat_messages").select("role,text,answer,created_at").eq("thread_id", id).order("created_at")) as Row[];
+  return rows.map((r) => ({ role: r.role === "user" ? "user" : "assistant", text: String(r.text ?? ""), answer: r.answer ?? null, createdAt: String(r.created_at) }));
+}
+
+export async function deleteThread(id: string) {
+  check(await sb().from("chat_threads").delete().eq("id", id));
 }

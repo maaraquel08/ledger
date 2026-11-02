@@ -108,6 +108,36 @@ export const CalendarIcon = ({ size = 18, ...p }: P) => (
   </svg>
 );
 
+/** History: a clock with a back-arrow tail. */
+export const HistoryIcon = ({ size = 20, ...p }: P) => (
+  <svg {...stroke(size, p)}>
+    <path d="M3.5 12a8.5 8.5 0 1 0 2.5-6" />
+    <path d="M3.5 4.5V8H7" />
+    <path d="M12 7.5V12l3 2" />
+  </svg>
+);
+
+/** New conversation: a pencil on a page. */
+export const ComposeIcon = ({ size = 20, ...p }: P) => (
+  <svg {...stroke(size, p)}>
+    <path d="M11 4.5H6.5a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V13" />
+    <path d="M17.5 3.5a1.8 1.8 0 0 1 2.5 2.5L12.5 13.5 9.5 14.5l1-3z" />
+  </svg>
+);
+
+/** The Chat tab: a speech bubble. */
+export const ChatIcon = ({ size = 22, filled, ...p }: P & { filled?: boolean }) => (
+  <svg {...stroke(size, p)}>
+    <path d="M5 18.5V6.5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H8.5z" fill={filled ? "currentColor" : "none"} />
+  </svg>
+);
+
+export const TrashIcon = ({ size = 18, ...p }: P) => (
+  <svg {...stroke(size, p)}>
+    <path d="M4.5 7h15M9.5 7V4.5h5V7M6.5 7l1 12.5h9l1-12.5" />
+  </svg>
+);
+
 export const CloseIcon = ({ size = 14, ...p }: P) => (
   <svg {...stroke(size, p)} strokeWidth={1.8}>
     <path d="M6 6l12 12M18 6 6 18" />
