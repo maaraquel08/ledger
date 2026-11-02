@@ -101,6 +101,13 @@ export const ChevronDown = ({ size = 18, ...p }: P) => (
   </svg>
 );
 
+export const CalendarIcon = ({ size = 18, ...p }: P) => (
+  <svg {...stroke(size, p)}>
+    <rect x="4" y="5.5" width="16" height="14.5" rx="2.5" />
+    <path d="M4 10h16M8.5 3.5v4M15.5 3.5v4" />
+  </svg>
+);
+
 export const CloseIcon = ({ size = 14, ...p }: P) => (
   <svg {...stroke(size, p)} strokeWidth={1.8}>
     <path d="M6 6l12 12M18 6 6 18" />

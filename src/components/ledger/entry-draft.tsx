@@ -1,10 +1,11 @@
 import * as React from "react";
+import { Popover } from "@base-ui/react/popover";
 import { Select } from "@base-ui/react/select";
 import { cn } from "@/lib/cn";
-import { balance } from "@/lib/format";
+import { addDays, balance, dayName, monthName, monthShort } from "@/lib/format";
 import { accountLabel } from "@/lib/selectors";
 import type { Account } from "@/lib/types";
-import { CheckIcon, ChevronDown } from "./icons";
+import { CalendarIcon, CheckIcon, ChevronDown, ChevronLeft, ChevronRight } from "./icons";
 import { CategoryChip, ProviderMark } from "./primitives";
 
 /**
@@ -298,13 +299,111 @@ export const accountOption = (a: Account): PickOption => ({
   lead: <ProviderMark provider={a.provider} size={26} radius={7} />,
 });
 
-/** The native date picker; no later than today. */
+const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const atNoon = (day: string) => new Date(`${day}T12:00:00`);
+const WEEKDAYS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
+
+/** "Today · Tue 3 Nov", "Yesterday · Mon 2 Nov", "Fri 16 Oct 2025" */
+function dayText(day: string, max: string) {
+  const d = atNoon(day);
+  const short = `${dayName(d).slice(0, 3)} ${d.getDate()} ${monthShort(d)}`;
+  if (day === max) return `Today · ${short}`;
+  if (day === ymd(addDays(atNoon(max), -1))) return `Yesterday · ${short}`;
+  return d.getFullYear() === atNoon(max).getFullYear() ? short : `${short} ${d.getFullYear()}`;
+}
+
+/** A calendar popover: Today and Yesterday one tap away, any earlier day on a Monday-first month grid. */
 export function DateField({ value, max, onChange }: { value: string; max: string; onChange: (d: string) => void }) {
+  const [open, setOpen] = React.useState(false);
+  // the month on show; follows the value each time the popover opens
+  const [view, setView] = React.useState(() => atNoon(value));
+  const first = new Date(view.getFullYear(), view.getMonth(), 1);
+  const lead = (first.getDay() + 6) % 7;
+  const days = new Date(view.getFullYear(), view.getMonth() + 1, 0).getDate();
+  const cells: (string | null)[] = [...Array<null>(lead).fill(null), ...Array.from({ length: days }, (_, i) => ymd(new Date(view.getFullYear(), view.getMonth(), i + 1)))];
+  const atMax = view.getFullYear() === atNoon(max).getFullYear() && view.getMonth() === atNoon(max).getMonth();
+  const pick = (d: string) => {
+    onChange(d);
+    setOpen(false);
+  };
+  const shift = (n: number) => setView(new Date(view.getFullYear(), view.getMonth() + n, 1));
+  const quick = (label: string, d: string) => (
+    <button
+      type="button"
+      onClick={() => pick(d)}
+      className={cn("h-9 flex-1 rounded-md border text-[13px] font-medium", value === d ? "border-accent bg-accent text-accent-fg" : "border-line-strong active:bg-surface")}
+    >
+      {label}
+    </button>
+  );
   return (
-    <label className="block">
+    <div>
       <FieldLabel>Date</FieldLabel>
-      <input type="date" value={value} max={max} onChange={(e) => e.target.value && onChange(e.target.value)} className={fieldClass} />
-    </label>
+      <Popover.Root
+        open={open}
+        onOpenChange={(o) => {
+          if (o) setView(atNoon(value));
+          setOpen(o);
+        }}
+      >
+        <Popover.Trigger aria-label={`Date: ${dayText(value, max)}`} className={cn(fieldClass, "flex items-center gap-2.5 text-left data-popup-open:border-accent")}>
+          <CalendarIcon size={18} className="flex-none text-fg-subtle" />
+          <span className="min-w-0 flex-1 truncate">{dayText(value, max)}</span>
+          <ChevronDown size={16} className="flex-none text-fg-subtle" />
+        </Popover.Trigger>
+        <Popover.Portal>
+          <Popover.Positioner className="z-50 outline-none" sideOffset={6}>
+            <Popover.Popup className="w-[var(--anchor-width)] max-w-[340px] origin-[var(--transform-origin)] rounded-lg border border-line bg-bg p-3 shadow-[var(--brand-shadow-overlay)] outline-none transition-[scale,opacity] duration-fast ease-out data-ending-style:scale-[0.98] data-ending-style:opacity-0 data-starting-style:scale-[0.98] data-starting-style:opacity-0">
+              <div className="flex gap-2">
+                {quick("Today", max)}
+                {quick("Yesterday", ymd(addDays(atNoon(max), -1)))}
+              </div>
+              <div className="mt-3 flex items-center justify-between">
+                <button type="button" aria-label="Previous month" onClick={() => shift(-1)} className="flex size-9 items-center justify-center rounded-md active:bg-surface">
+                  <ChevronLeft size={16} />
+                </button>
+                <span aria-live="polite" className="text-[14px] font-semibold">
+                  {monthName(view)} {view.getFullYear()}
+                </span>
+                <button type="button" aria-label="Next month" disabled={atMax} onClick={() => shift(1)} className="flex size-9 items-center justify-center rounded-md active:bg-surface disabled:opacity-30">
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+              <div className="mt-1 grid grid-cols-7 text-center font-mono text-[10px] tracking-[0.06em] text-fg-subtle uppercase" aria-hidden>
+                {WEEKDAYS.map((w) => (
+                  <span key={w} className="py-1.5">
+                    {w}
+                  </span>
+                ))}
+              </div>
+              <div className="grid grid-cols-7 gap-y-0.5">
+                {cells.map((d, i) =>
+                  d ? (
+                    <button
+                      key={d}
+                      type="button"
+                      disabled={d > max}
+                      aria-pressed={d === value}
+                      aria-label={dayText(d, max)}
+                      onClick={() => pick(d)}
+                      className={cn(
+                        "tnum mx-auto flex size-10 items-center justify-center rounded-full text-[14px] disabled:text-mute",
+                        d === value ? "bg-accent font-semibold text-accent-fg" : "active:bg-surface",
+                        d === max && d !== value && "font-semibold underline underline-offset-4",
+                      )}
+                    >
+                      {Number(d.slice(8))}
+                    </button>
+                  ) : (
+                    <span key={`b${i}`} />
+                  ),
+                )}
+              </div>
+            </Popover.Popup>
+          </Popover.Positioner>
+        </Popover.Portal>
+      </Popover.Root>
+    </div>
   );
 }
 
