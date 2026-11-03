@@ -6,7 +6,7 @@ import type { Entry, LedgerState } from "../../src/lib/types";
 const at = (y: number, m: number, d: number) => new Date(y, m, d, 12).toISOString();
 let n = 0;
 const e = (category: Entry["category"], amount: number, date: string, extra: Partial<Entry> = {}): Entry => ({ id: `m${++n}`, desc: "x", accountId: "bpi", category, amount, date, ...extra });
-const st = (entries: Entry[]) => ({ entries }) as LedgerState;
+const st = (entries: Entry[]) => ({ entries, profile: { categoryBudgets: {} } }) as unknown as LedgerState;
 
 const NOW = new Date(2026, 9, 29, 15);
 const OCT = new Date(2026, 9, 1);

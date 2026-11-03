@@ -7,8 +7,8 @@ import { categoryColors } from "@/lib/chart-colors";
 import type { Entry, LedgerState } from "@/lib/types";
 
 /** Same colour every chart uses for a category; use it for list-row dots. */
-export function useCategoryColor(state: Pick<LedgerState, "entries">) {
-  return React.useMemo(() => categoryColors(state), [state.entries]); // eslint-disable-line react-hooks/exhaustive-deps
+export function useCategoryColor(state: Pick<LedgerState, "entries" | "profile">) {
+  return React.useMemo(() => categoryColors(state), [state.entries, state.profile]); // eslint-disable-line react-hooks/exhaustive-deps
 }
 
 const SIZE = 180;

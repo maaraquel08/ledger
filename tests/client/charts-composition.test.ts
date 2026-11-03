@@ -10,7 +10,7 @@ const e = (category: Entry["category"], amount: number, extra: Partial<Entry> = 
 });
 const acc = (id: string, type: Account["type"]): Account => ({ id, name: id, provider: "other" as never, providerLabel: id, type, kind: "", balance: 0 });
 const accounts = [acc("bpi", "bank"), acc("bro", "investments")];
-const st = (entries: Entry[]) => ({ entries, accounts });
+const st = (entries: Entry[]) => ({ entries, accounts, profile: { categoryBudgets: {} } as LedgerState["profile"] });
 
 // global ledger: 7 categories with spend; the 7th (smallest) has no slot
 const big = [

@@ -2,8 +2,9 @@ import * as React from "react";
 import { AmountInput, amountDigits, PickField } from "@/components/ledger/entry-draft";
 import { ChevronLeft, ChevronRight } from "@/components/ledger/icons";
 import { ActionButton, Cta, EntryRow, Eyebrow, PageTitle, Screen, Segmented, Sheet, StatGrid } from "@/components/ledger/primitives";
-import { allocation, budgetRows, categoryBudgetPatch, categoryHistory, lastDayOf, monthPace, parsePct, receivedBy, startOfMonth, type BudgetRow, type BudgetSetting } from "@/lib/budget";
+import { allocation, budgetRows, categoryBudgetPatch, planParts, type PlanPart, categoryHistory, lastDayOf, monthPace, parsePct, receivedBy, startOfMonth, type BudgetRow, type BudgetSetting } from "@/lib/budget";
 import { categoryNameError, incomeCategories, spendCategories, SYSTEM_CATEGORIES, userCategories } from "@/lib/categories";
+import { categoryColors } from "@/lib/chart-colors";
 import { cn } from "@/lib/cn";
 import { balance, monthName, peso } from "@/lib/format";
 import { navigate, query } from "@/lib/router";
@@ -59,6 +60,11 @@ export function Budget({ path }: { path: string }) {
   const incomeCats = incomeCategories(state);
   const rows = budgetRows(state, spendCats, at, now);
   const alloc = allocation(state, spendCats);
+  const plan = planParts(state, spendCats);
+  const color = categoryColors(state);
+  // budgeted first (biggest budget first), then the rest in the Owner's order
+  const budgeted = rows.filter((r) => r.status !== "none").sort((a, b) => b.budget - a.budget);
+  const unbudgeted = rows.filter((r) => r.status === "none");
   const pace = monthPace(state, at, now);
   const received = receivedBy(state.entries, at);
 
@@ -138,25 +144,46 @@ export function Budget({ path }: { path: string }) {
         ) : null}
       </section>
 
-      <section aria-label="Categories" className="px-6 pt-8">
-        <Eyebrow>CATEGORIES</Eyebrow>
-        {alloc.allocated > 0 || alloc.total > 0 ? (
-          <p role="status" className={cn("tnum mt-2 text-[13px] leading-[1.45]", alloc.over > 0 ? "rounded-md border border-warning px-3 py-2.5 text-gold-ink" : "text-fg-muted")}>
-            {alloc.over > 0
-              ? `Category budgets add up to ${peso(alloc.allocated)}, ${peso(alloc.over)} more than your ${peso(alloc.total)} monthly budget.`
-              : alloc.total > 0
-                ? `${peso(alloc.allocated)} (${alloc.pct}%) of ${peso(alloc.total)} allocated to categories · ${peso(alloc.unallocated)} unallocated`
-                : `${peso(alloc.allocated)} allocated to categories`}
-          </p>
-        ) : null}
-        <ul className="divide-y divide-line">
-          {rows.map((r) => (
-            <CategoryRow key={r.category} r={r} pct={state.profile.categoryBudgetPct?.[r.category]} pace={current ? pace : null} onOpen={() => setSheet({ cat: r.category, kind: "expense" })} />
-          ))}
-        </ul>
-      </section>
+      <PlanCard plan={plan} color={color} onOpen={(c) => setSheet({ cat: c, kind: "expense" })} />
 
-      <section aria-label="Income categories" className="px-6 pt-8">
+      <Card label="Budgeted categories">
+        <Eyebrow>BUDGETED · {budgeted.length}</Eyebrow>
+        {budgeted.length === 0 ? (
+          <p className="pt-2 pb-1 text-[14px] text-fg-muted">No category budgets yet. Pick one below and give it a share of the month.</p>
+        ) : (
+          <ul className="mt-1 divide-y divide-line">
+            {budgeted.map((r) => (
+              <CategoryRow key={r.category} r={r} color={color(r.category)} pct={state.profile.categoryBudgetPct?.[r.category]} pace={current ? pace : null} onOpen={() => setSheet({ cat: r.category, kind: "expense" })} />
+            ))}
+          </ul>
+        )}
+      </Card>
+
+      {unbudgeted.length ? (
+        <Card label="Categories with no budget">
+          <Eyebrow>NO BUDGET YET · {unbudgeted.length}</Eyebrow>
+          <ul className="mt-1 divide-y divide-line">
+            {unbudgeted.map((r) => (
+              <li key={r.category}>
+                <button
+                  type="button"
+                  onClick={() => setSheet({ cat: r.category, kind: "expense" })}
+                  aria-label={`${r.category}: ${peso(r.spent)} spent, no budget. Set budget`}
+                  className="flex min-h-12 w-full items-center justify-between gap-3 py-2 text-left active:opacity-60"
+                >
+                  <span className="min-w-0 truncate text-[14.5px]">{r.category}</span>
+                  <span className="flex flex-none items-baseline gap-3">
+                    <span className="tnum text-[13px] text-fg-muted">{r.spent > 0 ? `${peso(r.spent)} spent` : "—"}</span>
+                    <span className="text-[13px] font-medium underline underline-offset-4">Set budget</span>
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ) : null}
+
+      <Card label="Income categories">
         <Eyebrow>INCOME CATEGORIES</Eyebrow>
         {incomeCats.length === 0 ? (
           <p className="py-3 text-[14px] text-fg-muted">No income categories. Add one with New category.</p>
@@ -175,7 +202,7 @@ export function Budget({ path }: { path: string }) {
             })}
           </ul>
         )}
-      </section>
+      </Card>
 
       {/* the one action on this tab: fixed right above the tab bar, where the floating + would be; Screen tabbed leaves room for it */}
       <div className="fixed inset-x-0 bottom-[calc(66px+env(safe-area-inset-bottom))] z-20 mx-auto w-full max-w-[430px] bg-bg/95 px-6 pt-3 pb-3 backdrop-blur-sm">
@@ -199,7 +226,7 @@ export function Budget({ path }: { path: string }) {
   );
 }
 
-function CategoryRow({ r, pct, pace, onOpen }: { r: BudgetRow; pct?: number; pace: number | null; onOpen: () => void }) {
+function CategoryRow({ r, color, pct, pace, onOpen }: { r: BudgetRow; color: string; pct?: number; pace: number | null; onOpen: () => void }) {
   const over = r.status === "over";
   const right = r.status === "none" ? "Set budget" : over ? `${peso(r.spent - r.budget)} over` : `${peso(r.left)} left`;
   return (
@@ -211,11 +238,15 @@ function CategoryRow({ r, pct, pace, onOpen }: { r: BudgetRow; pct?: number; pac
         className="block w-full py-3.5 text-left active:opacity-60"
       >
         <div className="flex items-baseline justify-between gap-3">
-          <span className="min-w-0 truncate text-[14.5px]">{r.category}</span>
+          <span className="flex min-w-0 items-center gap-2">
+            <span aria-hidden className="size-2.5 flex-none rounded-full" style={{ background: color }} />
+            <span className="truncate text-[14.5px] font-medium">{r.category}</span>
+            <span className="flex-none rounded-sm border border-line px-1.5 py-px font-mono text-[10px] tracking-[0.04em] text-fg-subtle uppercase">{pct ? `${pct}%` : "Fixed"}</span>
+          </span>
           <span className={cn("tnum flex-none text-[13px]", over ? "font-semibold text-danger" : r.status === "none" ? "text-fg-muted underline underline-offset-4" : "font-semibold text-fg")}>{right}</span>
         </div>
         <div className="tnum mt-1 text-[12.5px] text-fg-muted">
-          <span className={cn(over && "text-danger")}>{peso(r.spent)}</span> {r.status === "none" ? "spent · No budget" : `of ${pct ? `${pct}% · ` : ""}${peso(r.budget)}`}
+          <span className={cn(over && "text-danger")}>{peso(r.spent)}</span> spent of {peso(r.budget)}
         </div>
         {r.status !== "none" ? (
           <div className="mt-2.5">
@@ -533,5 +564,79 @@ function BudgetField({ draft, onChange, base, onEnter }: { draft: BudgetDraft; o
         </p>
       </div>
     </div>
+  );
+}
+
+/** A bordered card, like Analytics: each block of the plan reads as one answer. */
+function Card({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <section aria-label={label} className="mx-6 mt-4 rounded-xl border border-line px-4 pt-4 pb-2">
+      {children}
+    </section>
+  );
+}
+
+/**
+ * The monthly budget as one 100% bar: a segment per budgeted category (largest first, its color
+ * from the shared mapping) and what's unallocated, then the same parts as a legend you can tap.
+ */
+function PlanCard({ plan, color, onOpen }: { plan: { parts: PlanPart[]; total: number; over: number }; color: (c: string) => string; onOpen: (c: Category) => void }) {
+  const allocated = plan.parts.filter((p) => p.category !== "Unallocated");
+  const unallocated = plan.parts.find((p) => p.category === "Unallocated");
+  // whole numbers from the same split as the legend, so "70% planned · 30% unallocated" always matches it
+  const unPct = unallocated?.whole ?? 0;
+  const allocPct = plan.total > 0 ? 100 - unPct : 100;
+  if (plan.total <= 0 && !allocated.length) return null;
+  const fill = (p: PlanPart) => (p.category === "Unallocated" ? "var(--color-fill)" : color(p.category));
+  const summary = plan.parts.map((p) => `${p.category} ${p.whole}%`).join(", ");
+  return (
+    <Card label="Monthly plan">
+      <div className="flex items-baseline justify-between gap-3">
+        <Eyebrow>MONTHLY PLAN</Eyebrow>
+        <span className="tnum text-[13px] font-semibold">{plan.total > 0 ? peso(plan.total) : "No monthly budget"}</span>
+      </div>
+      {/* segments share the width by amount (flex-grow), so the 2px gaps never push the last one out */}
+      <div className="mt-3 flex h-4 w-full gap-[2px] overflow-hidden rounded-full" role="img" aria-label={`Monthly plan: ${summary}`}>
+        {plan.parts.map((p) => (
+          <span key={p.category} className="h-full min-w-[3px] basis-0" style={{ flexGrow: p.amount, background: fill(p) }} />
+        ))}
+      </div>
+      <p role="status" className={cn("tnum mt-2 text-[12.5px]", plan.over > 0 ? "text-danger" : "text-fg-muted")}>
+        {plan.total <= 0
+          ? "Set a monthly budget (Adjust, above) to see how these budgets split it."
+          : plan.over > 0
+            ? `Over-planned by ${peso(plan.over)}: category budgets add up to more than the month.`
+            : `${allocPct}% planned · ${unPct}% unallocated`}
+      </p>
+      <ul className="mt-2 divide-y divide-line">
+        {plan.parts.map((p) => {
+          const un = p.category === "Unallocated";
+          const body = (
+            <>
+              <span className="flex min-w-0 items-center gap-2">
+                <span aria-hidden className={cn("size-2.5 flex-none rounded-full", un && "border border-line-strong")} style={{ background: fill(p) }} />
+                <span className={cn("truncate text-[14px]", un && "text-fg-muted")}>{p.category}</span>
+                {un ? null : <span className="flex-none font-mono text-[10px] tracking-[0.04em] text-fg-subtle uppercase">{p.byPct ? "% of budget" : "fixed"}</span>}
+              </span>
+              <span className="tnum flex flex-none items-baseline gap-3 text-[13px]">
+                <span className="w-[42px] text-right text-fg-muted">{p.whole}%</span>
+                <span className="w-[76px] text-right font-semibold">{peso(p.amount)}</span>
+              </span>
+            </>
+          );
+          return (
+            <li key={p.category}>
+              {un ? (
+                <div className="flex min-h-11 items-center justify-between gap-3">{body}</div>
+              ) : (
+                <button type="button" aria-label={`${p.category}: ${p.whole}% of the month, ${peso(p.amount)}, ${p.byPct ? "a share of the budget" : "a fixed amount"}`} onClick={() => onOpen(p.category)} className="flex min-h-11 w-full items-center justify-between gap-3 text-left active:opacity-60">
+                  {body}
+                </button>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </Card>
   );
 }

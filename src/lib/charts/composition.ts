@@ -3,7 +3,7 @@ import { colorCategories, categoryColors, EVERYTHING_ELSE, VIZ_OTHER } from "../
 import { isSpend, totals, spendParts } from "../selectors";
 import type { Entry, LedgerState } from "../types";
 
-type S = Pick<LedgerState, "entries" | "categories">;
+type S = Pick<LedgerState, "entries" | "categories" | "profile">;
 
 export interface DonutSegment {
   key: string;

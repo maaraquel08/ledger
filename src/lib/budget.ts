@@ -100,3 +100,47 @@ export function parsePct(s: string): number | null {
   const n = Number(s);
   return Number.isFinite(n) && n > 0 && n <= 100 ? n : null;
 }
+
+/** One slice of the monthly plan bar. */
+export interface PlanPart {
+  category: Category | "Unallocated";
+  amount: number;
+  /** share of the monthly budget, 0..100 (one decimal): the bar's width */
+  pct: number;
+  /** the same share as a whole number; the parts' whole numbers always add up to 100 */
+  whole: number;
+  /** set as % of the budget (vs a fixed amount) */
+  byPct: boolean;
+}
+
+/**
+ * The monthly budget as 100%: each budgeted category (largest first) and what's unallocated.
+ * Over-allocated plans scale to what's allocated, so the bar still fills exactly once.
+ */
+export function planParts(s: LedgerState, cats: Category[]): { parts: PlanPart[]; total: number; over: number } {
+  const { total, allocated, unallocated } = allocation(s, cats);
+  // with no monthly budget there is nothing to be over: the plan is just its parts
+  const over = total > 0 ? Math.max(0, allocated - total) : 0;
+  const base = Math.max(total, allocated) || 1;
+  const raw = cats
+    .map((c) => ({ category: c as PlanPart["category"], amount: Math.max(0, s.profile.categoryBudgets[c] ?? 0), byPct: !!s.profile.categoryBudgetPct?.[c] }))
+    .filter((p) => p.amount > 0)
+    .sort((a, b) => b.amount - a.amount);
+  if (total > 0 && unallocated > 0) raw.push({ category: "Unallocated", amount: unallocated, byPct: false });
+  const whole = largestRemainder(raw.map((p) => (p.amount / base) * 100));
+  const parts = raw.map((p, i) => ({ ...p, pct: Math.round((p.amount / base) * 1000) / 10, whole: whole[i] }));
+  return { parts, total, over };
+}
+
+/** Whole numbers that add up to the rounded total of `xs` (largest remainder first). */
+export function largestRemainder(xs: number[]): number[] {
+  const floors = xs.map(Math.floor);
+  let left = Math.round(xs.reduce((a, b) => a + b, 0)) - floors.reduce((a, b) => a + b, 0);
+  const order = xs.map((x, i) => [x - Math.floor(x), i] as const).sort((a, b) => b[0] - a[0]);
+  for (const [, i] of order) {
+    if (left <= 0) break;
+    floors[i]++;
+    left--;
+  }
+  return floors;
+}

@@ -56,7 +56,7 @@ export function categoryNameError(name: string, defs: CategoryDef[], except?: Ca
   if (!n) return "Give it a name.";
   if (n.length > MAX_CATEGORY_NAME) return `Keep it under ${MAX_CATEGORY_NAME} characters.`;
   const key = n.toLowerCase();
-  if (SYSTEM_CATEGORIES.some((c) => c.toLowerCase() === key)) return `“${n}” is used by the app. Pick another name.`;
+  if ([...SYSTEM_CATEGORIES, "Unallocated", "Unfiled", "Everything else"].some((c) => c.toLowerCase() === key)) return `“${n}” is used by the app. Pick another name.`;
   if (defs.some((d) => d.name !== except && d.name.toLowerCase() === key)) return `You already have “${n}”.`;
   if (except === undefined && defs.length >= MAX_CATEGORIES) return `You can have up to ${MAX_CATEGORIES} categories.`;
   return null;
