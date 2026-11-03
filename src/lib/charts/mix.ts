@@ -49,7 +49,7 @@ export interface MixSeries {
   present: (Category | typeof EVERYTHING_ELSE)[];
 }
 
-export function mixSeries(state: Pick<LedgerState, "entries">, kind: PeriodKind, from: Date, now: Date): MixSeries {
+export function mixSeries(state: Pick<LedgerState, "entries" | "profile">, kind: PeriodKind, from: Date, now: Date): MixSeries {
   const slots = colorCategories(state);
   const periods = mixWindow(state, kind, from, now).map((start): MixPeriod => {
     const sums = new Map<string, number>();

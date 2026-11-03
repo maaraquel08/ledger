@@ -12,20 +12,24 @@ export const VIZ_OTHER = "var(--color-viz-other)";
 /** Label for the folded remainder. */
 export const EVERYTHING_ELSE = "Everything else";
 
-/** Category → its color for every chart on the page. */
-export function categoryColors(s: Pick<LedgerState, "entries">): (c: Category | typeof EVERYTHING_ELSE) => string {
-  const top = byCategory(s.entries)
-    .filter(([c]) => c !== "Unfiled")
-    .slice(0, VIZ_SLOTS.length)
+/**
+ * The categories that own a color, in slot order: budgeted ones first (largest budget first),
+ * because the Budget tab's plan bar is where telling them apart matters most, then the biggest
+ * spenders across the whole ledger. Same answer on every page, so a category keeps one color.
+ */
+export function colorCategories(s: Pick<LedgerState, "entries" | "profile">): Category[] {
+  const budgeted = Object.entries(s.profile.categoryBudgets)
+    .filter(([, v]) => (v ?? 0) > 0)
+    .sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0))
     .map(([c]) => c);
-  const slot = new Map<string, string>(top.map((c, i) => [c, VIZ_SLOTS[i]]));
-  return (c) => slot.get(c) ?? VIZ_OTHER;
+  const spenders = byCategory(s.entries)
+    .map(([c]) => c)
+    .filter((c) => c !== "Unfiled" && !budgeted.includes(c));
+  return [...budgeted, ...spenders].slice(0, VIZ_SLOTS.length);
 }
 
-/** Categories that keep their own slice/segment; the rest fold into Everything else. */
-export function colorCategories(s: Pick<LedgerState, "entries">): Category[] {
-  return byCategory(s.entries)
-    .filter(([c]) => c !== "Unfiled")
-    .slice(0, VIZ_SLOTS.length)
-    .map(([c]) => c);
+/** Category → its color for every chart on every page; the rest share --viz-other. */
+export function categoryColors(s: Pick<LedgerState, "entries" | "profile">): (c: Category | typeof EVERYTHING_ELSE) => string {
+  const slot = new Map<string, string>(colorCategories(s).map((c, i) => [c, VIZ_SLOTS[i]]));
+  return (c) => slot.get(c) ?? VIZ_OTHER;
 }

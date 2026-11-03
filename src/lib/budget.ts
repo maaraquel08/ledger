@@ -100,3 +100,30 @@ export function parsePct(s: string): number | null {
   const n = Number(s);
   return Number.isFinite(n) && n > 0 && n <= 100 ? n : null;
 }
+
+/** One slice of the monthly plan bar. */
+export interface PlanPart {
+  category: Category | "Unallocated";
+  amount: number;
+  /** share of the monthly budget, 0..100 (one decimal) */
+  pct: number;
+  /** set as % of the budget (vs a fixed amount) */
+  byPct: boolean;
+}
+
+/**
+ * The monthly budget as 100%: each budgeted category (largest first) and what's unallocated.
+ * Over-allocated plans scale to what's allocated, so the bar still fills exactly once.
+ */
+export function planParts(s: LedgerState, cats: Category[]): { parts: PlanPart[]; total: number; over: number } {
+  const { total, allocated, over, unallocated } = allocation(s, cats);
+  const base = Math.max(total, allocated) || 1;
+  const pctOf = (n: number) => Math.round((n / base) * 1000) / 10;
+  const parts: PlanPart[] = cats
+    .map((c) => ({ category: c, amount: Math.max(0, s.profile.categoryBudgets[c] ?? 0), byPct: !!s.profile.categoryBudgetPct?.[c] }))
+    .filter((p) => p.amount > 0)
+    .sort((a, b) => b.amount - a.amount)
+    .map((p) => ({ ...p, pct: pctOf(p.amount) }));
+  if (unallocated > 0) parts.push({ category: "Unallocated", amount: unallocated, pct: pctOf(unallocated), byPct: false });
+  return { parts, total, over };
+}
