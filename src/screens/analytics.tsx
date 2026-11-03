@@ -1,5 +1,9 @@
 import * as React from "react";
 import { useChrome } from "@/components/ledger/chrome";
+import { NetWorthTrend, SpendingByAccount } from "@/screens/charts/accounts";
+import { CategoryDonut, IncomeSplit } from "@/screens/charts/composition";
+import { BillsVsEveryday, CategoryMix } from "@/screens/charts/mix";
+import { categoryColors } from "@/lib/chart-colors";
 import { AiSummaryText } from "@/components/ui/ai-summary/ai-summary";
 import { ChevronLeft, ChevronRight } from "@/components/ledger/icons";
 import { AiEyebrow, AiMark, AiPanel, Cta, Delta, EntryRow, Eyebrow, PageTitle, Screen, Segmented, Sheet } from "@/components/ledger/primitives";
@@ -31,7 +35,7 @@ import { useLedger } from "@/lib/store";
 import { clearChatHistory } from "@/lib/chat-history";
 import { ProfileSheet } from "@/screens/today-sheets";
 import { useGaps } from "@/screens/activity";
-import type { Entry } from "@/lib/types";
+import type { Entry, LedgerState } from "@/lib/types";
 import { entriesHref, needsReview, type EntryKind } from "@/screens/ledger-list";
 
 /*
@@ -586,7 +590,8 @@ export function findings(o: {
 /* ---------- where it went ---------------------------------------------------------- */
 
 
-function WhereItWent({ kind, from, to, label, h, list, prevList, all }: { kind: PeriodKind; from: Date; to: Date; label: string; h: Headline; list: Entry[]; prevList: Entry[]; all: Entry[] }) {
+function WhereItWent({ kind, from, to, label, h, list, prevList, all, state }: { kind: PeriodKind; from: Date; to: Date; label: string; h: Headline; list: Entry[]; prevList: Entry[]; all: Entry[]; state: LedgerState }) {
+  const color = categoryColors(state);
   const [allCats, setAllCats] = React.useState(false);
   const go = (es: Entry[], l: string, f?: Parameters<typeof entriesHref>[3]) => navigate(entriesHref(all, es, l, f));
   const range = { from, to: lastDay(to) };
@@ -597,11 +602,18 @@ function WhereItWent({ kind, from, to, label, h, list, prevList, all }: { kind: 
   return (
     <>
       <Section title="WHERE IT WENT" aside={<span className="tnum text-[13px] text-fg-muted">{peso(h.cur.out)}</span>}>
+        {/* the donut's legend is the list under it: each row carries its slice's color */}
+        <CategoryDonut list={list} state={state} label={label} />
         <div className="mt-1 divide-y divide-line">
           {shown.map((r) => (
             <Row
               key={r.cat}
-              label={r.cat}
+              label={
+                <span className="flex items-center gap-2">
+                  <span aria-hidden className="size-2.5 flex-none rounded-full" style={{ background: color(r.cat) }} />
+                  {r.cat}
+                </span>
+              }
               meta={`${r.share}% of spending · ${entriesText(r.entries.length)}`}
               value={peso(r.amount)}
               bar={{ fraction: r.fraction, muted: r.cat === "Unfiled" }}
@@ -820,6 +832,16 @@ export function Analytics({ path }: { path: string }) {
 
       <TrendChart key={`${kind}${from.getTime()}`} kind={kind} steps={steps} label={label} />
 
+      {empty ? null : (
+        <>
+          <IncomeSplit list={list} state={state} label={label} />
+          <CategoryMix kind={kind} from={from} state={state} now={now} />
+          <BillsVsEveryday kind={kind} from={from} state={state} now={now} />
+          <SpendingByAccount list={list} state={state} label={label} />
+        </>
+      )}
+      <NetWorthTrend kind={kind} from={from} state={state} now={now} />
+
       {kind === "month" ? <SpendCalendar from={from} now={now} /> : null}
 
       {empty ? (
@@ -827,7 +849,7 @@ export function Analytics({ path }: { path: string }) {
       ) : (
         <>
           {cards.length ? <Overview cards={cards} all={all} label={label} /> : null}
-          <WhereItWent kind={kind} from={from} to={to} label={label} h={h} list={list} prevList={prevList} all={all} />
+          <WhereItWent kind={kind} from={from} to={to} label={label} h={h} list={list} prevList={prevList} all={all} state={state} />
         </>
       )}
     </Screen>
