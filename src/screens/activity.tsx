@@ -58,12 +58,12 @@ export function ActivityDetail({ id }: { id: string }) {
   if (!entry) {
     return (
       <Screen>
-        <BackBar label="Money" onBack={() => back("/money")} />
+        <BackBar label="Activity" onBack={() => back("/activity")} />
         <div className="flex flex-1 flex-col items-center justify-center px-8 pb-24 text-center">
           <h2 className="text-[19px] leading-[1.25] font-semibold text-balance">Entry not found</h2>
           <p className="mt-2.5 text-[14px] text-fg-muted">It may have been deleted.</p>
-          <Cta className="mt-7 max-w-[240px]" onClick={() => navigate("/money", { replace: true })}>
-            Back to Money
+          <Cta className="mt-7 max-w-[240px]" onClick={() => navigate("/activity", { replace: true })}>
+            Back to Activity
           </Cta>
         </div>
       </Screen>
@@ -167,7 +167,7 @@ export function ActivityDetail({ id }: { id: string }) {
     <Screen>
       <BackBar
         label="Back"
-        onBack={() => back("/money")}
+        onBack={() => back("/activity")}
         right={
           <button type="button" onClick={() => setEditing(true)} className={EDIT_HIT}>
             Edit
@@ -249,7 +249,7 @@ export function ActivityDetail({ id }: { id: string }) {
               className="min-h-12 flex-1 !bg-danger"
               onClick={() => {
                 dispatch({ type: "delete-entry", id: entry.id });
-                back("/money");
+                back("/activity");
               }}
             >
               {other ? "Delete transfer" : "Delete entry"}
@@ -520,8 +520,8 @@ export function Review() {
         <div className="flex flex-1 flex-col items-center justify-center px-8 pb-24 text-center">
           <h2 className="text-[19px] leading-[1.25] font-semibold tracking-[-0.01em]">All filed.</h2>
           <p className="mt-2.5 max-w-[260px] text-[14px] leading-[1.5] text-fg-muted">Every entry has a category and an account.</p>
-          <Cta className="mt-7 max-w-[240px]" onClick={() => navigate("/money")}>
-            See your money
+          <Cta className="mt-7 max-w-[240px]" onClick={() => navigate("/activity")}>
+            See your activity
           </Cta>
         </div>
         {toast}

@@ -85,7 +85,7 @@ describe("first month prorated", () => {
 describe("back()", () => {
   test("a deep link (no in-app history) goes to the parent route", () => {
     expect(depthOf(null)).toBe(0);
-    expect(backTarget(null, "/activity/e1")).toBe("/money");
+    expect(backTarget(null, "/activity/e1")).toBe("/activity");
     expect(backTarget(null, "/money/a1?type=expense")).toBe("/money");
     expect(backTarget(null, "/chat")).toBe("/today");
     expect(backTarget({ other: 1 }, "/chat", "/money")).toBe("/money");

@@ -303,7 +303,7 @@ function CategorySheet({ cat, kind, at, onClose }: { cat: Category; kind: "expen
                 ))}
                 {list.length > 8 ? (
                   <li>
-                    <button type="button" onClick={() => navigate(`/money?cat=${encodeURIComponent(cat)}`)} className="min-h-11 text-[13px] text-fg-muted underline underline-offset-4 active:opacity-60">
+                    <button type="button" onClick={() => navigate(`/activity?cat=${encodeURIComponent(cat)}`)} className="min-h-11 text-[13px] text-fg-muted underline underline-offset-4 active:opacity-60">
                       {list.length - 8} more in Money
                     </button>
                   </li>

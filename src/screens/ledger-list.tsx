@@ -54,7 +54,7 @@ const dayOf = (k: string) => new Date(`${k}T00:00:00`);
  * A link into the ledger, e.g. ledgerHref({ type: "expense", from, to }). Dates are inclusive.
  * `ids` pins the list to exactly those entries (the ones behind a claim), named by `label`.
  */
-export function ledgerHref(f: { type?: EntryKind; cat?: Category; from?: Date; to?: Date; acct?: string; ids?: string[]; label?: string }, base = "/money") {
+export function ledgerHref(f: { type?: EntryKind; cat?: Category; from?: Date; to?: Date; acct?: string; ids?: string[]; label?: string }, base = "/activity") {
   const p = new URLSearchParams();
   if (f.ids) p.set("ids", f.ids.join(","));
   if (f.label) p.set("label", f.label);
@@ -205,10 +205,12 @@ export function LedgerList({ path, base, accountId }: { path: string; base: stri
   const scope = React.useMemo(() => (accountId ? state.entries.filter((e) => e.accountId === accountId) : state.entries), [state.entries, accountId]);
   const [mf, mt] = monthBounds(now);
   const monthList = inRange(scope, mf, mt);
-  const monthT = totals(monthList);
 
   // filters beyond the account an account page is pinned to
   const filtering = pinned !== null || q.trim() !== "" || kind !== null || cat !== null || from !== null || to !== null || (!accountId && accts.length > 0);
+
+  // the IN / OUT / NET card stays up while only a date range is set
+  const narrowed = pinned !== null || q.trim() !== "" || kind !== null || cat !== null || (!accountId && accts.length > 0);
 
   const matches = React.useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -234,7 +236,7 @@ export function LedgerList({ path, base, accountId }: { path: string; base: stri
   const groups = React.useMemo(() => {
     const out: { key: string; heading: string | null; items: Entry[] }[] = [];
     if (sort === "large") return [{ key: "all", heading: null, items: matches.slice(0, ENTRY_PAGE * pages) }];
-    const byMonth = filtering && !(from && to && from === to);
+    const byMonth = filtering && !(from && to && from.slice(0, 7) === to.slice(0, 7));
     const list = byMonth ? matches.slice(0, ENTRY_PAGE * pages) : matches;
     for (const e of list) {
       const d = new Date(e.date);
@@ -270,6 +272,8 @@ export function LedgerList({ path, base, accountId }: { path: string; base: stri
     if (p === "month") return from === localDay(mf) && to === localDay(addDays(mt, -1));
     return from === `${now.getFullYear()}-01-01` && to === `${now.getFullYear()}-12-31`;
   };
+  const ranged = from !== null || to !== null;
+  const monthT = totals(ranged ? matches : monthList);
   const searchActive = searchOpen || q !== "";
 
   /* ---- no entries at all ---- */
@@ -356,12 +360,12 @@ export function LedgerList({ path, base, accountId }: { path: string; base: stri
         {!accountId && accts.length === 0 ? <Chip onClick={() => setFilterOpen(true)}>+ Account</Chip> : null}
       </div>
 
-      {!filtering ? (
+      {!narrowed ? (
         <div className="px-6 pt-4">
           <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,6rem),1fr))] gap-y-3 rounded-md border border-line py-3.5">
             <Stat label="IN" value={<span className="text-success">{peso(monthT.in)}</span>} sub={`${monthT.deposits} deposit${monthT.deposits === 1 ? "" : "s"}`} />
             <Stat label="OUT" value={<span className="text-danger">{peso(monthT.out)}</span>} sub={`${monthT.outs} ${monthT.outs === 1 ? "entry" : "entries"}`} />
-            <Stat label="NET" value={<span className={monthT.net < 0 ? "text-danger" : "text-success"}>{signed(monthT.net)}</span>} sub={monthName(now).slice(0, 3).toUpperCase()} />
+            <Stat label="NET" value={<span className={monthT.net < 0 ? "text-danger" : "text-success"}>{signed(monthT.net)}</span>} sub={ranged ? rangeLabel(from, to).toUpperCase() : monthName(now).slice(0, 3).toUpperCase()} />
           </div>
         </div>
       ) : (

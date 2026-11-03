@@ -36,6 +36,17 @@ export const AccountsIcon = ({ size, filled, ...p }: P & { filled?: boolean }) =
   </svg>
 );
 
+/** Activity: a receipt with line items. */
+export const ActivityIcon = ({ size, filled, ...p }: P & { filled?: boolean }) => (
+  <svg {...stroke(size, p)}>
+    <path
+      fill={filled ? "currentColor" : "none"}
+      d="M6.2 3.6h11.6a1 1 0 0 1 1 1v15.8l-2.4-1.5-2 1.5-2-1.5-2 1.5-2-1.5-2.2 1.5V4.6a1 1 0 0 1 1-1z"
+    />
+    <path d="M8.8 8.6h6.4M8.8 12h6.4" stroke={filled ? "var(--color-bg)" : "currentColor"} />
+  </svg>
+);
+
 /** Review: an in-tray. */
 export const ReviewIcon = ({ size, filled, ...p }: P & { filled?: boolean }) => (
   <svg {...stroke(size, p)}>

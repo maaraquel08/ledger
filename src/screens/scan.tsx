@@ -96,7 +96,7 @@ export function Scan() {
         <Camera
           count={logged.length}
           toast={toast}
-          onClose={() => back(logged.length ? "/money" : "/today")}
+          onClose={() => back(logged.length ? "/activity" : "/today")}
           onCapture={read}
         />
       ) : stage.k === "reading" ? (

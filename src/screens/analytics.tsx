@@ -6,7 +6,7 @@ import { BillsVsEveryday, CategoryMix } from "@/screens/charts/mix";
 import { categoryColors } from "@/lib/chart-colors";
 import { AiSummaryText } from "@/components/ui/ai-summary/ai-summary";
 import { ChevronLeft, ChevronRight } from "@/components/ledger/icons";
-import { AiEyebrow, AiMark, AiPanel, Cta, Delta, EntryRow, Eyebrow, PageTitle, Screen, Segmented, Sheet } from "@/components/ledger/primitives";
+import { AiEyebrow, AiMark, AiPanel, Cta, Delta, Eyebrow, PageTitle, Screen, Segmented } from "@/components/ledger/primitives";
 import {
   analyticsHref,
   categoryRows,
@@ -20,14 +20,12 @@ import {
   recurringBills,
   savingsRate,
   shiftPeriod,
-  spendCalendar,
   periodSteps,
   type Headline,
-  type SpendDay,
   type StepPoint,
 } from "@/lib/analytics";
 import { cn } from "@/lib/cn";
-import { addDays, balance, compact, dayName, monthName, monthShort, peso, sameDay } from "@/lib/format";
+import { addDays, balance, compact, dayName, monthName, monthShort, peso } from "@/lib/format";
 import { navigate, query } from "@/lib/router";
 import { FIXED, budgetPace, byCategory, inRange, isIncome, isSpend, ledgerStart, monthBudget, type PeriodKind } from "@/lib/selectors";
 import { fixedCategories } from "@/lib/categories";
@@ -103,6 +101,14 @@ function Row({ label, meta, value, trail, onClick, bar }: { label: React.ReactNo
       {onClick ? <ChevronRight size={14} className="-mr-1 flex-none text-fg-subtle" /> : null}
     </Tag>
   );
+}
+
+/**
+ * One chart per bordered card, so the page scans as a stack of answers. The chart's own
+ * section padding is dropped inside; a chart with nothing to show leaves no empty card.
+ */
+function ChartCard({ children }: { children: React.ReactNode }) {
+  return <div className="mx-6 mt-4 rounded-xl border border-line px-4 pt-4 pb-3 empty:hidden [&>section]:px-0 [&>section]:pt-0">{children}</div>;
 }
 
 function Section({ title, aside, children, ai }: { title: string; aside?: React.ReactNode; children: React.ReactNode; ai?: boolean }) {
@@ -390,7 +396,7 @@ function markFigure(f: Finding): React.ReactNode {
  */
 function Overview({ cards, all, label }: { cards: Finding[]; all: Entry[]; label: string }) {
   return (
-    <AiPanel label={`M8 · ${label}`} className="mx-6 mt-9">
+    <AiPanel label={`M8 · ${label}`} className="mx-6 mt-6">
       {cards.map((f) => (
         <a
           key={f.key}
@@ -614,7 +620,7 @@ function WhereItWent({ kind, from, to, label, h, list, prevList, all, state }: {
                   {r.cat}
                 </span>
               }
-              meta={`${r.share}% of spending · ${entriesText(r.entries.length)}`}
+              meta={`${r.share}% · ${entriesText(r.entries.length)}`}
               value={peso(r.amount)}
               bar={{ fraction: r.fraction, muted: r.cat === "Unfiled" }}
               trail={
@@ -640,83 +646,6 @@ function WhereItWent({ kind, from, to, label, h, list, prevList, all, state }: {
 
 
 /* ---------- screen ---------------------------------------------------------- */
-
-/* Level fills: one hue (danger, money out) mixed into the page colour, so light and dark both work. */
-const LEVEL_MIX = [0, 12, 26, 42, 60, 82];
-const levelFill = (l: number) => `color-mix(in oklab, var(--color-danger) ${LEVEL_MIX[l]}%, var(--color-bg))`;
-
-function dayTitle(d: Date, now: Date) {
-  const date = `${d.getDate()} ${monthName(d)}`.toUpperCase();
-  const lead = sameDay(d, now) ? "TODAY" : sameDay(d, addDays(now, -1)) ? "YESTERDAY" : dayName(d).slice(0, 3).toUpperCase();
-  return `${lead} · ${date}`;
-}
-
-/** Month view: a Monday-first heat-map of each day's spend; tap a day for what made it. */
-function SpendCalendar({ from, now }: { from: Date; now: Date }) {
-  const { state } = useLedger();
-  const [open, setOpen] = React.useState<SpendDay | null>(null);
-  const days = React.useMemo(() => spendCalendar(state.entries, from, now), [state.entries, from, now]);
-  const lead = (from.getDay() + 6) % 7;
-  const accounts = new Map(state.accounts.map((a) => [a.id, a]));
-  return (
-    <Section title="SPEND CALENDAR">
-      <div className="mt-3 grid grid-cols-7 gap-1" role="group" aria-label={`Spend by day, ${monthName(from)} ${from.getFullYear()}`}>
-        {["M", "T", "W", "T", "F", "S", "S"].map((d, i) => (
-          <span key={i} aria-hidden className="pb-1 text-center font-mono text-[10.5px] text-fg-subtle">
-            {d}
-          </span>
-        ))}
-        {Array.from({ length: lead }, (_, i) => (
-          <span key={`pad${i}`} aria-hidden />
-        ))}
-        {days.map((d) => {
-          const label = `${d.day} ${monthName(d.date)}, ${d.future ? "no spending yet" : `spent ${peso(d.spent)}`}`;
-          return (
-            <button
-              key={d.day}
-              type="button"
-              aria-label={label}
-              disabled={d.future}
-              onClick={() => setOpen(d)}
-              style={d.level ? { backgroundColor: levelFill(d.level) } : undefined}
-              className={cn(
-                "flex aspect-square items-start justify-start rounded-md border p-1.5 font-mono text-[10.5px] leading-none tnum active:opacity-60",
-                d.level ? "border-transparent" : d.future ? "border-dashed border-line text-fg-subtle" : "border-line bg-surface text-fg-muted",
-                d.level === 5 ? "text-danger-fg" : d.level ? "text-fg" : null,
-              )}
-            >
-              {d.day}
-            </button>
-          );
-        })}
-      </div>
-      <div className="mt-3 flex items-center justify-end gap-2 font-mono text-[10.5px] tracking-[0.05em] text-fg-subtle" aria-hidden>
-        LOW
-        {[1, 2, 3, 4, 5].map((l) => (
-          <span key={l} className="size-3.5 rounded-[4px]" style={{ backgroundColor: levelFill(l) }} />
-        ))}
-        HIGH
-      </div>
-      <Sheet open={!!open} onOpenChange={(o) => !o && setOpen(null)} title={open ? dayTitle(open.date, now) : undefined}>
-        {open ? (
-          <div className="pt-4 pb-2">
-            <Eyebrow>SPENT</Eyebrow>
-            <div className="tnum mt-1 text-[32px] leading-[1.1] font-semibold tracking-[-0.02em]">{peso(open.spent)}</div>
-            {open.entries.length ? (
-              <div className="mt-5 flex flex-col gap-4">
-                {open.entries.map((e) => (
-                  <EntryRow key={e.id} entry={e} account={e.accountId ? accounts.get(e.accountId) : undefined} onClick={() => navigate(`/activity/${e.id}`)} />
-                ))}
-              </div>
-            ) : (
-              <p className="mt-4 text-[14px] text-fg-muted">Nothing spent this day.</p>
-            )}
-          </div>
-        ) : null}
-      </Sheet>
-    </Section>
-  );
-}
 
 /** Profile avatar: opens the profile / settings sheet (it lived on Today). */
 function ProfileButton() {
@@ -830,28 +759,39 @@ export function Analytics({ path }: { path: string }) {
 
       {kind === "month" ? <ReviewRow /> : null}
 
-      <TrendChart key={`${kind}${from.getTime()}`} kind={kind} steps={steps} label={label} />
-
-      {empty ? null : (
-        <>
-          <IncomeSplit list={list} state={state} label={label} />
-          <CategoryMix kind={kind} from={from} state={state} now={now} />
-          <BillsVsEveryday kind={kind} from={from} state={state} now={now} />
-          <SpendingByAccount list={list} state={state} label={label} />
-        </>
-      )}
-      <NetWorthTrend kind={kind} from={from} state={state} now={now} />
-
-      {kind === "month" ? <SpendCalendar from={from} now={now} /> : null}
-
+      {/* ordered by what you'd ask first: what happened, where it went, how it moved, then the deeper cuts */}
       {empty ? (
         <p className="px-6 pt-9 text-[14px] text-fg-muted">Nothing logged in {label}. Step back to an earlier {UNIT[kind]}.</p>
       ) : (
         <>
           {cards.length ? <Overview cards={cards} all={all} label={label} /> : null}
-          <WhereItWent kind={kind} from={from} to={to} label={label} h={h} list={list} prevList={prevList} all={all} state={state} />
+          <ChartCard>
+            <WhereItWent kind={kind} from={from} to={to} label={label} h={h} list={list} prevList={prevList} all={all} state={state} />
+          </ChartCard>
         </>
       )}
+      <ChartCard>
+        <TrendChart key={`${kind}${from.getTime()}`} kind={kind} steps={steps} label={label} />
+      </ChartCard>
+      {empty ? null : (
+        <>
+          <ChartCard>
+            <IncomeSplit list={list} state={state} label={label} />
+          </ChartCard>
+          <ChartCard>
+            <CategoryMix kind={kind} from={from} state={state} now={now} />
+          </ChartCard>
+          <ChartCard>
+            <BillsVsEveryday kind={kind} from={from} state={state} now={now} />
+          </ChartCard>
+          <ChartCard>
+            <SpendingByAccount list={list} state={state} label={label} />
+          </ChartCard>
+        </>
+      )}
+      <ChartCard>
+        <NetWorthTrend kind={kind} from={from} state={state} now={now} />
+      </ChartCard>
     </Screen>
   );
 }

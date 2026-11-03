@@ -97,7 +97,7 @@ export function incomeSplit(list: Entry[], state: S & Pick<LedgerState, "account
     mk("everyday", "Everyday spending", everyday, FLOW.everyday),
     mk("invested", "Invested", invested, FLOW.invested),
   ].filter((p) => p.amount > 0);
-  if (overspent) parts.push({ ...mk("overspent", "Overspent", -saved, "var(--color-viz-other)"), fraction: 0 });
+  if (overspent) parts.push({ ...mk("overspent", "Overspent", -saved, "var(--color-danger)"), fraction: 0 });
   else if (saved > 0) parts.push(mk("saved", "Saved", saved, FLOW.saved));
   return { income, parts, saved, overspent };
 }

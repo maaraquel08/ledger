@@ -33,7 +33,8 @@ export function depthOf(state: unknown): number {
 /** Where a screen's Back goes when there's no in-app history: its parent. */
 export function parentOf(path: string): string {
   const base = path.split("?")[0];
-  if (base.startsWith("/activity/") || base.startsWith("/money/")) return "/money";
+  if (base.startsWith("/activity/")) return "/activity";
+  if (base.startsWith("/money/")) return "/money";
   if (base === "/sign-in") return "/";
   return "/today";
 }

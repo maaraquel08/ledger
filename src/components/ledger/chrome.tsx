@@ -1,7 +1,7 @@
 import * as React from "react";
 import { cn } from "@/lib/cn";
 import { navigate } from "@/lib/router";
-import { AccountsIcon, AnalyticsIcon, BudgetIcon, ChatIcon, PlusIcon } from "./icons";
+import { AccountsIcon, ActivityIcon, AnalyticsIcon, BudgetIcon, ChatIcon, PlusIcon } from "./icons";
 
 /* ---------- global UI: the add sheet is reachable from every tab ------ */
 
@@ -17,14 +17,15 @@ export const useChrome = () => React.useContext(ChromeCtx);
 
 const TABS = [
   { path: "/today", label: "Chat", Icon: ChatIcon },
+  { path: "/activity", label: "Activity", Icon: ActivityIcon },
   { path: "/money", label: "Money", Icon: AccountsIcon },
   { path: "/budget", label: "Budget", Icon: BudgetIcon },
   { path: "/analytics", label: "Analytics", Icon: AnalyticsIcon },
 ] as const;
 
 /**
- * Four tabs: Chat (home), Money, Budget, Analytics. Adding an entry is the yellow
- * floating action above the nav on Money and Analytics. Chat has a + in its header (the FAB
+ * Five tabs: Chat (home), Activity, Money, Budget, Analytics. Adding an entry is the yellow
+ * floating action above the nav on Activity, Money and Analytics. Chat has a + in its header (the FAB
  * would sit on the composer); Budget's one action is its pinned New category button.
  * #FCC305 is used nowhere else.
  */
@@ -45,7 +46,7 @@ export function TabBar({ path }: { path: string }) {
         <PlusIcon size={26} />
       </button>
       )}
-      <div className="grid grid-cols-4 px-3 pt-[7px] pb-[max(14px,env(safe-area-inset-bottom))]">
+      <div className="grid grid-cols-5 px-3 pt-[7px] pb-[max(14px,env(safe-area-inset-bottom))]">
         {TABS.map(({ path: p, label, Icon }) => {
           const active = path === p || path.startsWith(`${p}/`);
           return (
@@ -58,7 +59,7 @@ export function TabBar({ path }: { path: string }) {
               className={cn("flex min-h-11 flex-col items-center gap-[3px] py-1", active ? "text-fg" : "text-fg-subtle")}
             >
               <Icon filled={active} />
-              <span className={cn("text-[10.5px] leading-none", active && "font-semibold")}>{label}</span>
+              <span className={cn("text-[10px] leading-none", active && "font-semibold")}>{label}</span>
             </button>
           );
         })}

@@ -9,6 +9,7 @@ import { cloud } from "@/lib/supabase";
 import { AccountDetail } from "@/screens/accounts";
 import { Analytics } from "@/screens/analytics";
 import { ActivityDetail, Review } from "@/screens/activity";
+import { ActivityTab } from "@/screens/activity-tab";
 import { Budget } from "@/screens/budget";
 import { Chat } from "@/screens/chat";
 import { Money } from "@/screens/money";
@@ -18,11 +19,12 @@ import { DataScreen } from "@/screens/settings";
 import { ImportOffer, localLedger, OpenFailed, Opening, SignIn } from "@/screens/sign-in";
 import { Welcome } from "@/screens/welcome";
 
-const TAB_ROOTS = ["/today", "/money", "/budget", "/analytics"];
+const TAB_ROOTS = ["/today", "/activity", "/money", "/budget", "/analytics"];
 
 /**
  * Old routes and where they live now. Insights became Analytics (D-0017),
- * Budgets folded into Today, Activity and Accounts into Money.
+ * Budgets folded into Today, Accounts into Money. The ledger lives on the Activity tab
+ * (spend calendar above it); "/activity/:id" is still an entry's detail.
  */
 function redirect(path: string): string | null {
   const [base, qs] = path.split("?");
@@ -34,20 +36,15 @@ function redirect(path: string): string | null {
   if (base === "/chat") return `/today${qs ? `?${qs}` : ""}`;
   if (base === "/accounts") return "/money";
   if ((m = match("/accounts/:id", base))) return `/money/${encodeURIComponent(m.id)}`;
-  // Activity's own filters (acct, cat, q, sort) carry over; its old period filter does not
-  if (base === "/activity") {
-    const p = new URLSearchParams(qs ?? "");
-    p.delete("period");
-    const s = p.toString();
-    return `/money${s ? `?${s}` : ""}`;
-  }
+  // the ledger moved from Money to Activity: old "/money?<ledger filters>" links keep their filters
+  if (base === "/money" && qs && ["q", "type", "acct", "cat", "from", "to", "ids", "label", "sort"].some((k) => new URLSearchParams(qs).has(k))) return `/activity?${qs}`;
   return null;
 }
 
 /** "/money/abc" -> "Money", "/activity/e1" -> "Entry" */
 function routeName(base: string) {
   const seg = base.split("/")[1];
-  if (seg === "activity") return "Entry";
+  if (seg === "activity") return base === "/activity" ? "Activity" : "Entry";
   if (seg === "money" && base !== "/money") return "Account";
   if (seg === "data") return "Your data";
   if (seg === "today") return "M8";
@@ -81,7 +78,8 @@ function Router() {
   if (base === "/") screen = <Welcome />;
   else if ((m = match("/onboarding/:step", base))) screen = <Onboarding step={m.step} />;
   else if (base === "/today") screen = <Chat path={path} />;
-  else if (base === "/money") screen = <Money path={path} />;
+  else if (base === "/activity") screen = <ActivityTab path={path} />;
+  else if (base === "/money") screen = <Money />;
   else if (base === "/budget") screen = <Budget path={path} />;
   else if (base === "/analytics") screen = <Analytics path={path} />;
   else if ((m = match("/money/:id", base))) screen = <AccountDetail id={m.id} path={path} />;
