@@ -1,4 +1,5 @@
 import { parseSpoken, splitEntries } from "../parse";
+import { resolveProfilePatch } from "../selectors";
 import type { Action } from "../store";
 import type { Account, Entry, Goal, LedgerState } from "../types";
 import { accountPayload, entryPatch, entryPayload, goalPayload, profilePayload } from "./map";
@@ -155,12 +156,20 @@ export function callsFor(a: Action, prev: LedgerState): Call[] | null {
     }
     case "update-profile": {
       const calls: Call[] = [];
-      const { goals, holdings: _h, ...rest } = a.patch;
+      // % budgets resolve to pesos here too, so the server's category_budgets stays current
+      const { goals, holdings: _h, ...rest } = resolveProfilePatch(prev, a.patch);
       const row = profilePayload(rest);
       if (Object.keys(row).length) calls.push({ kind: "upsert", table: "profiles", rows: row, onConflict: "user_id" });
       if (goals) calls.push(...goalCalls(prev.profile.goals, goals));
       return calls.length ? calls : null;
     }
+    case "add-category":
+      return [{ kind: "rpc", fn: "add_category", args: { p_name: a.def.name.trim(), p_kind: a.def.kind } }];
+    // the RPCs move or drop the peso and % budget keys with the category, in one step
+    case "rename-category":
+      return [{ kind: "rpc", fn: "rename_category", args: { p_from: a.from, p_to: a.to.trim() } }];
+    case "delete-category":
+      return [{ kind: "rpc", fn: "delete_category", args: { p_name: a.name, p_move_to: a.moveTo } }];
     case "report-balance":
       return [{ kind: "rpc", fn: "report_balance", args: { p_account_id: a.accountId, p_reported: a.reported, p_id: a.id } }];
     case "record-adjustment":

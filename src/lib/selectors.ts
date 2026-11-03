@@ -1,5 +1,6 @@
 import { addDays, MAX_AMOUNT, sameDay, startOfDay } from "./format";
-import type { Account, Category, Entry, Goal, LedgerState } from "./types";
+import { fixedCategories } from "./categories";
+import type { Account, Category, Entry, Goal, LedgerState, Profile } from "./types";
 
 /** Categories that move money between your own pockets — never "spend". */
 const NOT_SPEND: (Category | null)[] = ["Investments", "Transfer", "Adjustment"];
@@ -86,7 +87,7 @@ export function addToGoal(g: Goal, amount: number): Goal {
   return { ...g, saved: Math.min(MAX_AMOUNT, Math.round(g.saved + amount)) };
 }
 
-export function monthlyIncome(s: LedgerState) {
+export function monthlyIncome(s: Pick<LedgerState, "profile">) {
   const per = s.profile.income;
   const f = s.profile.frequency;
   const base = f === "Twice a month" ? per * 2 : f === "Weekly" ? per * 4.33 : per;
@@ -96,6 +97,31 @@ export function monthlyIncome(s: LedgerState) {
 /** The AI's starting plan: hold spending near two thirds of income. */
 export function suggestedBudget(monthly: number) {
   return Math.round((monthly * 0.656) / 1000) * 1000;
+}
+
+/** The monthly budget a % category budget is a share of: the one set, else the suggested one. */
+export const budgetBase = (s: Pick<LedgerState, "profile">) => s.profile.monthlyBudget || suggestedBudget(monthlyIncome(s));
+
+/** A share of the base in whole pesos. */
+export const pctOf = (pct: number, base: number) => Math.round((base * pct) / 100);
+
+/** Profile fields that change what a % budget resolves to. */
+const RESOLVES = ["monthlyBudget", "income", "frequency", "categoryBudgetPct"] as const;
+
+/**
+ * A profile patch with % category budgets resolved to pesos: categoryBudgets carries every
+ * % budget's current amount, so readers that only know pesos (Budget rows, the math sheet,
+ * the server's budget_status) stay right. The reducer and the outbox both apply it.
+ */
+export function resolveProfilePatch(s: Pick<LedgerState, "profile">, patch: Partial<Profile>): Partial<Profile> {
+  if (!RESOLVES.some((k) => k in patch)) return patch;
+  const next = { ...s, profile: { ...s.profile, ...patch } };
+  const pct = next.profile.categoryBudgetPct ?? {};
+  if (!Object.keys(pct).length && !("categoryBudgetPct" in patch)) return patch;
+  const base = budgetBase(next);
+  const budgets = { ...next.profile.categoryBudgets };
+  for (const [c, p] of Object.entries(pct)) if (p != null && p > 0) budgets[c] = pctOf(p, base);
+  return { ...patch, categoryBudgets: budgets };
 }
 
 /** The day the ledger starts: its earliest entry, or today when nothing earlier is logged. */
@@ -148,10 +174,11 @@ export function verdict(s: LedgerState, today = new Date()) {
   const daysLeft = Math.max(1, daysInMonth - today.getDate() + 1);
   const pace = budgetPace(mb, today);
 
+  const fixed = fixedCategories(s);
   const over = byCategory(month)
     .map(([c, v]) => ({ category: c, spent: v, budget: s.profile.categoryBudgets[c] ?? 0 }))
     // fixed costs land on a date, not a pace — only discretionary spend is paced
-    .filter((x) => x.budget > 0 && !FIXED.includes(x.category))
+    .filter((x) => x.budget > 0 && !fixed.includes(x.category))
     .map((x) => ({ ...x, delta: x.spent - x.budget * (today.getDate() / daysInMonth) }))
     .sort((a, b) => b.delta - a.delta);
 

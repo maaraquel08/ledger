@@ -6,9 +6,9 @@ import { Pill, Sheet } from "@/components/ledger/primitives";
 import { cn } from "@/lib/cn";
 import { peso, shortDay } from "@/lib/format";
 import { recognize, warmUp, type OcrLine } from "@/lib/ocr";
-import { SPEND_CATEGORIES } from "@/lib/providers";
 import { compressImage, draftToEntry, findDuplicate, parseReceipt, splitOf, type ReceiptDraft } from "@/lib/receipt";
 import { back } from "@/lib/router";
+import { spendCategories } from "@/lib/categories";
 import { newId, useLedger } from "@/lib/store";
 import type { Account, Category, Entry } from "@/lib/types";
 
@@ -96,7 +96,7 @@ export function Scan() {
         <Camera
           count={logged.length}
           toast={toast}
-          onClose={() => back(logged.length ? "/money" : "/today")}
+          onClose={() => back(logged.length ? "/activity" : "/today")}
           onCapture={read}
         />
       ) : stage.k === "reading" ? (
@@ -383,6 +383,7 @@ function Unreadable({ image, failed, onRetake, onTotal }: { image: string; faile
 /* ---------- r4 · review ------------------------------------------------------ */
 
 function Review({ draft, accounts, onRetake, onLog }: { draft: ReceiptDraft; accounts: Account[]; onRetake: () => void; onLog: (d: ReceiptDraft) => void }) {
+  const { state } = useLedger();
   const [d, setD] = React.useState(draft);
   const [pickAccount, setPickAccount] = React.useState(false);
   const [editing, setEditing] = React.useState<number | null>(null);
@@ -497,7 +498,7 @@ function Review({ draft, accounts, onRetake, onLog }: { draft: ReceiptDraft; acc
       </Sheet>
       <Sheet open={editing !== null} onOpenChange={(o) => !o && setEditing(null)} title={editing !== null ? d.items[editing]?.name : ""}>
         <div className="flex flex-wrap gap-2 pt-5">
-          {SPEND_CATEGORIES.map((c: Category) => (
+          {spendCategories(state).map((c: Category) => (
             <Pill
               key={c}
               active={editing !== null && d.items[editing]?.category === c && !d.items[editing]?.unsure}

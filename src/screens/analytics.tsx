@@ -1,8 +1,12 @@
 import * as React from "react";
 import { useChrome } from "@/components/ledger/chrome";
+import { NetWorthTrend, SpendingByAccount } from "@/screens/charts/accounts";
+import { CategoryDonut, IncomeSplit } from "@/screens/charts/composition";
+import { BillsVsEveryday, CategoryMix } from "@/screens/charts/mix";
+import { categoryColors } from "@/lib/chart-colors";
 import { AiSummaryText } from "@/components/ui/ai-summary/ai-summary";
 import { ChevronLeft, ChevronRight } from "@/components/ledger/icons";
-import { AiEyebrow, AiMark, AiPanel, Cta, Delta, EntryRow, Eyebrow, PageTitle, Screen, Segmented, Sheet } from "@/components/ledger/primitives";
+import { AiEyebrow, AiMark, AiPanel, Cta, Delta, Eyebrow, PageTitle, Screen, Segmented } from "@/components/ledger/primitives";
 import {
   analyticsHref,
   categoryRows,
@@ -16,23 +20,20 @@ import {
   recurringBills,
   savingsRate,
   shiftPeriod,
-  spendCalendar,
   periodSteps,
   type Headline,
-  type SpendDay,
   type StepPoint,
 } from "@/lib/analytics";
 import { cn } from "@/lib/cn";
-import { addDays, balance, compact, dayName, monthName, monthShort, peso, sameDay } from "@/lib/format";
+import { addDays, balance, compact, dayName, monthName, monthShort, peso } from "@/lib/format";
 import { navigate, query } from "@/lib/router";
-import { FIXED, budgetPace, byCategory, inRange, isIncome, isSpend, ledgerStart, monthBounds, monthBudget, netWorth, verdict, type PeriodKind } from "@/lib/selectors";
+import { FIXED, budgetPace, byCategory, inRange, isIncome, isSpend, ledgerStart, monthBudget, type PeriodKind } from "@/lib/selectors";
+import { fixedCategories } from "@/lib/categories";
 import { useLedger } from "@/lib/store";
 import { clearChatHistory } from "@/lib/chat-history";
-import { todayBudget } from "@/lib/today";
-import { MathSheet, ProfileSheet } from "@/screens/today-sheets";
-import { Plan } from "@/screens/plan";
+import { ProfileSheet } from "@/screens/today-sheets";
 import { useGaps } from "@/screens/activity";
-import type { Entry } from "@/lib/types";
+import type { Entry, LedgerState } from "@/lib/types";
 import { entriesHref, needsReview, type EntryKind } from "@/screens/ledger-list";
 
 /*
@@ -100,6 +101,14 @@ function Row({ label, meta, value, trail, onClick, bar }: { label: React.ReactNo
       {onClick ? <ChevronRight size={14} className="-mr-1 flex-none text-fg-subtle" /> : null}
     </Tag>
   );
+}
+
+/**
+ * One chart per bordered card, so the page scans as a stack of answers. The chart's own
+ * section padding is dropped inside; a chart with nothing to show leaves no empty card.
+ */
+function ChartCard({ children }: { children: React.ReactNode }) {
+  return <div className="mx-6 mt-4 rounded-xl border border-line px-4 pt-4 pb-3 empty:hidden [&>section]:px-0 [&>section]:pt-0">{children}</div>;
 }
 
 function Section({ title, aside, children, ai }: { title: string; aside?: React.ReactNode; children: React.ReactNode; ai?: boolean }) {
@@ -387,7 +396,7 @@ function markFigure(f: Finding): React.ReactNode {
  */
 function Overview({ cards, all, label }: { cards: Finding[]; all: Entry[]; label: string }) {
   return (
-    <AiPanel label={`M8 · ${label}`} className="mx-6 mt-9">
+    <AiPanel label={`M8 · ${label}`} className="mx-6 mt-6">
       {cards.map((f) => (
         <a
           key={f.key}
@@ -421,7 +430,7 @@ export function findings(o: {
   prevList: Entry[];
   all: Entry[];
   /** pace: share of the budget period gone (selectors.budgetPace; prorated in the first month) */
-  budget: { budget: number; current: boolean; pace: number };
+  budget: { budget: number; current: boolean; pace: number; /** fixed bills (categories.fixedCategories); defaults to the built-ins */ fixed?: string[] };
 }): Finding[] {
   const { kind, from, to, now, label, h, list, prevList, all } = o;
   const out: Finding[] = [];
@@ -500,7 +509,7 @@ export function findings(o: {
     if (o.budget.current) {
       // bills are due in full on their date; only the rest is paced (as in Budgets)
       const fixed = byCategory(list)
-        .filter(([c]) => FIXED.includes(c))
+        .filter(([c]) => (o.budget.fixed ?? FIXED).includes(c))
         .reduce((s, [, v]) => s + v, 0);
       const pace = o.budget.pace;
       const allowed = fixed + (b - fixed) * pace;
@@ -587,7 +596,8 @@ export function findings(o: {
 /* ---------- where it went ---------------------------------------------------------- */
 
 
-function WhereItWent({ kind, from, to, label, h, list, prevList, all }: { kind: PeriodKind; from: Date; to: Date; label: string; h: Headline; list: Entry[]; prevList: Entry[]; all: Entry[] }) {
+function WhereItWent({ kind, from, to, label, h, list, prevList, all, state }: { kind: PeriodKind; from: Date; to: Date; label: string; h: Headline; list: Entry[]; prevList: Entry[]; all: Entry[]; state: LedgerState }) {
+  const color = categoryColors(state);
   const [allCats, setAllCats] = React.useState(false);
   const go = (es: Entry[], l: string, f?: Parameters<typeof entriesHref>[3]) => navigate(entriesHref(all, es, l, f));
   const range = { from, to: lastDay(to) };
@@ -598,12 +608,19 @@ function WhereItWent({ kind, from, to, label, h, list, prevList, all }: { kind: 
   return (
     <>
       <Section title="WHERE IT WENT" aside={<span className="tnum text-[13px] text-fg-muted">{peso(h.cur.out)}</span>}>
+        {/* the donut's legend is the list under it: each row carries its slice's color */}
+        <CategoryDonut list={list} state={state} label={label} />
         <div className="mt-1 divide-y divide-line">
           {shown.map((r) => (
             <Row
               key={r.cat}
-              label={r.cat}
-              meta={`${r.share}% of spending · ${entriesText(r.entries.length)}`}
+              label={
+                <span className="flex items-center gap-2">
+                  <span aria-hidden className="size-2.5 flex-none rounded-full" style={{ background: color(r.cat) }} />
+                  {r.cat}
+                </span>
+              }
+              meta={`${r.share}% · ${entriesText(r.entries.length)}`}
               value={peso(r.amount)}
               bar={{ fraction: r.fraction, muted: r.cat === "Unfiled" }}
               trail={
@@ -629,83 +646,6 @@ function WhereItWent({ kind, from, to, label, h, list, prevList, all }: { kind: 
 
 
 /* ---------- screen ---------------------------------------------------------- */
-
-/* Level fills: one hue (danger, money out) mixed into the page colour, so light and dark both work. */
-const LEVEL_MIX = [0, 12, 26, 42, 60, 82];
-const levelFill = (l: number) => `color-mix(in oklab, var(--color-danger) ${LEVEL_MIX[l]}%, var(--color-bg))`;
-
-function dayTitle(d: Date, now: Date) {
-  const date = `${d.getDate()} ${monthName(d)}`.toUpperCase();
-  const lead = sameDay(d, now) ? "TODAY" : sameDay(d, addDays(now, -1)) ? "YESTERDAY" : dayName(d).slice(0, 3).toUpperCase();
-  return `${lead} · ${date}`;
-}
-
-/** Month view: a Monday-first heat-map of each day's spend; tap a day for what made it. */
-function SpendCalendar({ from, now }: { from: Date; now: Date }) {
-  const { state } = useLedger();
-  const [open, setOpen] = React.useState<SpendDay | null>(null);
-  const days = React.useMemo(() => spendCalendar(state.entries, from, now), [state.entries, from, now]);
-  const lead = (from.getDay() + 6) % 7;
-  const accounts = new Map(state.accounts.map((a) => [a.id, a]));
-  return (
-    <Section title="SPEND CALENDAR">
-      <div className="mt-3 grid grid-cols-7 gap-1" role="group" aria-label={`Spend by day, ${monthName(from)} ${from.getFullYear()}`}>
-        {["M", "T", "W", "T", "F", "S", "S"].map((d, i) => (
-          <span key={i} aria-hidden className="pb-1 text-center font-mono text-[10.5px] text-fg-subtle">
-            {d}
-          </span>
-        ))}
-        {Array.from({ length: lead }, (_, i) => (
-          <span key={`pad${i}`} aria-hidden />
-        ))}
-        {days.map((d) => {
-          const label = `${d.day} ${monthName(d.date)}, ${d.future ? "no spending yet" : `spent ${peso(d.spent)}`}`;
-          return (
-            <button
-              key={d.day}
-              type="button"
-              aria-label={label}
-              disabled={d.future}
-              onClick={() => setOpen(d)}
-              style={d.level ? { backgroundColor: levelFill(d.level) } : undefined}
-              className={cn(
-                "flex aspect-square items-start justify-start rounded-md border p-1.5 font-mono text-[10.5px] leading-none tnum active:opacity-60",
-                d.level ? "border-transparent" : d.future ? "border-dashed border-line text-fg-subtle" : "border-line bg-surface text-fg-muted",
-                d.level === 5 ? "text-danger-fg" : d.level ? "text-fg" : null,
-              )}
-            >
-              {d.day}
-            </button>
-          );
-        })}
-      </div>
-      <div className="mt-3 flex items-center justify-end gap-2 font-mono text-[10.5px] tracking-[0.05em] text-fg-subtle" aria-hidden>
-        LOW
-        {[1, 2, 3, 4, 5].map((l) => (
-          <span key={l} className="size-3.5 rounded-[4px]" style={{ backgroundColor: levelFill(l) }} />
-        ))}
-        HIGH
-      </div>
-      <Sheet open={!!open} onOpenChange={(o) => !o && setOpen(null)} title={open ? dayTitle(open.date, now) : undefined}>
-        {open ? (
-          <div className="pt-4 pb-2">
-            <Eyebrow>SPENT</Eyebrow>
-            <div className="tnum mt-1 text-[32px] leading-[1.1] font-semibold tracking-[-0.02em]">{peso(open.spent)}</div>
-            {open.entries.length ? (
-              <div className="mt-5 flex flex-col gap-4">
-                {open.entries.map((e) => (
-                  <EntryRow key={e.id} entry={e} account={e.accountId ? accounts.get(e.accountId) : undefined} onClick={() => navigate(`/activity/${e.id}`)} />
-                ))}
-              </div>
-            ) : (
-              <p className="mt-4 text-[14px] text-fg-muted">Nothing spent this day.</p>
-            )}
-          </div>
-        ) : null}
-      </Sheet>
-    </Section>
-  );
-}
 
 /** Profile avatar: opens the profile / settings sheet (it lived on Today). */
 function ProfileButton() {
@@ -748,56 +688,6 @@ function ReviewRow() {
   );
 }
 
-/** Month view: what Today used to show. Current month = left to spend and today's number; past = how it ended. */
-function BudgetGoals({ at, current, now }: { at: Date; current: boolean; now: Date }) {
-  const { state } = useLedger();
-  const [mathOpen, setMathOpen] = React.useState(false);
-  const v = verdict(state, at);
-  const tb = todayBudget(state, now);
-  const [mf, mt] = monthBounds(at);
-  const month = monthName(at).toUpperCase();
-  const worth = netWorth(state.accounts).total;
-  const hasBudget = v.budget > 0;
-  return (
-    <>
-      <section aria-label="Left to spend" className="px-6 pt-6">
-        {current ? (
-          <>
-            <Eyebrow>{v.left < 0 ? `OVER BUDGET · ${month}` : `LEFT TO SPEND · ${month}`}</Eyebrow>
-            <div className={cn("tnum mt-2 text-[40px] leading-none font-semibold tracking-[-0.04em]", v.left < 0 && "text-danger", !tb.hasBudget && "text-fg-subtle")}>
-              {tb.hasBudget ? balance(v.left) : "₱—"}
-            </div>
-          </>
-        ) : (
-          <>
-            <Eyebrow>BUDGET · {month}</Eyebrow>
-            <div className={cn("tnum mt-2 text-[22px] leading-tight font-semibold tracking-[-0.02em]", v.left < 0 && "text-danger", !hasBudget && "text-fg-subtle")}>
-              {hasBudget ? `Ended ${peso(Math.abs(v.left))} ${v.left < 0 ? "over" : "under"} budget` : "No budget set"}
-            </div>
-          </>
-        )}
-        <p className="tnum mt-2 text-[13px] text-fg-muted">
-          Total balance <span className={cn("font-semibold", worth < 0 ? "text-danger" : "text-fg")}>{balance(worth)}</span>
-        </p>
-        {current ? (
-          <button
-            type="button"
-            onClick={() => tb.hasBudget && setMathOpen(true)}
-            aria-label={tb.hasBudget ? `${balance(tb.left)} ${tb.left < 0 ? "over today" : "left today"}. Show the math` : "No budget yet"}
-            className="mt-3 flex min-h-11 flex-wrap items-baseline gap-x-2 text-left active:opacity-60"
-          >
-            <span className={cn("tnum text-[18px] font-semibold tracking-[-0.01em]", !tb.hasBudget ? "text-fg-subtle" : tb.left < 0 ? "text-danger" : "text-fg")}>{tb.hasBudget ? balance(tb.left) : "₱—"}</span>
-            <span className="text-[14px] text-fg-subtle">{!tb.hasBudget ? "no budget yet" : tb.left < 0 ? "over today" : "left today"}</span>
-            {tb.hasBudget ? <span className="text-[13px] text-fg-muted underline underline-offset-4">Show the math</span> : null}
-          </button>
-        ) : null}
-      </section>
-      <Plan at={at} />
-      {current ? <MathSheet open={mathOpen} onOpenChange={setMathOpen} v={v} month={inRange(state.entries, mf, mt)} today={now} /> : null}
-    </>
-  );
-}
-
 export function Analytics({ path }: { path: string }) {
   const { state } = useLedger();
   const { openAdd } = useChrome();
@@ -833,7 +723,7 @@ export function Analytics({ path }: { path: string }) {
   const prevList = inRange(all, h.prior.from, h.prior.to);
   const steps = periodSteps(all, kind, from, now);
   const mb = kind === "month" ? monthBudget(state, current ? now : lastDay(to)) : null;
-  const budget = { budget: mb?.budget ?? 0, current, pace: mb && current ? budgetPace(mb, now) : 1 };
+  const budget = { budget: mb?.budget ?? 0, current, pace: mb && current ? budgetPace(mb, now) : 1, fixed: fixedCategories(state) };
   const cards = findings({ kind, from, to, now, label, h, list, prevList, all, budget });
   const empty = !list.some((e) => isSpend(e) || isIncome(e));
   const prevLabel = priorLabel(kind, h.prior);
@@ -867,25 +757,41 @@ export function Analytics({ path }: { path: string }) {
         <SourceLink bare count={list.filter((e) => isSpend(e) || isIncome(e)).length} to={entriesHref(all, list.filter((e) => isSpend(e) || isIncome(e)), `Income and spending · ${label}`)} />
       </section>
 
-      {kind === "month" ? (
-        <>
-          <ReviewRow />
-          <BudgetGoals at={current ? now : lastDay(to)} current={current} now={now} />
-        </>
-      ) : null}
+      {kind === "month" ? <ReviewRow /> : null}
 
-      <TrendChart key={`${kind}${from.getTime()}`} kind={kind} steps={steps} label={label} />
-
-      {kind === "month" ? <SpendCalendar from={from} now={now} /> : null}
-
+      {/* ordered by what you'd ask first: what happened, where it went, how it moved, then the deeper cuts */}
       {empty ? (
         <p className="px-6 pt-9 text-[14px] text-fg-muted">Nothing logged in {label}. Step back to an earlier {UNIT[kind]}.</p>
       ) : (
         <>
           {cards.length ? <Overview cards={cards} all={all} label={label} /> : null}
-          <WhereItWent kind={kind} from={from} to={to} label={label} h={h} list={list} prevList={prevList} all={all} />
+          <ChartCard>
+            <WhereItWent kind={kind} from={from} to={to} label={label} h={h} list={list} prevList={prevList} all={all} state={state} />
+          </ChartCard>
         </>
       )}
+      <ChartCard>
+        <TrendChart key={`${kind}${from.getTime()}`} kind={kind} steps={steps} label={label} />
+      </ChartCard>
+      {empty ? null : (
+        <>
+          <ChartCard>
+            <IncomeSplit list={list} state={state} label={label} />
+          </ChartCard>
+          <ChartCard>
+            <CategoryMix kind={kind} from={from} state={state} now={now} />
+          </ChartCard>
+          <ChartCard>
+            <BillsVsEveryday kind={kind} from={from} state={state} now={now} />
+          </ChartCard>
+          <ChartCard>
+            <SpendingByAccount list={list} state={state} label={label} />
+          </ChartCard>
+        </>
+      )}
+      <ChartCard>
+        <NetWorthTrend kind={kind} from={from} state={state} now={now} />
+      </ChartCard>
     </Screen>
   );
 }

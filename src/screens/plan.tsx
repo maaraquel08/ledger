@@ -1,15 +1,11 @@
 import * as React from "react";
-import { ActionButton, Cta, Eyebrow, Pill, Sheet } from "@/components/ledger/primitives";
-import { cn } from "@/lib/cn";
-import { goalLabel, MAX_AMOUNT, monthName, monthShort, peso } from "@/lib/format";
-import { addToGoal, byCategory, FIXED, goalProgress, inRange, monthBounds, verdict } from "@/lib/selectors";
+import { ActionButton, Cta, Eyebrow, Sheet } from "@/components/ledger/primitives";
+import { goalLabel, MAX_AMOUNT, peso } from "@/lib/format";
+import { addToGoal, goalProgress } from "@/lib/selectors";
 import { newId, useLedger } from "@/lib/store";
-import type { Category, Goal } from "@/lib/types";
+import type { Goal } from "@/lib/types";
 
-/*
- * Budgets and goals, as a section of Today: the month's budget against
- * pace, category budgets and savings goals. Edits open in sheets.
- */
+/* Savings goals and the total-budget sheet, shown on the Budget tab. Edits open in sheets. */
 
 function Field({
   label,
@@ -43,106 +39,20 @@ function Field({
   );
 }
 
-const num = (s: string) => {
+export const num = (s: string) => {
   const n = parseFloat(s.replace(/[^\d.]/g, ""));
   return Number.isFinite(n) ? n : 0;
 };
 
-const BUDGET_CATS: Category[] = ["Food & drink", "Groceries", "Transport", "Shopping", "Rent & bills", "Subscriptions", "Gifts", "Health", "Other"];
-
-/** `at`: any day of the month to show (default today); a past month reads as it ended. */
-export function Plan({ at }: { at?: Date } = {}) {
+/** Savings goals: list, New, edit, Add money. Lives on the Budget tab. */
+export function Goals() {
   const { state, dispatch } = useLedger();
   const { profile } = state;
-  const now = at ?? new Date();
-  const v = verdict(state, now);
-  const [from, to] = monthBounds(now);
-  const spentBy = new Map(byCategory(inRange(state.entries, from, to)));
-  const pace = v.pace;
-  // bills are due in full on their date; only the discretionary rest is paced
-  const fixedSpent = FIXED.reduce((sum, c) => sum + (spentBy.get(c) ?? 0), 0);
-  const overBudget = v.left < 0;
-  const overPace = overBudget || v.spent - fixedSpent > (v.budget - fixedSpent) * pace;
-  const budgets = BUDGET_CATS.filter((c) => (profile.categoryBudgets[c] ?? 0) > 0);
-  const catTotal = budgets.reduce((n, c) => n + (profile.categoryBudgets[c] ?? 0), 0);
-  const catsOver = catTotal - v.fullBudget;
-
-  const [catSheet, setCatSheet] = React.useState<{ cat: Category | null } | null>(null);
-  const [totalOpen, setTotalOpen] = React.useState(false);
   const [goalSheet, setGoalSheet] = React.useState<{ goal: Goal | null } | null>(null);
   const [addTo, setAddTo] = React.useState<Goal | null>(null);
 
   return (
-    <section id="plan" aria-label="Budgets and goals" className="scroll-mt-4">
-      <div className="px-6 pt-10">
-        <div className="flex items-center justify-between">
-          <Eyebrow>BUDGET · {monthName(now).toUpperCase()}</Eyebrow>
-          <button type="button" onClick={() => setTotalOpen(true)} className="flex h-11 min-w-11 items-center justify-center px-1 text-[13px] text-fg-muted active:opacity-60">
-            Adjust
-          </button>
-        </div>
-        <div className="flex items-baseline justify-between gap-3">
-          <span className="tnum text-[14.5px]">
-            <span className={cn("font-semibold", v.left < 0 ? "text-danger" : "text-fg")}>{peso(v.spent)}</span>
-            <span className="text-fg-muted"> of {peso(v.budget)}</span>
-          </span>
-          <span className={cn("tnum text-[13px]", overPace ? "font-medium text-danger" : "text-fg-muted")}>
-            {overBudget ? `${peso(-v.left)} over budget` : overPace ? "Spending over pace" : `${v.daysLeft} day${v.daysLeft === 1 ? "" : "s"} left`}
-          </span>
-        </div>
-        {v.proratedFrom ? (
-          <p className="tnum mt-1 text-[12px] text-fg-muted">
-            First month: {peso(v.fullBudget)} prorated from {v.proratedFrom.getDate()} {monthShort(v.proratedFrom)}
-          </p>
-        ) : null}
-        <div className="relative mt-2.5 h-1.5 rounded-full bg-fill">
-          <div className={cn("h-full rounded-full", overPace ? "bg-danger" : "bg-accent")} style={{ width: `${v.budget > 0 ? Math.min(100, (v.spent / v.budget) * 100) : 0}%` }} />
-          <div className="absolute -top-1 h-3.5 w-px bg-accent" style={{ left: `${pace * 100}%` }} aria-hidden />
-        </div>
-      </div>
-
-      <div className="px-6 pt-8">
-        <div className="flex items-center justify-between">
-          <Eyebrow>CATEGORY BUDGETS</Eyebrow>
-          <button type="button" onClick={() => setCatSheet({ cat: null })} className="flex h-11 min-w-11 items-center justify-center px-1 text-[13px] text-fg-muted active:opacity-60">
-            Add
-          </button>
-        </div>
-        {catsOver > 0 ? (
-          <p role="status" className="tnum mt-2 rounded-md border border-warning px-3 py-2.5 text-[13px] leading-[1.45] text-gold-ink">
-            Category budgets add up to {peso(catTotal)}, {peso(catsOver)} more than your {peso(v.fullBudget)} monthly budget. Raise the total or trim a category.
-          </p>
-        ) : null}
-        {budgets.length === 0 ? (
-          <p className="py-3 text-[14px] text-fg-muted">No category budgets yet. Add one to see how you’re pacing.</p>
-        ) : (
-          <ul>
-            {budgets.map((c) => {
-              const cap = profile.categoryBudgets[c] ?? 0;
-              const spent = spentBy.get(c) ?? 0;
-              const over = spent > cap;
-              return (
-                <li key={c}>
-                  <button type="button" onClick={() => setCatSheet({ cat: c })} className="block w-full py-3.5 text-left active:opacity-60">
-                    <div className="flex items-baseline justify-between gap-3">
-                      <span className="text-[14.5px]">{c}</span>
-                      <span className="tnum text-[13px] text-fg-muted">
-                        <span className={cn("font-semibold", over ? "text-danger" : "text-fg")}>{peso(spent)}</span> / {Math.round(cap).toLocaleString("en-PH")}
-                      </span>
-                    </div>
-                    <div className="relative mt-2.5 h-1.5 rounded-full bg-fill">
-                      <div className={cn("h-full rounded-full", over ? "bg-danger" : "bg-accent")} style={{ width: `${Math.min(100, (spent / cap) * 100)}%` }} />
-                      <div className="absolute -top-1 h-3.5 w-px bg-accent" style={{ left: `${pace * 100}%` }} aria-hidden />
-                    </div>
-                    {over && <div className="tnum mt-1.5 text-[12px] font-medium text-danger">{peso(spent - cap)} over</div>}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </div>
-
+    <section id="goals" aria-label="Goals" className="scroll-mt-4">
       <div className="px-6 pt-8">
         <div className="flex items-center justify-between">
           <Eyebrow>GOALS</Eyebrow>
@@ -158,7 +68,7 @@ export function Plan({ at }: { at?: Date } = {}) {
               const { pct: p, toGo } = goalProgress(g);
               return (
                 <li key={g.id} className="py-1.5">
-                  <button type="button" onClick={() => setGoalSheet({ goal: g })} className="block w-full py-2 text-left active:opacity-60">
+                  <button type="button" aria-label={`Edit ${g.name}: ${p >= 100 ? "reached" : `${p}%`}, ${peso(toGo)} to go`} onClick={() => setGoalSheet({ goal: g })} className="block w-full py-2 text-left active:opacity-60">
                     <div className="flex items-baseline justify-between gap-3">
                       <span className="text-[14.5px] font-medium">{g.name}</span>
                       {/* saving past the target is fine; say it's reached rather than "133%" */}
@@ -196,30 +106,6 @@ export function Plan({ at }: { at?: Date } = {}) {
         )}
       </div>
 
-      <CategorySheet
-        key={`cat-${catSheet?.cat ?? "new"}`}
-        state={catSheet}
-        taken={budgets}
-        onClose={() => setCatSheet(null)}
-        onSave={(cat, amount) => {
-          const next = { ...profile.categoryBudgets };
-          if (amount > 0) next[cat] = amount;
-          else delete next[cat];
-          dispatch({ type: "update-profile", patch: { categoryBudgets: next } });
-          setCatSheet(null);
-        }}
-        current={(c) => profile.categoryBudgets[c] ?? 0}
-      />
-      <TotalSheet
-        open={totalOpen}
-        value={v.fullBudget}
-        catTotal={catTotal}
-        onClose={() => setTotalOpen(false)}
-        onSave={(n) => {
-          dispatch({ type: "update-profile", patch: { monthlyBudget: n } });
-          setTotalOpen(false);
-        }}
-      />
       <AddMoneySheet
         key={`add-${addTo?.id ?? "none"}`}
         goal={addTo}
@@ -247,63 +133,7 @@ export function Plan({ at }: { at?: Date } = {}) {
   );
 }
 
-function CategorySheet({
-  state,
-  taken,
-  current,
-  onClose,
-  onSave,
-}: {
-  state: { cat: Category | null } | null;
-  taken: Category[];
-  current: (c: Category) => number;
-  onClose: () => void;
-  onSave: (c: Category, amount: number) => void;
-}) {
-  const [cat, setCat] = React.useState<Category | null>(state?.cat ?? null);
-  const [amt, setAmt] = React.useState(state?.cat ? String(current(state.cat)) : "");
-  const editing = !!state?.cat;
-  const [confirm, setConfirm] = React.useState(false);
-  return (
-    <Sheet open={!!state} onOpenChange={(o) => { if (!o) { setConfirm(false); onClose(); } }} title={editing ? `${state!.cat} budget` : "New category budget"}>
-      {!editing && (
-        <div className="mt-4 flex flex-wrap gap-2">
-          {BUDGET_CATS.filter((c) => !taken.includes(c)).map((c) => (
-            <Pill key={c} active={cat === c} className="min-h-11" onClick={() => setCat(c)}>
-              {c}
-            </Pill>
-          ))}
-        </div>
-      )}
-      <Field label="MONTHLY BUDGET" prefix="₱" value={amt} onChange={setAmt} inputMode="numeric" placeholder="0" />
-      <div className="mt-5 flex flex-col gap-2.5">
-        <Cta disabled={!cat || num(amt) <= 0} onClick={() => cat && onSave(cat, num(amt))}>
-          Save budget
-        </Cta>
-        {editing &&
-          (confirm ? (
-            <div className="rounded-lg border border-danger/50 p-3.5">
-              <p className="text-[13.5px] leading-[1.45]">Remove the {state!.cat} budget? Your spending in this category stays in Money.</p>
-              <div className="mt-3 flex gap-2.5">
-                <ActionButton variant="secondary" className="min-h-11 flex-1" autoFocus onClick={() => setConfirm(false)}>
-                  Cancel
-                </ActionButton>
-                <ActionButton className="min-h-11 flex-1 !bg-danger" onClick={() => onSave(state!.cat!, 0)}>
-                  Remove budget
-                </ActionButton>
-              </div>
-            </div>
-          ) : (
-            <Cta variant="secondary" onClick={() => setConfirm(true)}>
-              Remove budget
-            </Cta>
-          ))}
-      </div>
-    </Sheet>
-  );
-}
-
-function TotalSheet({ open, value, catTotal, onClose, onSave }: { open: boolean; value: number; catTotal: number; onClose: () => void; onSave: (n: number) => void }) {
+export function TotalSheet({ open, value, catTotal, onClose, onSave }: { open: boolean; value: number; catTotal: number; onClose: () => void; onSave: (n: number) => void }) {
   const [amt, setAmt] = React.useState(String(value));
   React.useEffect(() => {
     if (open) setAmt(String(value));

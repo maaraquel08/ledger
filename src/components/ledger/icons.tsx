@@ -36,6 +36,17 @@ export const AccountsIcon = ({ size, filled, ...p }: P & { filled?: boolean }) =
   </svg>
 );
 
+/** Activity: a receipt with line items. */
+export const ActivityIcon = ({ size, filled, ...p }: P & { filled?: boolean }) => (
+  <svg {...stroke(size, p)}>
+    <path
+      fill={filled ? "currentColor" : "none"}
+      d="M6.2 3.6h11.6a1 1 0 0 1 1 1v15.8l-2.4-1.5-2 1.5-2-1.5-2 1.5-2-1.5-2.2 1.5V4.6a1 1 0 0 1 1-1z"
+    />
+    <path d="M8.8 8.6h6.4M8.8 12h6.4" stroke={filled ? "var(--color-bg)" : "currentColor"} />
+  </svg>
+);
+
 /** Review: an in-tray. */
 export const ReviewIcon = ({ size, filled, ...p }: P & { filled?: boolean }) => (
   <svg {...stroke(size, p)}>
@@ -52,6 +63,15 @@ export const AnalyticsIcon = ({ size, filled, ...p }: P & { filled?: boolean }) 
   <svg {...stroke(size, p)}>
     <path d="M3.8 20.2h16.4" />
     <path fill={filled ? "currentColor" : "none"} d="M5.6 12.6a1 1 0 0 1 1-1h1.8a1 1 0 0 1 1 1v7.6H5.6zM10.6 5.8a1 1 0 0 1 1-1h1.8a1 1 0 0 1 1 1v14.4h-3.8zM15.6 9.6a1 1 0 0 1 1-1h1.8a1 1 0 0 1 1 1v10.6h-3.8z" />
+  </svg>
+);
+
+/** Budget: a coin purse split into a pie slice. */
+export const BudgetIcon = ({ size, filled, ...p }: P & { filled?: boolean }) => (
+  <svg {...stroke(size, p)}>
+    <circle cx="12" cy="12" r="8.4" fill={filled ? "currentColor" : "none"} />
+    <path d="M12 3.6V12h8.4" stroke={filled ? "var(--color-bg)" : "currentColor"} />
+    <path d="M12 12 6.1 17.9" stroke={filled ? "var(--color-bg)" : "currentColor"} />
   </svg>
 );
 

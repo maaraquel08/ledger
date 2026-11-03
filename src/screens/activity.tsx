@@ -22,7 +22,8 @@ import { UndoToast, type UndoNote } from "@/components/ledger/undo-toast";
 import { cn } from "@/lib/cn";
 import { monthName, parseWholePesos, peso, signed, stamp, wholePesos } from "@/lib/format";
 import { canRefund, categoriesFor, fixedCategory } from "@/lib/entry-rules";
-import { SPEND_CATEGORIES, suggestCategory } from "@/lib/providers";
+import { spendCategories } from "@/lib/categories";
+import { suggestCategory } from "@/lib/providers";
 import { splitOf } from "@/lib/receipt";
 import { back, navigate } from "@/lib/router";
 import { accountLabel, byCategory, canSpendFrom, inRange, isSpend, monthBounds } from "@/lib/selectors";
@@ -57,12 +58,12 @@ export function ActivityDetail({ id }: { id: string }) {
   if (!entry) {
     return (
       <Screen>
-        <BackBar label="Money" onBack={() => back("/money")} />
+        <BackBar label="Activity" onBack={() => back("/activity")} />
         <div className="flex flex-1 flex-col items-center justify-center px-8 pb-24 text-center">
           <h2 className="text-[19px] leading-[1.25] font-semibold text-balance">Entry not found</h2>
           <p className="mt-2.5 text-[14px] text-fg-muted">It may have been deleted.</p>
-          <Cta className="mt-7 max-w-[240px]" onClick={() => navigate("/money", { replace: true })}>
-            Back to Money
+          <Cta className="mt-7 max-w-[240px]" onClick={() => navigate("/activity", { replace: true })}>
+            Back to Activity
           </Cta>
         </div>
       </Screen>
@@ -166,7 +167,7 @@ export function ActivityDetail({ id }: { id: string }) {
     <Screen>
       <BackBar
         label="Back"
-        onBack={() => back("/money")}
+        onBack={() => back("/activity")}
         right={
           <button type="button" onClick={() => setEditing(true)} className={EDIT_HIT}>
             Edit
@@ -248,7 +249,7 @@ export function ActivityDetail({ id }: { id: string }) {
               className="min-h-12 flex-1 !bg-danger"
               onClick={() => {
                 dispatch({ type: "delete-entry", id: entry.id });
-                back("/money");
+                back("/activity");
               }}
             >
               {other ? "Delete transfer" : "Delete entry"}
@@ -344,7 +345,7 @@ function EditEntrySheet({
   other?: Entry;
   accounts: Account[];
 }) {
-  const { dispatch } = useLedger();
+  const { state, dispatch } = useLedger();
   const [desc, setDesc] = React.useState(entry.desc);
   const [amount, setAmount] = React.useState(String(wholePesos(entry.amount)));
   const [capped, setCapped] = React.useState(false);
@@ -368,7 +369,7 @@ function EditEntrySheet({
   // a leg of a move or an Adjustment keeps its category and its sign
   const fixed = fixedCategory(entry);
   const sign: 1 | -1 = fixed ? (entry.amount >= 0 ? 1 : -1) : dir === "Income" ? 1 : -1;
-  const options = categoriesFor(sign, entry.category);
+  const options = categoriesFor(sign, entry.category, state);
   const value = parseWholePesos(amount);
   const valid = value != null && (fixed || cat == null || options.includes(cat)) && !(other && acct != null && acct === other.accountId);
   const flips = valid && sign !== (entry.amount >= 0 ? 1 : -1);
@@ -379,7 +380,7 @@ function EditEntrySheet({
   const pickDir = (d: Direction) => {
     setDir(d);
     // income categories don't fit money out, and the other way round
-    if (cat && !categoriesFor(d === "Income" ? 1 : -1, entry.category).includes(cat)) setCat(null);
+    if (cat && !categoriesFor(d === "Income" ? 1 : -1, entry.category, state).includes(cat)) setCat(null);
   };
 
   const save = () => {
@@ -451,7 +452,9 @@ function EditEntrySheet({
 /*  Review queue                                                           */
 /* ====================================================================== */
 
+/** the four filing chips: these, when the Owner still has them, topped up from their own list */
 const QUICK: Category[] = ["Food & drink", "Gifts", "Groceries", "Other"];
+const quickFor = (list: Category[]) => [...QUICK.filter((c) => list.includes(c)), ...list.filter((c) => !QUICK.includes(c))].slice(0, 4);
 
 export function Review() {
   const { state, dispatch } = useLedger();
@@ -517,8 +520,8 @@ export function Review() {
         <div className="flex flex-1 flex-col items-center justify-center px-8 pb-24 text-center">
           <h2 className="text-[19px] leading-[1.25] font-semibold tracking-[-0.01em]">All filed.</h2>
           <p className="mt-2.5 max-w-[260px] text-[14px] leading-[1.5] text-fg-muted">Every entry has a category and an account.</p>
-          <Cta className="mt-7 max-w-[240px]" onClick={() => navigate("/money")}>
-            See your money
+          <Cta className="mt-7 max-w-[240px]" onClick={() => navigate("/activity")}>
+            See your activity
           </Cta>
         </div>
         {toast}
@@ -548,7 +551,8 @@ export function Review() {
       <div className="px-6 pt-7">
         {queue.map((e) => {
           const suggestion = suggestCategory(e.desc);
-          const options = suggestion ? [suggestion, ...QUICK.filter((c) => c !== suggestion)].slice(0, 4) : QUICK;
+          const quick = quickFor(spendCategories(state));
+          const options = suggestion && spendCategories(state).includes(suggestion) ? [suggestion, ...quick.filter((c) => c !== suggestion)].slice(0, 4) : quick;
           const gone = leaving.has(e.id);
           return (
             <div key={e.id} className={cn("grid transition-opacity duration-300 ease-out motion-safe:transition-[grid-template-rows,opacity]", gone ? "opacity-0 motion-safe:grid-rows-[0fr]" : "grid-rows-[1fr] opacity-100")}>
@@ -662,7 +666,7 @@ function GapList({ gaps, onAdjust }: { gaps: Gap[]; onAdjust: (g: Gap) => void }
 
 /** Re-file a receipt's items; the split follows. */
 function SplitSheet({ open, onOpenChange, entry }: { open: boolean; onOpenChange: (o: boolean) => void; entry: Entry }) {
-  const { dispatch } = useLedger();
+  const { state, dispatch } = useLedger();
   const [items, setItems] = React.useState(entry.receipt?.items ?? []);
   React.useEffect(() => {
     if (open) setItems(entry.receipt?.items ?? []);
@@ -686,7 +690,7 @@ function SplitSheet({ open, onOpenChange, entry }: { open: boolean; onOpenChange
               <span className="tnum">{peso(it.amount)}</span>
             </div>
             <div className="no-scrollbar -mx-[22px] mt-2 flex gap-1.5 overflow-x-auto px-[22px]">
-              {SPEND_CATEGORIES.map((c) => (
+              {spendCategories(state).map((c) => (
                 <Pill key={c} active={it.category === c} onClick={() => setItems(items.map((x, j) => (j === i ? { ...x, category: c } : x)))}>
                   {c}
                 </Pill>

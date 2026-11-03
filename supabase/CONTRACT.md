@@ -66,6 +66,22 @@ Columns marked † have defaults and can be omitted.
 Seed: Food & drink, Groceries, Transport, Shopping, Rent & bills, Subscriptions, Gifts, Household,
 Health, Other (`expense`, spend); Salary, Income (`income`); Investments (`invest`); Transfer
 (`transfer`); Adjustment (`adjustment`). Only `expense` categories are spend.
+Owners can add names (`add_category`/`rename_category`): the row is created with `sort` 100,
+`is_fixed`/`is_monthly` false (a rename copies them from the source). `categories.code` is never
+renamed in place (it would cascade to every user).
+
+### user_categories (owner select only; written by RPCs)
+| column | type | notes |
+|---|---|---|
+| user_id | uuid | default `auth.uid()`, pk part |
+| code | text | FK `categories.code` on update cascade, pk part |
+| kind | text | `expense` \| `income` |
+| sort | int | display order |
+| created_at | timestamptz | |
+
+No rows = the defaults (Food & drink, Groceries, Transport, Shopping, Rent & bills, Subscriptions,
+Gifts, Household, Health, Other; Salary, Income); the first add/rename/delete materialises them.
+Client: `select code, kind from user_categories order by sort`; empty means defaults.
 
 ### profiles (pk user_id)
 `user_id`†, `name`† text, `initials`† text, `income`† numeric (per payday), `frequency`† text
@@ -202,11 +218,33 @@ Spending / income (selectors.ts, with the `is_spend` flag):
 
 The write RPCs (`post_entries`, `update_entry`, `void_entry`, `mark_refunded`, `undo_event`,
 `report_balance`, `record_adjustment`, `report_holdings`, `upsert_account`, `import_state`,
-`erase_my_data`, `chat_quota_take`, `capture_quota_take`) are `security definer` with
+`add_category`, `rename_category`, `delete_category`, `erase_my_data`, `chat_quota_take`, `capture_quota_take`) are `security definer` with
 `search_path = ''`: they are the only way to write the locked tables, act only for `ledger_uid()`
 and filter every row by it. Read and metric RPCs are `security invoker` (RLS applies). All are
 granted to `authenticated` and `service_role`, not to `anon`.
 Call as `supabase.rpc('<name>', { p_x: … })`.
+
+### Category RPCs
+`add_category(p_name, p_kind)`, `rename_category(p_from, p_to)`, `delete_category(p_name, p_move_to)`
+(security definer, scoped to `ledger_uid()`) each return `{ "categories": [{ "code", "kind" }] }` in
+`sort` order. Names are trimmed, 1–32 chars; `Transfer`, `Investments`, `Adjustment`, `Other` are
+system names (case-insensitive) that cannot be added, renamed or deleted. Rename and delete move only
+the caller's `entries`, `entry_splits`, `receipt_items`, `recurring_items`, `rules."set".category_code`
+and the `profiles.category_budgets` key (rename carries the amount, delete drops it); rename keeps
+the list position. `move_to` must be in the caller's list with the same kind (expense → expense or
+`Other`; income → income). Errors are `22023` with the message as the code:
+
+| message | when |
+|---|---|
+| `category_name_invalid` | empty or over 32 chars |
+| `category_kind_invalid` | `p_kind` not `expense`/`income` |
+| `category_system` | system name added/renamed to, or renamed/deleted |
+| `category_exists` | already in the caller's list (case-insensitive) |
+| `category_kind_clash` | the global name exists with another kind |
+| `category_not_found` | `p_from`/`p_name` not in the caller's list |
+| `category_move_invalid` | `p_move_to` missing, same, or of another kind |
+
+After rename/delete the client should reload entries/budgets.
 
 ### Mutation result
 Returned by `post_entries`, `update_entry`, `void_entry`, `mark_refunded`, `record_adjustment`:

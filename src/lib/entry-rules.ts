@@ -1,5 +1,5 @@
-import { SPEND_CATEGORIES } from "./providers";
-import type { Account, Category, Entry } from "./types";
+import { incomeCategories, spendCategories } from "./categories";
+import type { Account, Category, Entry, LedgerState } from "./types";
 
 /* ---------- what an entry can file into, and amounts worth a second look --- */
 
@@ -12,8 +12,8 @@ const MOVE_CATEGORIES: (Category | null)[] = ["Transfer", "Investments", "Adjust
  * income categories for money in. Never Transfer or Investments (that would be a
  * one-legged move); an entry that already has one keeps it as an option.
  */
-export function categoriesFor(sign: 1 | -1, current: Category | null): Category[] {
-  const base = sign > 0 ? INCOME_CATEGORIES : SPEND_CATEGORIES;
+export function categoriesFor(sign: 1 | -1, current: Category | null, s: Pick<LedgerState, "categories"> = {}): Category[] {
+  const base = sign > 0 ? incomeCategories(s) : spendCategories(s);
   return current && !base.includes(current) && MOVE_CATEGORIES.includes(current) ? [...base, current] : base;
 }
 

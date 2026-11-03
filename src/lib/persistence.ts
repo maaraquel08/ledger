@@ -35,6 +35,8 @@ function migrate(raw: Partial<LedgerState>, photos: PhotoStore): LedgerState {
   // side income and holdings were removed; drop them from older saves
   const { sideIncome: _side, holdings: _held, ...profile } = { ...EMPTY_STATE.profile, ...s.profile };
   s.profile = { ...profile, goals: (s.profile?.goals ?? []).map((g) => ({ ...g, by: normalizeGoalBy(g.by) })) };
+  // absent = the default categories; anything that isn't a list is dropped
+  if (!Array.isArray(s.categories)) delete s.categories;
   s.entries = (s.entries ?? []).map((e) => {
     if (!e.receipt) return e;
     if (e.receipt.image) photos.put(e.id, e.receipt.image);

@@ -1,4 +1,4 @@
-import type { Account, AccountType, Category, Entry, Frequency, Goal, Profile, Provider, ReceiptItem, Split } from "../types";
+import type { Account, AccountType, Category, CategoryDef, Entry, Frequency, Goal, Profile, Provider, ReceiptItem, Split } from "../types";
 
 /*
  * Rows <-> app types, exactly as supabase/CONTRACT.md "TypeScript <-> rows" lists them.
@@ -159,6 +159,21 @@ export function entryPatch(patch: Partial<Entry>): Row {
   return p;
 }
 
+/** user_categories rows (with their global categories row) → the Owner's list; no rows = undefined = the defaults */
+export function toCategories(rows: Row[]): CategoryDef[] | undefined {
+  if (!rows.length) return undefined;
+  return rows.map((r) => {
+    const g = (Array.isArray(r.categories) ? r.categories[0] : r.categories) as Row | null | undefined;
+    const kind = r.kind === "income" ? "income" : "expense";
+    return {
+      name: String(r.code),
+      kind,
+      ...(kind === "expense" && g?.is_fixed ? { fixed: true } : {}),
+      ...(kind === "expense" && g?.is_monthly ? { monthly: true } : {}),
+    };
+  });
+}
+
 export function toProfile(r: Row | null, goals: Row[], base: Profile): Profile {
   return {
     ...base,
@@ -168,6 +183,7 @@ export function toProfile(r: Row | null, goals: Row[], base: Profile): Profile {
     frequency: ((r?.frequency as Frequency) ?? base.frequency) || base.frequency,
     monthlyBudget: num(r?.monthly_budget),
     categoryBudgets: Object.fromEntries(Object.entries((r?.category_budgets as Record<string, unknown> | null) ?? {}).map(([k, v]) => [k, num(v)])),
+    categoryBudgetPct: Object.fromEntries(Object.entries((r?.category_budget_pct as Record<string, unknown> | null) ?? {}).map(([k, v]) => [k, num(v)])),
     goals: goals.map(toGoal),
   };
 }
@@ -180,6 +196,7 @@ export function profilePayload(p: Partial<Profile>): Row {
   if ("frequency" in p) r.frequency = p.frequency;
   if ("monthlyBudget" in p) r.monthly_budget = p.monthlyBudget;
   if ("categoryBudgets" in p) r.category_budgets = p.categoryBudgets;
+  if ("categoryBudgetPct" in p) r.category_budget_pct = p.categoryBudgetPct ?? {};
   return r;
 }
 

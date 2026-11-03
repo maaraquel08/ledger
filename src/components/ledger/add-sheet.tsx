@@ -3,9 +3,9 @@ import { cn } from "@/lib/cn";
 import { fileToCanvas, useCamera } from "@/lib/camera";
 import { balance, MAX_AMOUNT, peso } from "@/lib/format";
 import { recognize, warmUp } from "@/lib/ocr";
-import { INCOME_CATEGORIES, isUnusualAmount, moveLegs, overdraws } from "@/lib/entry-rules";
+import { isUnusualAmount, moveLegs, overdraws } from "@/lib/entry-rules";
 import { parseEntry } from "@/lib/parse";
-import { SPEND_CATEGORIES } from "@/lib/providers";
+import { incomeCategories, spendCategories } from "@/lib/categories";
 import { compressImage, draftToEntry, parseReceipt, splitOf, type ReceiptDraft } from "@/lib/receipt";
 import { canSpendFrom } from "@/lib/selectors";
 import { navigate } from "@/lib/router";
@@ -105,6 +105,7 @@ export function AddSheet({
   const { state, dispatch } = useLedger();
   const cloud = useCloud(); // null in local mode
   const accounts = state.accounts;
+  const categories = state.categories;
   // read when the sheet opens, without resetting it when accounts change
   const accountsRef = React.useRef(accounts);
   React.useLayoutEffect(() => {
@@ -215,11 +216,11 @@ export function AddSheet({
       if (e.accountId) accs.set(e.accountId, (accs.get(e.accountId) ?? 0) + 1);
     }
     return {
-      spend: rankBy(SPEND_CATEGORIES, cats),
-      income: rankBy(INCOME_CATEGORIES, cats),
+      spend: rankBy(spendCategories({ categories }), cats),
+      income: rankBy(incomeCategories({ categories }), cats),
       accounts: rankBy(accounts, new Map(accounts.map((x) => [x, accs.get(x.id) ?? 0]))),
     };
-  }, [state.entries, accounts]);
+  }, [state.entries, accounts, categories]);
   // money is spent from cash, banks, wallets and cards: an investments account is offered only
   // where money can come in or move (income, invest), not as the source of a purchase
   const spendable = React.useMemo(() => ranked.accounts.filter(canSpendFrom), [ranked.accounts]);

@@ -25,23 +25,39 @@ export interface Account {
   dueDate?: string; // ISO, credit only
 }
 
-export type Category =
-  | "Food & drink"
-  | "Groceries"
-  | "Transport"
-  | "Shopping"
-  | "Rent & bills"
-  | "Subscriptions"
-  | "Gifts"
-  | "Household"
-  | "Health"
-  | "Salary"
-  | "Income"
-  | "Investments"
-  | "Transfer"
-  | "Other"
+/** The categories every ledger starts with (and the DB seeds). Names are the identity of a category. */
+export const BUILT_IN_CATEGORIES = [
+  "Food & drink",
+  "Groceries",
+  "Transport",
+  "Shopping",
+  "Rent & bills",
+  "Subscriptions",
+  "Gifts",
+  "Household",
+  "Health",
+  "Salary",
+  "Income",
+  "Investments",
+  "Transfer",
+  "Other",
   /** closes the gap between a reported and a derived balance, once the Owner confirms (D-0014) */
-  | "Adjustment";
+  "Adjustment",
+] as const;
+
+/** A category's name. Built-ins are listed in BUILT_IN_CATEGORIES; the Owner can add, rename and delete the rest. */
+export type Category = string;
+
+export type CategoryKind = "expense" | "income";
+
+export interface CategoryDef {
+  name: Category;
+  kind: CategoryKind;
+  /** a bill that lands on a date, not a habit: not paced (a renamed built-in keeps it) */
+  fixed?: boolean;
+  /** paid from the month's pool, not from today's allowance */
+  monthly?: boolean;
+}
 
 export interface Entry {
   id: string;
@@ -114,6 +130,8 @@ export interface Profile {
   sideIncome?: SideIncome[];
   monthlyBudget: number;
   categoryBudgets: Partial<Record<Category, number>>;
+  /** budgets set as a share of the monthly budget; categoryBudgets holds them resolved to pesos */
+  categoryBudgetPct?: Partial<Record<Category, number>>;
   goals: Goal[];
   /** @deprecated per-ticker holdings were removed; only older stored data may carry it */
   holdings?: Holding[];
@@ -125,6 +143,8 @@ export interface LedgerState {
   profile: Profile;
   accounts: Account[];
   entries: Entry[];
+  /** the Owner's category list; absent = the defaults (src/lib/categories.ts) */
+  categories?: CategoryDef[];
   questionsToday: number;
   questionsDate?: string; // local YYYY-MM-DD the counter belongs to
 }

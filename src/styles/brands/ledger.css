@@ -68,6 +68,16 @@
    * dataviz validate_palette.js: CVD ΔE 10.0 light, 11.4 dark). Text never wears these. */
   --chart-in: #0b6b3c;
   --chart-out: #e06a5c;
+  /* categorical series for composition charts, in fixed order (validated with the dataviz
+     skill's validate_palette.js on #fff: CVD ΔE 9.1, normal 19.6; slots 3–5 < 3:1, so every
+     chart carries labels or a legend with amounts). viz-other folds everything past 6. */
+  --viz-1: #2a78d6;
+  --viz-2: #eb6834;
+  --viz-3: #1baf7a;
+  --viz-4: #eda100;
+  --viz-5: #e87ba4;
+  --viz-6: #6250d6;
+  --viz-other: #b9b6ae;
 
   /* -- 5. shape & type -------------------------------------------- */
   --brand-radius-sm: 5px;
@@ -107,4 +117,12 @@
   --warning: #f0c43a;
   --chart-in: #36ad73;
   --chart-out: #b8473b;
+  /* same hues stepped for the dark surface (#15120e): CVD ΔE 8.4, all ≥ 3:1 */
+  --viz-1: #3987e5;
+  --viz-2: #d95926;
+  --viz-3: #199e70;
+  --viz-4: #c98500;
+  --viz-5: #d55181;
+  --viz-6: #9085e9;
+  --viz-other: #5c5850;
 }
