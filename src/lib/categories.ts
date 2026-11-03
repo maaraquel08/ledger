@@ -20,6 +20,9 @@ export const DEFAULT_CATEGORIES: CategoryDef[] = [
   { name: "Income", kind: "income" },
 ];
 
+/** Same cap as add_category on the server. */
+export const MAX_CATEGORIES = 50;
+
 export const userCategories = (s: Pick<LedgerState, "categories">): CategoryDef[] => s.categories ?? DEFAULT_CATEGORIES;
 
 /** Expense categories in the Owner's order, "Other" always last. */
@@ -55,6 +58,7 @@ export function categoryNameError(name: string, defs: CategoryDef[], except?: Ca
   const key = n.toLowerCase();
   if (SYSTEM_CATEGORIES.some((c) => c.toLowerCase() === key)) return `“${n}” is used by the app. Pick another name.`;
   if (defs.some((d) => d.name !== except && d.name.toLowerCase() === key)) return `You already have “${n}”.`;
+  if (except === undefined && defs.length >= MAX_CATEGORIES) return `You can have up to ${MAX_CATEGORIES} categories.`;
   return null;
 }
 

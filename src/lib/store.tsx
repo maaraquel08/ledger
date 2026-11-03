@@ -185,7 +185,9 @@ export function reducer(s: LedgerState, a: Action): LedgerState {
       const defs = userCategories(s);
       const def = defs.find((d) => d.name === a.name);
       if (!def || SYSTEM_CATEGORIES.includes(a.name) || a.moveTo === a.name) return s;
-      if (!defs.some((d) => d.name === a.moveTo) && !SYSTEM_CATEGORIES.includes(a.moveTo)) return s;
+      // same rule as delete_category: entries move to a category of the same kind ("Other" for spending)
+      const dst = a.moveTo === "Other" ? ({ name: "Other", kind: "expense" } as const) : defs.find((d) => d.name === a.moveTo);
+      if (!dst || dst.kind !== def.kind) return s;
       const { [a.name]: _gone, ...budgets } = s.profile.categoryBudgets;
       const pct = s.profile.categoryBudgetPct && dropKey(s.profile.categoryBudgetPct, a.name);
       return {

@@ -189,4 +189,19 @@ describe("user_categories", () => {
     expect((await db.one("select public.erase_my_data()")).deleted.user_categories).toBe(13);
     expect(await list()).toEqual([]);
   });
+
+  test("% budgets move with a rename and go with a delete; at most 50 categories", async () => {
+    await db.as(U1);
+    await db.query("delete from public.profiles");
+    await db.query(`insert into public.profiles (name, category_budgets, category_budget_pct) values ('Me', '{"Gifts": 3150, "Health": 100}', '{"Gifts": 5}')`);
+    await rename("Gifts", "Presents");
+    expect((await db.rows("select category_budgets, category_budget_pct from public.profiles"))[0]).toEqual({
+      category_budgets: { Presents: 3150, Health: 100 },
+      category_budget_pct: { Presents: 5 },
+    });
+    await del("Presents", "Other");
+    expect((await db.rows("select category_budget_pct from public.profiles"))[0].category_budget_pct).toEqual({});
+    for (let i = (await list()).length; i < 50; i++) await add(`Extra ${i}`);
+    await expect(add("One too many")).rejects.toThrow(/category_limit/);
+  });
 });

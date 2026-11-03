@@ -1,4 +1,3 @@
-import { dropKey, renameKey } from "../categories";
 import { parseSpoken, splitEntries } from "../parse";
 import { resolveProfilePatch } from "../selectors";
 import type { Action } from "../store";
@@ -166,19 +165,11 @@ export function callsFor(a: Action, prev: LedgerState): Call[] | null {
     }
     case "add-category":
       return [{ kind: "rpc", fn: "add_category", args: { p_name: a.def.name.trim(), p_kind: a.def.kind } }];
-    case "rename-category": {
-      const calls: Call[] = [{ kind: "rpc", fn: "rename_category", args: { p_from: a.from, p_to: a.to.trim() } }];
-      // the RPC moves the peso budget; a % budget moves with it here
-      const pct = prev.profile.categoryBudgetPct;
-      if (pct && a.from in pct) calls.push({ kind: "upsert", table: "profiles", rows: { category_budget_pct: renameKey(pct, a.from, a.to.trim()) }, onConflict: "user_id" });
-      return calls;
-    }
-    case "delete-category": {
-      const calls: Call[] = [{ kind: "rpc", fn: "delete_category", args: { p_name: a.name, p_move_to: a.moveTo } }];
-      const pct = prev.profile.categoryBudgetPct;
-      if (pct && a.name in pct) calls.push({ kind: "upsert", table: "profiles", rows: { category_budget_pct: dropKey(pct, a.name) }, onConflict: "user_id" });
-      return calls;
-    }
+    // the RPCs move or drop the peso and % budget keys with the category, in one step
+    case "rename-category":
+      return [{ kind: "rpc", fn: "rename_category", args: { p_from: a.from, p_to: a.to.trim() } }];
+    case "delete-category":
+      return [{ kind: "rpc", fn: "delete_category", args: { p_name: a.name, p_move_to: a.moveTo } }];
     case "report-balance":
       return [{ kind: "rpc", fn: "report_balance", args: { p_account_id: a.accountId, p_reported: a.reported, p_id: a.id } }];
     case "record-adjustment":

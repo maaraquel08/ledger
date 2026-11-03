@@ -246,7 +246,7 @@ function CategorySheet({ cat, kind, at, onClose }: { cat: Category; kind: "expen
   const currentPct = state.profile.categoryBudgetPct?.[cat];
   const [budget, setBudget] = React.useState<BudgetDraft>(() => (currentPct ? { kind: "pct", text: String(currentPct) } : { kind: "amount", text: current > 0 ? String(current) : "" }));
   const [name, setName] = React.useState(cat);
-  const [moveTo, setMoveTo] = React.useState("Other");
+  const [moveTo, setMoveTo] = React.useState(() => (kind === "expense" ? "Other" : (incomeCategories(state).find((c) => c !== cat) ?? "")));
   const system = SYSTEM_CATEGORIES.includes(cat);
   const defs = userCategories(state);
   const hist = categoryHistory(state.entries, cat, at);
@@ -264,7 +264,8 @@ function CategorySheet({ cat, kind, at, onClose }: { cat: Category; kind: "expen
     close();
   };
   const nameError = name.trim() === cat ? null : categoryNameError(name, defs, cat);
-  const moveOptions = [...(kind === "expense" ? spendCategories(state) : incomeCategories(state)), ...(kind === "income" ? ["Other"] : [])]
+  // entries move to a category of the same kind; spending can always fall back to "Other"
+  const moveOptions = (kind === "expense" ? spendCategories(state) : incomeCategories(state))
     .filter((c) => c !== cat)
     .filter((c, i, a) => a.indexOf(c) === i)
     .map((c) => ({ value: c, label: c }));
@@ -365,7 +366,11 @@ function CategorySheet({ cat, kind, at, onClose }: { cat: Category; kind: "expen
             )}
             {kind === "expense" && current > 0 ? " Its budget is removed." : ""}
           </p>
-          {count > 0 ? <PickField label="Move its entries to" value={moveTo} onChange={setMoveTo} options={moveOptions} /> : null}
+          {moveOptions.length ? (
+            count > 0 ? <PickField label="Move its entries to" value={moveTo} onChange={setMoveTo} options={moveOptions} /> : null
+          ) : (
+            <p className="text-[13px] text-fg-muted">Add another income category first: its entries need somewhere to go.</p>
+          )}
           <div className="rounded-lg border border-danger/50 p-3.5">
             <div className="flex gap-2.5">
               <ActionButton variant="secondary" className="min-h-11 flex-1" autoFocus onClick={() => setMode("main")}>
@@ -373,6 +378,7 @@ function CategorySheet({ cat, kind, at, onClose }: { cat: Category; kind: "expen
               </ActionButton>
               <ActionButton
                 className="min-h-11 flex-1 !bg-danger"
+                disabled={!moveTo}
                 onClick={() => {
                   dispatch({ type: "delete-category", name: cat, moveTo });
                   close();

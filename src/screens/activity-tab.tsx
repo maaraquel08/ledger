@@ -38,7 +38,10 @@ export function ActivityTab({ path }: { path: string }) {
 
   // opening the tab bare lands on this month; the ledger's "All time" later clears the range on purpose
   React.useEffect(() => {
-    if (!from && !to && !pinned) setMonth(now);
+    // a bare /activity opens on this month; a link that carries its own filters (an old
+    // /money?q=… link, a category from Budget) keeps showing all time
+    const filtered = ["q", "type", "acct", "cat", "label"].some((k) => params.has(k));
+    if (!from && !to && !pinned && !filtered) setMonth(now);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

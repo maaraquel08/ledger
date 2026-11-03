@@ -8,6 +8,11 @@
 -- cascade to every user): it adds the new code if missing and moves only the caller's rows.
 -- System categories (Transfer, Investments, Adjustment, Other) can be neither added, renamed nor deleted.
 
+-- Category budgets as a share of the monthly budget (spec 2026-11-03-budget-percent):
+-- { "<category code>": percent }. category_budgets keeps the resolved pesos, so every reader works
+-- unchanged; the client re-resolves and writes both. rename/delete below move or drop its key too.
+alter table public.profiles add column if not exists category_budget_pct jsonb not null default '{}';
+
 create table public.user_categories (
   user_id     uuid not null default auth.uid() references auth.users (id) on delete cascade,
   code        text not null references public.categories (code) on update cascade,
@@ -99,6 +104,10 @@ begin
   if exists (select 1 from public.user_categories where user_id = v_uid and lower(code) = lower(v_name)) then
     raise exception 'category_exists' using errcode = '22023';
   end if;
+  -- names are a shared vocabulary (categories.code); a cap keeps one account from flooding it
+  if (select count(*) from public.user_categories where user_id = v_uid) >= 50 then
+    raise exception 'category_limit' using errcode = '22023';
+  end if;
 
   insert into public.categories (code, label, kind, is_spend, is_fixed, is_monthly, sort)
   values (v_name, v_name, p_kind, p_kind = 'expense', false, false, 100)
@@ -154,7 +163,10 @@ begin
   update public.profiles
      set category_budgets = (category_budgets - p_from)
                             || case when category_budgets ? p_from
-                                    then jsonb_build_object(v_to, category_budgets -> p_from) else '{}'::jsonb end
+                                    then jsonb_build_object(v_to, category_budgets -> p_from) else '{}'::jsonb end,
+         category_budget_pct = (category_budget_pct - p_from)
+                            || case when category_budget_pct ? p_from
+                                    then jsonb_build_object(v_to, category_budget_pct -> p_from) else '{}'::jsonb end
    where user_id = v_uid;
   delete from public.user_categories where user_id = v_uid and code = p_from;
   insert into public.user_categories (user_id, code, kind, sort, created_at)
@@ -186,7 +198,9 @@ begin
   end if;
 
   perform private.reassign_category(v_uid, p_name, p_move_to);
-  update public.profiles set category_budgets = category_budgets - p_name where user_id = v_uid;
+  update public.profiles
+     set category_budgets = category_budgets - p_name, category_budget_pct = category_budget_pct - p_name
+   where user_id = v_uid;
   delete from public.user_categories where user_id = v_uid and code = p_name;
   return private.user_categories_json(v_uid);
 end $$;
