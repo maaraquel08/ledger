@@ -1,7 +1,8 @@
 import { describe, expect, test } from "vitest";
 import { callsFor } from "../../src/lib/cloud/outbox";
-import { budgetRows, categoryBudgetPatch, parsePct, planParts } from "../../src/lib/budget";
-import { spendCategories } from "../../src/lib/categories";
+import { budgetRows, categoryBudgetPatch, largestRemainder, parsePct, planParts } from "../../src/lib/budget";
+import { colorCategories } from "../../src/lib/chart-colors";
+import { categoryNameError, spendCategories } from "../../src/lib/categories";
 import { resolveProfilePatch } from "../../src/lib/selectors";
 import { reducer } from "../../src/lib/store";
 import { EMPTY_STATE } from "../../src/lib/seed";
@@ -111,5 +112,29 @@ describe("plan bar and progress bars follow % and fixed budgets", () => {
     expect(plan.over).toBe(2_000);
     expect(plan.parts.some((p) => p.category === "Unallocated")).toBe(false);
     expect(Math.round(plan.parts.reduce((n, p) => n + p.pct, 0))).toBe(100);
+  });
+});
+
+describe("plan edge cases and colors", () => {
+  test("whole percents always add up to 100 (three equal thirds)", () => {
+    expect(largestRemainder([100 / 3, 100 / 3, 100 / 3])).toEqual([34, 33, 33]);
+    const s = set(base, { monthlyBudget: 3_000, categoryBudgets: { Shopping: 1_000, Transport: 1_000, Gifts: 1_000 } });
+    expect(planParts(s, spendCategories(s)).parts.reduce((n, p) => n + p.whole, 0)).toBe(100);
+  });
+
+  test("no monthly budget: no 'over', no Unallocated", () => {
+    const s = { ...base, profile: { ...base.profile, monthlyBudget: 0, income: 0, categoryBudgets: { Shopping: 1_000 } } };
+    const plan = planParts(s, spendCategories(s));
+    expect(plan).toMatchObject({ total: 0, over: 0 });
+    expect(plan.parts.map((p) => p.category)).toEqual(["Shopping"]);
+  });
+
+  test("budgeted spending categories claim colors first; stale or income keys don't", () => {
+    const s = { ...base, profile: { ...base.profile, categoryBudgets: { Gifts: 9_000, Salary: 50_000, Deleted: 70_000, Transport: 1_000 } } };
+    expect(colorCategories(s).slice(0, 2)).toEqual(["Gifts", "Transport"]);
+  });
+
+  test("app-reserved names can't be used for a category", () => {
+    expect(categoryNameError("unallocated", [])).toMatch(/used by the app/);
   });
 });

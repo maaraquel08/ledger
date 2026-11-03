@@ -1,3 +1,4 @@
+import { spendCategories } from "./categories";
 import { byCategory } from "./selectors";
 import type { Category, LedgerState } from "./types";
 
@@ -17,9 +18,11 @@ export const EVERYTHING_ELSE = "Everything else";
  * because the Budget tab's plan bar is where telling them apart matters most, then the biggest
  * spenders across the whole ledger. Same answer on every page, so a category keeps one color.
  */
-export function colorCategories(s: Pick<LedgerState, "entries" | "profile">): Category[] {
+export function colorCategories(s: Pick<LedgerState, "entries" | "profile" | "categories">): Category[] {
+  // a budget key left on a deleted or income category never claims a slot
+  const live = new Set(spendCategories(s));
   const budgeted = Object.entries(s.profile.categoryBudgets)
-    .filter(([, v]) => (v ?? 0) > 0)
+    .filter(([c, v]) => (v ?? 0) > 0 && live.has(c))
     .sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0))
     .map(([c]) => c);
   const spenders = byCategory(s.entries)
@@ -29,7 +32,7 @@ export function colorCategories(s: Pick<LedgerState, "entries" | "profile">): Ca
 }
 
 /** Category → its color for every chart on every page; the rest share --viz-other. */
-export function categoryColors(s: Pick<LedgerState, "entries" | "profile">): (c: Category | typeof EVERYTHING_ELSE) => string {
+export function categoryColors(s: Pick<LedgerState, "entries" | "profile" | "categories">): (c: Category | typeof EVERYTHING_ELSE) => string {
   const slot = new Map<string, string>(colorCategories(s).map((c, i) => [c, VIZ_SLOTS[i]]));
   return (c) => slot.get(c) ?? VIZ_OTHER;
 }

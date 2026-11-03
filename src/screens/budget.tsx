@@ -4,7 +4,7 @@ import { ChevronLeft, ChevronRight } from "@/components/ledger/icons";
 import { ActionButton, Cta, EntryRow, Eyebrow, PageTitle, Screen, Segmented, Sheet, StatGrid } from "@/components/ledger/primitives";
 import { allocation, budgetRows, categoryBudgetPatch, planParts, type PlanPart, categoryHistory, lastDayOf, monthPace, parsePct, receivedBy, startOfMonth, type BudgetRow, type BudgetSetting } from "@/lib/budget";
 import { categoryNameError, incomeCategories, spendCategories, SYSTEM_CATEGORIES, userCategories } from "@/lib/categories";
-import { categoryColors, VIZ_OTHER } from "@/lib/chart-colors";
+import { categoryColors } from "@/lib/chart-colors";
 import { cn } from "@/lib/cn";
 import { balance, monthName, peso } from "@/lib/format";
 import { navigate, query } from "@/lib/router";
@@ -582,22 +582,31 @@ function Card({ label, children }: { label: string; children: React.ReactNode })
  */
 function PlanCard({ plan, color, onOpen }: { plan: { parts: PlanPart[]; total: number; over: number }; color: (c: string) => string; onOpen: (c: Category) => void }) {
   const allocated = plan.parts.filter((p) => p.category !== "Unallocated");
-  const allocPct = Math.round(allocated.reduce((n, p) => n + p.pct, 0));
+  const unallocated = plan.parts.find((p) => p.category === "Unallocated");
+  // whole numbers from the same split as the legend, so "70% planned · 30% unallocated" always matches it
+  const unPct = unallocated?.whole ?? 0;
+  const allocPct = plan.total > 0 ? 100 - unPct : 100;
   if (plan.total <= 0 && !allocated.length) return null;
-  const fill = (p: PlanPart) => (p.category === "Unallocated" ? "var(--color-fill)" : color(p.category) === VIZ_OTHER ? "var(--color-viz-other)" : color(p.category));
+  const fill = (p: PlanPart) => (p.category === "Unallocated" ? "var(--color-fill)" : color(p.category));
+  const summary = plan.parts.map((p) => `${p.category} ${p.whole}%`).join(", ");
   return (
     <Card label="Monthly plan">
       <div className="flex items-baseline justify-between gap-3">
         <Eyebrow>MONTHLY PLAN</Eyebrow>
-        <span className="tnum text-[13px] font-semibold">{peso(plan.total)}</span>
+        <span className="tnum text-[13px] font-semibold">{plan.total > 0 ? peso(plan.total) : "No monthly budget"}</span>
       </div>
-      <div className="mt-3 flex h-4 w-full gap-[2px] overflow-hidden rounded-full" role="img" aria-label={`${allocPct}% of the monthly budget is allocated to categories`}>
+      {/* segments share the width by amount (flex-grow), so the 2px gaps never push the last one out */}
+      <div className="mt-3 flex h-4 w-full gap-[2px] overflow-hidden rounded-full" role="img" aria-label={`Monthly plan: ${summary}`}>
         {plan.parts.map((p) => (
-          <span key={p.category} className="h-full first:rounded-l-full last:rounded-r-full" style={{ width: `${p.pct}%`, background: fill(p) }} />
+          <span key={p.category} className="h-full min-w-[3px] basis-0" style={{ flexGrow: p.amount, background: fill(p) }} />
         ))}
       </div>
       <p role="status" className={cn("tnum mt-2 text-[12.5px]", plan.over > 0 ? "text-danger" : "text-fg-muted")}>
-        {plan.over > 0 ? `Over-planned by ${peso(plan.over)}: category budgets add up to more than the month.` : `${allocPct}% planned · ${100 - allocPct}% unallocated`}
+        {plan.total <= 0
+          ? "Set a monthly budget (Adjust, above) to see how these budgets split it."
+          : plan.over > 0
+            ? `Over-planned by ${peso(plan.over)}: category budgets add up to more than the month.`
+            : `${allocPct}% planned · ${unPct}% unallocated`}
       </p>
       <ul className="mt-2 divide-y divide-line">
         {plan.parts.map((p) => {
@@ -610,7 +619,7 @@ function PlanCard({ plan, color, onOpen }: { plan: { parts: PlanPart[]; total: n
                 {un ? null : <span className="flex-none font-mono text-[10px] tracking-[0.04em] text-fg-subtle uppercase">{p.byPct ? "% of budget" : "fixed"}</span>}
               </span>
               <span className="tnum flex flex-none items-baseline gap-3 text-[13px]">
-                <span className="w-[42px] text-right text-fg-muted">{Math.round(p.pct)}%</span>
+                <span className="w-[42px] text-right text-fg-muted">{p.whole}%</span>
                 <span className="w-[76px] text-right font-semibold">{peso(p.amount)}</span>
               </span>
             </>
@@ -620,7 +629,7 @@ function PlanCard({ plan, color, onOpen }: { plan: { parts: PlanPart[]; total: n
               {un ? (
                 <div className="flex min-h-11 items-center justify-between gap-3">{body}</div>
               ) : (
-                <button type="button" onClick={() => onOpen(p.category)} className="flex min-h-11 w-full items-center justify-between gap-3 text-left active:opacity-60">
+                <button type="button" aria-label={`${p.category}: ${p.whole}% of the month, ${peso(p.amount)}, ${p.byPct ? "a share of the budget" : "a fixed amount"}`} onClick={() => onOpen(p.category)} className="flex min-h-11 w-full items-center justify-between gap-3 text-left active:opacity-60">
                   {body}
                 </button>
               )}
