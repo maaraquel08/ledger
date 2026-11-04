@@ -1,5 +1,6 @@
 import * as React from "react";
 import { useChrome } from "@/components/ledger/chrome";
+import { PickField } from "@/components/ledger/entry-draft";
 import { PlusIcon } from "@/components/ledger/icons";
 import {
   ActionButton,
@@ -354,12 +355,14 @@ function EditAccountSheet({ open, onOpenChange, account, onRemove }: { open: boo
   const { dispatch } = useLedger();
   const [name, setName] = React.useState(account.name);
   const [last4, setLast4] = React.useState(account.last4 ?? "");
+  const [provider, setProvider] = React.useState<Provider>(account.provider);
   const [confirm, setConfirm] = React.useState(false);
 
   React.useEffect(() => {
     if (open) {
       setName(account.name);
       setLast4(account.last4 ?? "");
+      setProvider(account.provider);
       setConfirm(false);
     }
   }, [open, account]);
@@ -373,7 +376,9 @@ function EditAccountSheet({ open, onOpenChange, account, onRemove }: { open: boo
         onSubmit={(e) => {
           e.preventDefault();
           if (!valid) return;
-          dispatch({ type: "upsert-account", account: { ...account, name: name.trim(), last4: last4 || undefined } });
+          // a known bank names the account in rows (METROBANK ·7185); "Other" goes back to the account's own name
+          const providerLabel = provider === "other" ? name.trim() : provider === account.provider ? account.providerLabel : providerMeta(provider).label;
+          dispatch({ type: "upsert-account", account: { ...account, name: name.trim(), last4: last4 || undefined, provider, providerLabel } });
           onOpenChange(false);
         }}
       >
@@ -381,6 +386,16 @@ function EditAccountSheet({ open, onOpenChange, account, onRemove }: { open: boo
           <Eyebrow className="mb-2">NAME</Eyebrow>
           <input value={name} onChange={(e) => setName(e.target.value)} className={FIELD} enterKeyHint="next" />
         </label>
+        <PickField
+          label="Bank or wallet"
+          value={provider}
+          onChange={(v) => setProvider(v as Provider)}
+          options={[
+            // only banks that fit this kind of account; a card can be from any bank
+            ...PROVIDERS.filter((p) => (p.type === account.type || (account.type === "credit" && p.type === "bank") || (account.type === "bank" && p.type === "credit"))).map((p) => ({ value: p.id, label: p.label, lead: <ProviderMark provider={p.id} size={26} radius={7} /> })),
+            { value: "other", label: "Other", lead: <ProviderMark provider="other" size={26} radius={7} /> },
+          ]}
+        />
         <label className="block">
           <Eyebrow className="mb-2">LAST 4</Eyebrow>
           <input value={last4} onChange={(e) => setLast4(e.target.value.replace(/\D/g, "").slice(0, 4))} inputMode="numeric" maxLength={4} className={cn(FIELD, "font-mono")} />
