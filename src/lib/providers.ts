@@ -18,6 +18,7 @@ export const PROVIDERS: ProviderMeta[] = [
   { id: "maribank", label: "MariBank", logo: "/assets/logo-maribank.png", type: "bank", kind: "SAVINGS", aliases: ["maribank", "mari"] },
   { id: "rcbc", label: "RCBC", logo: "/assets/logo-rcbc.png", type: "credit", kind: "CREDIT", aliases: ["rcbc", "jcb", "card"] },
   { id: "unionbank", label: "UnionBank", logo: "/assets/logo-unionbank.jpg", type: "bank", kind: "SAVINGS", aliases: ["unionbank", "ub"] },
+  { id: "metrobank", label: "Metrobank", logo: "/assets/logo-metrobank.png", type: "bank", kind: "SAVINGS", aliases: ["metrobank", "metro", "mbtc"] },
   { id: "ibkr", label: "IBKR", icon: "chart", type: "investments", kind: "BROKERAGE", aliases: ["ibkr"] },
   { id: "cash", label: "Cash", icon: "cash", type: "cash", kind: "PHYSICAL", aliases: ["cash", "pocket"] },
 ];

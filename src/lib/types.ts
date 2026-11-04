@@ -6,6 +6,7 @@ export type Provider =
   | "maribank"
   | "rcbc"
   | "unionbank"
+  | "metrobank"
   | "ibkr"
   | "cash"
   | "other";
