@@ -97,7 +97,7 @@ Client: `select code, kind from user_categories order by sort`; empty means defa
 | id | uuid pk | |
 | user_id | uuid† | |
 | name | text | "Daily wallet" |
-| provider | text† | `gcash`,`bpi`,`bdo`,`maya`,`maribank`,`rcbc`,`unionbank`,`ibkr`,`cash`,`other` |
+| provider | text† | `gcash`,`bpi`,`bdo`,`maya`,`maribank`,`rcbc`,`unionbank`,`metrobank`,`ibkr`,`cash`,`other` |
 | provider_label | text† | "GCash", "RCBC JCB" |
 | type | text | `bank`\|`investments`\|`ewallet`\|`cash`\|`credit` |
 | kind | text† | mono subtitle: SAVINGS, WALLET, … |

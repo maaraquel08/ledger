@@ -377,7 +377,7 @@ function EditAccountSheet({ open, onOpenChange, account, onRemove }: { open: boo
           e.preventDefault();
           if (!valid) return;
           // a known bank names the account in rows (METROBANK ·7185); "Other" goes back to the account's own name
-          const providerLabel = provider === account.provider ? account.providerLabel : provider === "other" ? name.trim() : providerMeta(provider).label;
+          const providerLabel = provider === "other" ? name.trim() : provider === account.provider ? account.providerLabel : providerMeta(provider).label;
           dispatch({ type: "upsert-account", account: { ...account, name: name.trim(), last4: last4 || undefined, provider, providerLabel } });
           onOpenChange(false);
         }}
@@ -391,7 +391,8 @@ function EditAccountSheet({ open, onOpenChange, account, onRemove }: { open: boo
           value={provider}
           onChange={(v) => setProvider(v as Provider)}
           options={[
-            ...PROVIDERS.filter((p) => p.id !== "cash" || account.type === "cash").map((p) => ({ value: p.id, label: p.label, lead: <ProviderMark provider={p.id} size={26} radius={7} /> })),
+            // only banks that fit this kind of account; a card can be from any bank
+            ...PROVIDERS.filter((p) => (p.type === account.type || (account.type === "credit" && p.type === "bank") || (account.type === "bank" && p.type === "credit"))).map((p) => ({ value: p.id, label: p.label, lead: <ProviderMark provider={p.id} size={26} radius={7} /> })),
             { value: "other", label: "Other", lead: <ProviderMark provider="other" size={26} radius={7} /> },
           ]}
         />

@@ -1,14 +1,223 @@
--- Metrobank joins the known providers (logo in the app). The provider check is widened in
--- place; existing rows are untouched.
-do $$
-declare v_name text;
-begin
-  select conname into v_name from pg_constraint
-   where conrelid = 'public.accounts'::regclass and contype = 'c' and pg_get_constraintdef(oid) like '%provider%';
-  if v_name is not null then
-    execute format('alter table public.accounts drop constraint %I', v_name);
-  end if;
-end $$;
+-- Metrobank joins the known providers (logo in the app). Existing rows are untouched.
+--
+-- 1. The provider check on accounts is widened. Postgres named the inline check
+--    accounts_provider_check (core schema); drop that exact name, then re-add it.
+-- 2. import_state (phone -> account import) keeps its own provider allowlist; it is
+--    re-created verbatim from 20261029001200 with 'metrobank' added, so an imported
+--    Metrobank account is no longer stored as 'other'. Grants carry over (create or replace).
 
+alter table public.accounts drop constraint if exists accounts_provider_check;
 alter table public.accounts add constraint accounts_provider_check
   check (provider in ('gcash','bpi','bdo','maya','maribank','rcbc','unionbank','metrobank','ibkr','cash','other'));
+
+create or replace function public.import_state(p_state jsonb) returns jsonb
+language plpgsql security definer set search_path = '' as $$
+declare
+  v_uid uuid := public.ledger_uid();
+  v_prof jsonb := coalesce(p_state->'profile', '{}');
+  v_tz text;
+  v_n int;
+  v_counts jsonb := '{}';
+  v_skipped text[] := '{}';
+  v_inv_account uuid;
+  v_new_accounts uuid[];
+begin
+  if jsonb_typeof(p_state) is distinct from 'object' then
+    raise exception 'import_state expects a LedgerState object' using errcode = '22023';
+  end if;
+
+  -- profile -----------------------------------------------------------------
+  insert into public.profiles (user_id, name, initials, income, frequency, side_income, monthly_budget,
+                               category_budgets, onboarded)
+  values (
+    v_uid,
+    coalesce(v_prof->>'name', ''),
+    coalesce(v_prof->>'initials', ''),
+    coalesce((v_prof->>'income')::numeric, 0),
+    case when v_prof->>'frequency' in ('Twice a month', 'Monthly', 'Weekly', 'Irregular')
+         then v_prof->>'frequency' else 'Twice a month' end,
+    coalesce(v_prof->'sideIncome', '[]'),
+    coalesce((v_prof->>'monthlyBudget')::numeric, 0),
+    coalesce((select jsonb_object_agg(k, v) from jsonb_each(coalesce(v_prof->'categoryBudgets', '{}')) as b(k, v)
+               where k in (select c.code from public.categories c)), '{}'),
+    coalesce((p_state->>'onboarded')::boolean, true))
+  on conflict (user_id) do update set
+    name = excluded.name, initials = excluded.initials, income = excluded.income,
+    frequency = excluded.frequency, side_income = excluded.side_income,
+    monthly_budget = excluded.monthly_budget, category_budgets = excluded.category_budgets,
+    onboarded = excluded.onboarded
+  where profiles.onboarded = false;
+  v_tz := public.ledger_timezone(v_uid);
+
+  -- accounts (opening balance is set after the entries are in) ------------------
+  with ins as (
+    insert into public.accounts (id, user_id, name, provider, provider_label, type, kind, last4, rate, due_date,
+                                 opening_balance, legacy_id)
+    select
+      public.legacy_uuid(v_uid, 'account', a->>'id'), v_uid,
+      coalesce(a->>'name', a->>'providerLabel', 'Account'),
+      case when a->>'provider' in ('gcash','bpi','bdo','maya','maribank','rcbc','unionbank','metrobank','ibkr','cash','other')
+           then a->>'provider' else 'other' end,
+      coalesce(a->>'providerLabel', ''),
+      a->>'type',
+      coalesce(a->>'kind', ''),
+      case when a->>'last4' ~ '^[0-9]{4}$' then a->>'last4' end,
+      a->>'rate',
+      ((a->>'dueDate')::timestamptz at time zone v_tz)::date,
+      0,
+      a->>'id'
+    from jsonb_array_elements(coalesce(p_state->'accounts', '[]')) a
+    on conflict (id) do nothing
+    returning id
+  )
+  select coalesce(array_agg(id), '{}') into v_new_accounts from ins;
+  v_counts := v_counts || jsonb_build_object('accounts', jsonb_build_object(
+    'inserted', cardinality(v_new_accounts), 'total', jsonb_array_length(coalesce(p_state->'accounts', '[]'))));
+
+  -- moves (linkId groups whose legs sum to zero) --------------------------------
+  insert into public.moves (id, user_id, kind, legacy_id)
+  select public.legacy_uuid(v_uid, 'move', link), v_uid,
+         case when bool_or(cat = 'Investments') then 'invest' else 'transfer' end, link
+    from (select x->>'linkId' as link, x->>'category' as cat, round((x->>'amount')::numeric, 2) as amt
+            from jsonb_array_elements(coalesce(p_state->'entries', '[]')) x
+           where x->>'linkId' is not null and round((x->>'amount')::numeric, 2) <> 0) l
+   group by link
+  having count(*) >= 2 and sum(amt) = 0
+  on conflict (id) do nothing;
+  get diagnostics v_n = row_count;
+  v_counts := v_counts || jsonb_build_object('moves', jsonb_build_object('inserted', v_n));
+
+  select coalesce(array_agg('entry ' || (x->>'id') || ': linkId ' || (x->>'linkId') || ' does not balance; imported unlinked'), '{}')
+    into v_skipped
+    from jsonb_array_elements(coalesce(p_state->'entries', '[]')) x
+   where x->>'linkId' is not null
+     and not exists (select 1 from public.moves m
+                      where m.id = public.legacy_uuid(v_uid, 'move', x->>'linkId') and m.user_id = v_uid);
+
+  -- entries -------------------------------------------------------------------
+  with src as (
+    select x, public.legacy_uuid(v_uid, 'entry', x->>'id') as id,
+           round((x->>'amount')::numeric, 2) as amt,
+           (select a.id from public.accounts a
+             where a.user_id = v_uid and x->>'accountId' is not null
+               and a.id = public.legacy_uuid(v_uid, 'account', x->>'accountId')) as account_id,
+           (select c.code from public.categories c where c.code = x->>'category') as category_code,
+           (select m.id from public.moves m
+             where x->>'linkId' is not null and m.user_id = v_uid
+               and m.id = public.legacy_uuid(v_uid, 'move', x->>'linkId')) as move_id
+      from jsonb_array_elements(coalesce(p_state->'entries', '[]')) x
+     where round((x->>'amount')::numeric, 2) <> 0
+  ),
+  st as (
+    select s.*,
+      case when s.move_id is not null then
+             case when bool_or(s.account_id is null or s.category_code is null) over (partition by s.move_id)
+                  then 'review' else 'posted' end
+           when s.account_id is null or s.category_code is null then 'review'
+           else 'posted' end as status
+      from src s
+  )
+  insert into public.entries (id, user_id, account_id, category_code, amount, occurred_at, description, status,
+                              refunded_at, move_id, raw, source, auto, method, legacy_id)
+  select st.id, v_uid, st.account_id, st.category_code, st.amt, (st.x->>'date')::timestamptz,
+         coalesce(st.x->>'desc', ''), st.status,
+         case when coalesce((st.x->>'refunded')::boolean, false) and st.amt < 0 and st.move_id is null
+              then (st.x->>'date')::timestamptz end,
+         st.move_id, st.x->>'raw',
+         case when st.x->>'source' in ('voice', 'receipt') then st.x->>'source' end,
+         coalesce((st.x->>'auto')::boolean, false), st.x->>'method', st.x->>'id'
+    from st
+  on conflict (id) do nothing;
+  get diagnostics v_n = row_count;
+  v_counts := v_counts || jsonb_build_object('entries', jsonb_build_object(
+    'inserted', v_n, 'total', jsonb_array_length(coalesce(p_state->'entries', '[]'))));
+
+  insert into public.entry_splits (id, user_id, entry_id, category_code, amount, items, position)
+  select public.legacy_uuid(v_uid, 'split', (x->>'id') || ':' || s.ordinality), v_uid,
+         public.legacy_uuid(v_uid, 'entry', x->>'id'),
+         coalesce((select c.code from public.categories c where c.code = s.value->>'category'), 'Other'),
+         round((s.value->>'amount')::numeric, 2),
+         coalesce(array(select jsonb_array_elements_text(s.value->'items')), '{}'),
+         s.ordinality::int
+    from jsonb_array_elements(coalesce(p_state->'entries', '[]')) x
+    cross join lateral jsonb_array_elements(coalesce(x->'split', '[]')) with ordinality s
+   where round((s.value->>'amount')::numeric, 2) > 0
+     and exists (select 1 from public.entries e
+                  where e.id = public.legacy_uuid(v_uid, 'entry', x->>'id') and e.user_id = v_uid)
+  on conflict (id) do nothing;
+
+  insert into public.receipt_items (id, user_id, entry_id, name, amount, category_code, unsure, position)
+  select public.legacy_uuid(v_uid, 'receipt_item', (x->>'id') || ':' || i.ordinality), v_uid,
+         public.legacy_uuid(v_uid, 'entry', x->>'id'),
+         coalesce(i.value->>'name', ''), greatest(round((i.value->>'amount')::numeric, 2), 0),
+         (select c.code from public.categories c where c.code = i.value->>'category'),
+         coalesce((i.value->>'unsure')::boolean, false), i.ordinality::int
+    from jsonb_array_elements(coalesce(p_state->'entries', '[]')) x
+    cross join lateral jsonb_array_elements(coalesce(x->'receipt'->'items', '[]')) with ordinality i
+   where exists (select 1 from public.entries e
+                  where e.id = public.legacy_uuid(v_uid, 'entry', x->>'id') and e.user_id = v_uid)
+  on conflict (id) do nothing;
+
+  -- opening balance of newly imported accounts: derived balance must equal Account.balance
+  update public.accounts a set
+    opening_balance = case when a.type = 'credit' then s.bal + coalesce(e.eff, 0) else s.bal - coalesce(e.eff, 0) end,
+    opening_date = least(a.opening_date, coalesce(e.first_at, a.opening_date))
+  from (select public.legacy_uuid(v_uid, 'account', x->>'id') as id, coalesce((x->>'balance')::numeric, 0) as bal
+          from jsonb_array_elements(coalesce(p_state->'accounts', '[]')) x) s
+  left join lateral (
+    select sum(f.effect) as eff, min(f.occurred_at) as first_at
+      from public.entry_facts f where f.account_id = s.id and f.user_id = v_uid
+  ) e on true
+  where a.id = s.id and a.user_id = v_uid and a.id = any(v_new_accounts);
+
+  -- goals ---------------------------------------------------------------------
+  insert into public.goals (id, user_id, name, saved, target, by_month, legacy_id)
+  select public.legacy_uuid(v_uid, 'goal', g->>'id'), v_uid, coalesce(g->>'name', 'Goal'),
+         coalesce((g->>'saved')::numeric, 0), coalesce((g->>'target')::numeric, 0),
+         case when g->>'by' ~ '^[0-9]{4}-(0[1-9]|1[0-2])$' then g->>'by' else '' end,
+         g->>'id'
+    from jsonb_array_elements(coalesce(v_prof->'goals', '[]')) g
+  on conflict (id) do nothing;
+  get diagnostics v_n = row_count;
+  v_counts := v_counts || jsonb_build_object('goals', jsonb_build_object(
+    'inserted', v_n, 'total', jsonb_array_length(coalesce(v_prof->'goals', '[]'))));
+
+  -- holdings -> first investments account (only if it is the caller's) ---------
+  select public.legacy_uuid(v_uid, 'account', a->>'id') into v_inv_account
+    from jsonb_array_elements(coalesce(p_state->'accounts', '[]')) with ordinality as t(a, ord)
+   where a->>'type' = 'investments'
+     and exists (select 1 from public.accounts x
+                  where x.id = public.legacy_uuid(v_uid, 'account', a->>'id') and x.user_id = v_uid)
+   order by ord limit 1;
+
+  if v_inv_account is null then
+    if jsonb_array_length(coalesce(v_prof->'holdings', '[]')) > 0 then
+      v_skipped := v_skipped || 'holdings: no investments account to attach them to'::text;
+    end if;
+    v_n := 0;
+  else
+    insert into public.holding_snapshots (id, user_id, account_id, as_of, symbol, name, qty, price, value, change_pct)
+    select public.legacy_uuid(v_uid, 'holding', h->>'ticker'), v_uid, v_inv_account, now(),
+           h->>'ticker', coalesce(h->>'name', ''), coalesce((h->>'shares')::numeric, 0),
+           case when coalesce((h->>'shares')::numeric, 0) <> 0
+                then round((h->>'value')::numeric / (h->>'shares')::numeric, 6) else 0 end,
+           coalesce((h->>'value')::numeric, 0), (h->>'change')::numeric
+      from jsonb_array_elements(coalesce(v_prof->'holdings', '[]')) h
+    on conflict (id) do nothing;
+    get diagnostics v_n = row_count;
+  end if;
+  v_counts := v_counts || jsonb_build_object('holdings', jsonb_build_object(
+    'inserted', v_n, 'total', jsonb_array_length(coalesce(v_prof->'holdings', '[]'))));
+
+  set constraints public.entries_check_move immediate;
+
+  return v_counts || jsonb_build_object(
+    'skipped', to_jsonb(v_skipped),
+    'id_map', jsonb_build_object(
+      'accounts', coalesce((select jsonb_object_agg(a->>'id', public.legacy_uuid(v_uid, 'account', a->>'id'))
+                              from jsonb_array_elements(coalesce(p_state->'accounts', '[]')) a), '{}'),
+      'entries', coalesce((select jsonb_object_agg(x->>'id', public.legacy_uuid(v_uid, 'entry', x->>'id'))
+                             from jsonb_array_elements(coalesce(p_state->'entries', '[]')) x), '{}'),
+      'goals', coalesce((select jsonb_object_agg(g->>'id', public.legacy_uuid(v_uid, 'goal', g->>'id'))
+                           from jsonb_array_elements(coalesce(v_prof->'goals', '[]')) g), '{}')));
+end $$;
