@@ -1,7 +1,7 @@
 ---
 type: index
 status: active
-updated: 2026-10-29
+updated: 2026-11-14
 ---
 
 # Changelog
@@ -11,6 +11,16 @@ Reverse chronological. One line per meaning change so an AI can answer "what was
 Format: `- kind — what, in one sentence — files`
 
 ## 2026
+
+### 2026-11-14
+- decided — D-0022: a card reminder's stored date is its first due date and payments settle the earliest unpaid one, so Pay on a past month settles that month — `decisions/D-0022-card-payments-settle-earliest-unpaid.md`
+- changed — Card rules replaced (first due date, earliest-unpaid payments, partial sums, never overdue); rows on Upcoming, the full screen and Activity's DUE block open a payment drawer (amount, account, one CTA, Edit as a link); empty Upcoming screen has only the title-bar Add — `features/subscriptions.md`, `features/activity.md`, `system-map.md`, `glossary.md`
+- changed — Calendar badges stay once a day is paid (ink outline with the count, not a faint ✓); the DUE section sits inside the ledger list; a card's unpaid due date earlier this month shows — `features/activity.md`
+- changed — Activity's spend calendar shows due badges (count unpaid, red overdue, ✓ all paid), future days with due items are tappable, the next-month arrow has no limit, and a DUE block above the picked day's entries shows paid rows with the account paid from and Mark paid or Pay on the actionable occurrence; subscriptions gain per-occurrence rules for subscriptions and cards — `features/activity.md`, `features/subscriptions.md`, `system-map.md`
+- decided — D-0021: card reminders are opt-in (the card's due date), carry no amount and are left out of the 30-day total; D-0020 points to it for cards — `decisions/D-0021-card-reminders-are-opt-in.md`, `decisions/D-0020-subscriptions-paid-is-derived.md`
+- changed — Credit cards are no longer automatic in Upcoming: a card appears only with a card reminder (its `dueDate`, added in Upcoming, no amount, "You decide", Pay opens Transfer with a blank amount and a "Pay in full" chip); the 30-day total counts subscriptions only; Edit account loses Due day; full screen titled "Upcoming"; glossary gains Card reminder — `features/subscriptions.md`, `features/accounts.md`, `glossary.md`, `system-map.md`
+- changed — Credit due date is editable ("Due day"), Pay from Upcoming opens Transfer prefilled; glossary gains Subscription and Upcoming; system map gains the Subscription object, matrix row, events and Upcoming surface; roadmap Now lists Subscriptions — `features/accounts.md`, `glossary.md`, `system-map.md`, `product.md`
+- added — Subscriptions feature (Upcoming on Money, derived paid status, card bills) and D-0020 (paid is derived from entries, reuse `recurring_items`) — `features/subscriptions.md`, `decisions/D-0020-subscriptions-paid-is-derived.md`
 
 ### 2026-11-03
 - changed — Home is M8 chat with saved conversations; a Budget tab (every spending category with spent, budget, pace; category create/rename/delete with entries moved; goals) replaces the budget block in Analytics; tabs are Chat · Money · Budget · Analytics — `docs/superpowers/specs/2026-11-03-home-chat.md`, `docs/superpowers/specs/2026-11-03-budget-tab.md`

@@ -20,6 +20,7 @@ import { balance, monthShort, peso, signed } from "@/lib/format";
 import { PROVIDERS, providerMeta, TYPE_KIND, TYPE_LABEL } from "@/lib/providers";
 import { back, navigate } from "@/lib/router";
 import { netWorth } from "@/lib/selectors";
+import { dueDayOf } from "@/lib/subscriptions";
 import { LedgerList } from "@/screens/ledger-list";
 import { adjustmentAmount, newId, useLedger } from "@/lib/store";
 import { cloud } from "@/lib/supabase";
@@ -49,7 +50,7 @@ export const EDIT_HIT = "flex h-11 min-w-11 items-center justify-center px-1 tex
 
 function dueText(iso?: string) {
   if (!iso) return null;
-  const d = new Date(iso);
+  const d = dueDayOf(iso);
   return `due ${d.getDate()} ${monthShort(d)}`;
 }
 
@@ -502,7 +503,21 @@ function ReportBalanceSheet({ open, onOpenChange, account, onReport }: { open: b
  * Move money between two of your accounts, From preset to the account you opened it on.
  * Same legs, same guards as the Add sheet's Transfer (moveLegs, overdraws).
  */
-function TransferSheet({ open, onOpenChange, from: preset }: { open: boolean; onOpenChange: (o: boolean) => void; from: Account }) {
+export function TransferSheet({
+  open,
+  onOpenChange,
+  from: preset,
+  to: presetTo,
+  suggest,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  from: Account;
+  /** destination account id to open with (a card's Pay) */
+  to?: string;
+  /** a one-tap amount under the field (a card's "Pay in full"); the field itself opens blank */
+  suggest?: { label: string; amount: number };
+}) {
   const { state, dispatch } = useLedger();
   const [fromId, setFromId] = React.useState(preset.id);
   const [to, setTo] = React.useState<string | null>(null);
@@ -511,10 +526,10 @@ function TransferSheet({ open, onOpenChange, from: preset }: { open: boolean; on
   React.useEffect(() => {
     if (open) {
       setFromId(preset.id);
-      setTo(null);
+      setTo(presetTo ?? null);
       setAmount("");
     }
-  }, [open, preset.id]);
+  }, [open, preset.id, presetTo]);
 
   const from = state.accounts.find((a) => a.id === fromId) ?? preset;
   const others = state.accounts.filter((a) => a.id !== from.id);
@@ -564,6 +579,11 @@ function TransferSheet({ open, onOpenChange, from: preset }: { open: boolean; on
               <Eyebrow className="mb-2">AMOUNT (₱)</Eyebrow>
               <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="numeric" placeholder="0" className={cn(FIELD, "font-mono")} />
             </label>
+            {suggest && suggest.amount > 0 ? (
+              <Pill active={value === Math.round(suggest.amount)} className="min-h-10 px-3.5 text-[12.5px]" onClick={() => setAmount(String(Math.round(suggest.amount)))}>
+                {suggest.label} · {peso(suggest.amount)}
+              </Pill>
+            ) : null}
             {short ? <p className="text-[13px] text-danger">That would leave {from.name} at {balance(from.balance - value)}.</p> : null}
             {valid && dest ? (
               <p className="text-[13px] text-fg-muted">

@@ -157,7 +157,7 @@ function Stat({ label, value, sub }: { label: string; value: React.ReactNode; su
   );
 }
 
-export function LedgerList({ path, base, accountId }: { path: string; base: string; accountId?: string }) {
+export function LedgerList({ path, base, accountId, lead }: { path: string; base: string; accountId?: string; lead?: React.ReactNode }) {
   const { state } = useLedger();
   const { openAdd } = useChrome();
   const params = query(path);
@@ -378,15 +378,19 @@ export function LedgerList({ path, base, accountId }: { path: string; base: stri
       )}
 
       {matches.length === 0 ? (
-        <div className="px-8 pt-14 pb-10 text-center">
+        <>
+          {lead ? <div className="px-6 pt-7">{lead}</div> : null}
+        <div className={cn("px-8 pb-10 text-center", lead ? "pt-6" : "pt-14")}>
           <div className="text-[16px] font-semibold">No matches</div>
           <p className="mt-2 text-[13.5px] text-fg-muted">Nothing fits those filters.</p>
           <ActionButton variant="secondary" className="mt-5 min-h-11" onClick={clearAll}>
             Clear filters
           </ActionButton>
         </div>
+        </>
       ) : (
         <div className="px-6 pt-7 pb-10">
+          {lead}
           {groups.map((g) => (
             <section key={g.key} className="mb-8">
               {g.heading ? <Eyebrow className="mb-4">{g.heading}</Eyebrow> : null}

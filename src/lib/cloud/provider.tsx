@@ -86,6 +86,8 @@ const WHAT: Partial<Record<Action["type"], string>> = {
   "add-category": "a new category",
   "rename-category": "a renamed category",
   "delete-category": "a deleted category",
+  "upsert-subscription": "a subscription change",
+  "remove-subscription": "a removed subscription",
 };
 
 export function CloudLedgerProvider({ uid, email, children }: { uid: string; email: string; children: React.ReactNode }) {

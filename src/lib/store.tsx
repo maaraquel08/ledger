@@ -6,7 +6,7 @@ import { localStoragePhotoStore, localStorageRepository, type LedgerRepository }
 import { buildDemo, EMPTY_STATE } from "./seed";
 import { resolveProfilePatch } from "./selectors";
 import { cloud } from "./supabase";
-import type { Account, Category, CategoryDef, Entry, LedgerState, Profile } from "./types";
+import type { Account, Category, CategoryDef, Entry, LedgerState, Profile, Subscription } from "./types";
 
 export type Action =
   | { type: "load-demo" }
@@ -26,6 +26,9 @@ export type Action =
   | { type: "add-category"; def: CategoryDef }
   | { type: "rename-category"; from: Category; to: Category }
   | { type: "delete-category"; name: Category; moveTo: Category }
+  /** a monthly bill (src/lib/subscriptions.ts): add or edit one, or stop tracking it (its entries stay) */
+  | { type: "upsert-subscription"; sub: Subscription }
+  | { type: "remove-subscription"; id: string }
   /* cloud mode only (D-0012, D-0014): local mode never dispatches these */
   /** replace the whole state with what the server returned (plus unsent changes) */
   | { type: "hydrate"; state: LedgerState }
@@ -144,7 +147,12 @@ export function reducer(s: LedgerState, a: Action): LedgerState {
       };
     }
     case "remove-account":
-      return { ...s, accounts: s.accounts.filter((x) => x.id !== a.id), entries: detachAccounts(s.entries, (id) => id === a.id) };
+      return {
+        ...s,
+        accounts: s.accounts.filter((x) => x.id !== a.id),
+        entries: detachAccounts(s.entries, (id) => id === a.id),
+        subscriptions: s.subscriptions?.map((x) => (x.accountId === a.id ? { ...x, accountId: null } : x)),
+      };
     case "update-profile":
       return { ...s, profile: { ...s.profile, ...resolveProfilePatch(s, a.patch) } };
     case "ask": {
@@ -178,6 +186,7 @@ export function reducer(s: LedgerState, a: Action): LedgerState {
             : d,
         ),
         entries: recategorize(s.entries, a.from, to),
+        subscriptions: s.subscriptions?.map((x) => (x.category === a.from ? { ...x, category: to } : x)),
         profile: { ...s.profile, categoryBudgets: budgets, ...(pct ? { categoryBudgetPct: pct } : {}) },
       };
     }
@@ -194,9 +203,17 @@ export function reducer(s: LedgerState, a: Action): LedgerState {
         ...s,
         categories: defs.filter((d) => d !== def),
         entries: recategorize(s.entries, a.name, a.moveTo),
+        subscriptions: s.subscriptions?.map((x) => (x.category === a.name ? { ...x, category: a.moveTo } : x)),
         profile: { ...s.profile, categoryBudgets: budgets, ...(pct ? { categoryBudgetPct: pct } : {}) },
       };
     }
+    case "upsert-subscription": {
+      const subs = s.subscriptions ?? [];
+      const exists = subs.some((x) => x.id === a.sub.id);
+      return { ...s, subscriptions: exists ? subs.map((x) => (x.id === a.sub.id ? a.sub : x)) : [...subs, a.sub] };
+    }
+    case "remove-subscription":
+      return { ...s, subscriptions: (s.subscriptions ?? []).filter((x) => x.id !== a.id) };
     case "hydrate":
       return a.state;
     case "ack": {

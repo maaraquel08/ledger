@@ -5,6 +5,7 @@ import { cn } from "@/lib/cn";
 import { addDays, dayName, monthName, peso, sameDay } from "@/lib/format";
 import { navigate } from "@/lib/router";
 import { useLedger } from "@/lib/store";
+import type { DueItem } from "@/lib/subscriptions";
 
 /* Level fills: one hue (danger, money out) mixed into the page colour, so light and dark both work. */
 const LEVEL_MIX = [0, 12, 26, 42, 60, 82];
@@ -16,8 +17,26 @@ function dayTitle(d: Date, now: Date) {
   return `${lead} · ${date}`;
 }
 
+function DueBadge({ items }: { items: DueItem[] }) {
+  const left = items.filter((i) => i.status !== "paid").length;
+  const base = "absolute top-1 right-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full font-mono text-[9px] leading-none tnum ring-1 ring-bg";
+  // all paid keeps its badge and its count, outlined in ink instead of filled (Owner, 2026-11-14)
+  if (left === 0)
+    return (
+      <span aria-hidden className={cn(base, "border border-accent bg-bg px-[2px] text-fg")}>
+        {items.length > 9 ? "9+" : items.length}
+      </span>
+    );
+  const late = items.some((i) => i.status === "overdue");
+  return (
+    <span aria-hidden className={cn(base, "px-[3px]", late ? "bg-danger text-danger-fg" : "bg-accent text-accent-fg")}>
+      {left > 9 ? "9+" : left}
+    </span>
+  );
+}
+
 /** Month view: a Monday-first heat-map of each day's spend; tap a day for what made it. */
-export function SpendCalendar({ from, now, selectedDay, onPickDay }: { from: Date; now: Date; selectedDay?: Date | null; onPickDay?: (d: Date) => void }) {
+export function SpendCalendar({ from, now, selectedDay, onPickDay, due }: { from: Date; now: Date; selectedDay?: Date | null; onPickDay?: (d: Date) => void; due?: Map<number, DueItem[]> }) {
   const { state } = useLedger();
   const [open, setOpen] = React.useState<SpendDay | null>(null);
   const days = React.useMemo(() => spendCalendar(state.entries, from, now), [state.entries, from, now]);
@@ -36,25 +55,31 @@ export function SpendCalendar({ from, now, selectedDay, onPickDay }: { from: Dat
           <span key={`pad${i}`} aria-hidden />
         ))}
         {days.map((d) => {
-          const label = `${d.day} ${monthName(d.date)}, ${d.future ? "no spending yet" : `spent ${peso(d.spent)}`}`;
+          const dues = due?.get(d.day) ?? [];
+          const paidN = dues.filter((i) => i.status === "paid").length;
+          const toPay = dues.length - paidN;
+          const plural = (n: number) => `${n} payment${n === 1 ? "" : "s"}`;
+          const dueLabel = dues.length ? `, ${toPay ? `${plural(toPay)} due` : ""}${toPay && paidN ? ", " : ""}${paidN ? `${paidN} paid` : ""}` : "";
+          const label = `${d.day} ${monthName(d.date)}, ${d.future ? "no spending yet" : `spent ${peso(d.spent)}`}${dueLabel}`;
           const picked = !!selectedDay && sameDay(selectedDay, d.date);
           return (
             <button
               key={d.day}
               type="button"
               aria-label={label}
-              disabled={d.future}
+              disabled={d.future && !(dues.length && onPickDay)}
               onClick={() => (onPickDay ? onPickDay(d.date) : setOpen(d))}
               aria-pressed={onPickDay ? picked : undefined}
               style={d.level ? { backgroundColor: levelFill(d.level) } : undefined}
               className={cn(
                 picked && "ring-2 ring-accent ring-offset-1 ring-offset-bg",
-                "flex aspect-square items-start justify-start rounded-md border p-1.5 font-mono text-[10.5px] leading-none tnum active:opacity-60",
+                "relative flex aspect-square items-start justify-start rounded-md border p-1.5 font-mono text-[10.5px] leading-none tnum active:opacity-60",
                 d.level ? "border-transparent" : d.future ? "border-dashed border-line text-fg-subtle" : "border-line bg-surface text-fg-muted",
                 d.level === 5 ? "text-danger-fg" : d.level ? "text-fg" : null,
               )}
             >
               {d.day}
+              {dues.length ? <DueBadge items={dues} /> : null}
             </button>
           );
         })}

@@ -462,6 +462,8 @@ Helpers also exposed: `ledger_uid(p_user)`, `legacy_uuid(user, kind, legacy)`, `
 | `Entry.receipt.image` | `entries.receipt_image_path` (Storage `receipts/<uid>/…`) |
 | needs Review (category or account null) | `entries.status = 'review'` |
 | deleted entry | `status = 'void'` (`void_entry`) |
+| `Subscription.id / name / amount` | `recurring_items.id / description / amount` (stored negative: `amount = −Subscription.amount`) |
+| `Subscription.day / startsOn / accountId / category` | `day_of_month / starts_on / account_id / category_code`; `cadence = 'monthly'`, `active = true`; delete sets `active = false`; the client upserts the table directly |
 | `Profile.name / initials / income / frequency` | `profiles` same |
 | `Profile.sideIncome` | `profiles.side_income` (jsonb, same shape) |
 | `Profile.monthlyBudget / categoryBudgets` | `monthly_budget / category_budgets` |
