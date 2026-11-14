@@ -37,10 +37,10 @@ related: [review, add-entry, receipt-scan, accounts, budgets-and-goals, insights
 
 ## Spend calendar and due payments
 Specs: `docs/superpowers/specs/2026-11-14-calendar-due.md`. Logic: `dueInMonth` in `src/lib/subscriptions.ts`; cell in `src/screens/charts/spend-calendar.tsx` (prop `due`, passed only by the Activity tab); block in `src/screens/activity-tab.tsx`.
-- Each day with a due date shows a **badge** (top-right): ink with the count still to pay; red when any item that day is overdue; outlined with a ✓ when all are paid; `9+` above 9. The cell's `aria-label` adds ", 2 payments due, 1 paid".
+- Each day with a due date shows a **badge** (top-right): ink with the count still to pay; red when any item that day is overdue; outlined in ink with the day's count when all are paid (the badge never disappears); `9+` above 9. The cell's `aria-label` adds ", 2 payments due, 1 paid".
 - A future day with something due can be tapped; a future day with nothing due stays dashed and disabled.
 - The next-month arrow has no limit (Owner decision 2026-11-14). Future months show only due badges, since there is no spending yet. Picking a day keeps the URL range `from = to = day`.
-- **DUE block**, `DUE · 18 NOVEMBER`, sits between the calendar and the day's entries when that day has items. Paid row: `PAID <entry date> · <account paid from>`, a ✓ with the amount, tap opens the entry. Overdue row: `OVERDUE · N DAYS` in red. **Mark paid** (subscription) or **Pay** (card) shows only on the actionable occurrence; any other unpaid row has no button. Tapping an unpaid row opens the subscription's edit sheet or the card's reminder sheet, the same sheets as Upcoming (`DueOnDay`, exported from `src/screens/subscriptions.tsx`).
+- **DUE section**, `DUE · 18 NOVEMBER`, sits inside the ledger list as a sibling of the day sections, before the day's entries, when that day has items. Paid row: `PAID <entry date> · <account paid from>`, a ✓ with the amount, tap opens the entry. Overdue row: `OVERDUE · N DAYS` in red. **Mark paid** (subscription) or **Pay** (card) shows only on the actionable occurrence; any other unpaid row has no button. Tapping an unpaid row opens the subscription's edit sheet or the card's reminder sheet, the same sheets as Upcoming (`DueOnDay`, exported from `src/screens/subscriptions.tsx`).
 - A future day with no entries keeps the ledger's empty message.
 - Not true: paid status is stored; a card shows an amount before it is paid; Analytics' calendar shows due badges.
 

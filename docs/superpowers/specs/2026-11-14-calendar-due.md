@@ -38,7 +38,7 @@ type DueItem = {
 - **Badge** in the top-right corner (about 14px, mono 9px, `tnum`; ink, not yellow, per the Owner):
   - Ink fill with a light number: how many items are still to pay.
   - Red fill when any item that day is overdue.
-  - Outlined with a ✓ when everything that day is paid.
+  - Outlined in ink with the day's count when everything that day is paid (the badge never disappears; Owner, 2026-11-14).
   - Above 9 it shows `9+`.
 - **Label:** the cell's `aria-label` adds ", 2 payments due, 1 paid".
 - **Future days:** a future day with something due can be tapped; one with nothing due stays dashed and disabled.
@@ -90,7 +90,7 @@ Due badges on Analytics' calendar; payments in the past before a subscription's 
 - Never: store paid status; assume a card amount.
 
 ## Success criteria
-1. Every day with a due date shows a badge; the number is how many are still to pay, a ✓ means all paid, and red means overdue.
+1. Every day with a due date shows a badge; filled ink = how many are still to pay, an ink outline with the count = all paid, red = overdue; a badge never disappears once a day has payments.
 2. Tapping a day with due items, including a future one, shows the DUE block above that day's entries.
 3. A paid item shows the account the money came from, and tapping it opens its entry.
 4. Mark paid or Pay from the block works and the badge updates.

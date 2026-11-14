@@ -20,7 +20,13 @@ function dayTitle(d: Date, now: Date) {
 function DueBadge({ items }: { items: DueItem[] }) {
   const left = items.filter((i) => i.status !== "paid").length;
   const base = "absolute top-1 right-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full font-mono text-[9px] leading-none tnum ring-1 ring-bg";
-  if (left === 0) return <span aria-hidden className={cn(base, "border border-line-strong bg-bg text-fg-muted")}>✓</span>;
+  // all paid keeps its badge and its count, outlined in ink instead of filled (Owner, 2026-11-14)
+  if (left === 0)
+    return (
+      <span aria-hidden className={cn(base, "border border-accent bg-bg px-[2px] text-fg")}>
+        {items.length > 9 ? "9+" : items.length}
+      </span>
+    );
   const late = items.some((i) => i.status === "overdue");
   return (
     <span aria-hidden className={cn(base, "px-[3px]", late ? "bg-danger text-danger-fg" : "bg-accent text-accent-fg")}>

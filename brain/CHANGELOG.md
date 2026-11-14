@@ -13,6 +13,7 @@ Format: `- kind — what, in one sentence — files`
 ## 2026
 
 ### 2026-11-14
+- changed — Calendar badges stay once a day is paid (ink outline with the count, not a faint ✓); the DUE section sits inside the ledger list; a card's unpaid due date earlier this month shows — `features/activity.md`
 - changed — Activity's spend calendar shows due badges (count unpaid, red overdue, ✓ all paid), future days with due items are tappable, the next-month arrow has no limit, and a DUE block above the picked day's entries shows paid rows with the account paid from and Mark paid or Pay on the actionable occurrence; subscriptions gain per-occurrence rules for subscriptions and cards — `features/activity.md`, `features/subscriptions.md`, `system-map.md`
 - decided — D-0021: card reminders are opt-in (the card's due date), carry no amount and are left out of the 30-day total; D-0020 points to it for cards — `decisions/D-0021-card-reminders-are-opt-in.md`, `decisions/D-0020-subscriptions-paid-is-derived.md`
 - changed — Credit cards are no longer automatic in Upcoming: a card appears only with a card reminder (its `dueDate`, added in Upcoming, no amount, "You decide", Pay opens Transfer with a blank amount and a "Pay in full" chip); the 30-day total counts subscriptions only; Edit account loses Due day; full screen titled "Upcoming"; glossary gains Card reminder — `features/subscriptions.md`, `features/accounts.md`, `glossary.md`, `system-map.md`
