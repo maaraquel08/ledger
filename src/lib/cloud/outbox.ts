@@ -2,7 +2,7 @@ import { parseSpoken, splitEntries } from "../parse";
 import { resolveProfilePatch } from "../selectors";
 import type { Action } from "../store";
 import type { Account, Entry, Goal, LedgerState } from "../types";
-import { accountPayload, entryPatch, entryPayload, goalPayload, profilePayload } from "./map";
+import { accountPayload, entryPatch, entryPayload, goalPayload, profilePayload, subscriptionPayload } from "./map";
 
 /*
  * The outbox: every change the Owner makes in cloud mode becomes a command saved on this phone
@@ -170,6 +170,10 @@ export function callsFor(a: Action, prev: LedgerState): Call[] | null {
       return [{ kind: "rpc", fn: "rename_category", args: { p_from: a.from, p_to: a.to.trim() } }];
     case "delete-category":
       return [{ kind: "rpc", fn: "delete_category", args: { p_name: a.name, p_move_to: a.moveTo } }];
+    case "upsert-subscription":
+      return [{ kind: "upsert", table: "recurring_items", rows: subscriptionPayload(a.sub), onConflict: "id" }];
+    case "remove-subscription":
+      return [{ kind: "update", table: "recurring_items", values: { active: false }, id: a.id }];
     case "report-balance":
       return [{ kind: "rpc", fn: "report_balance", args: { p_account_id: a.accountId, p_reported: a.reported, p_id: a.id } }];
     case "record-adjustment":

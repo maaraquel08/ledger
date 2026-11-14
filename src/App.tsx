@@ -13,6 +13,7 @@ import { ActivityTab } from "@/screens/activity-tab";
 import { Budget } from "@/screens/budget";
 import { Chat } from "@/screens/chat";
 import { Money } from "@/screens/money";
+import { SubscriptionsScreen } from "@/screens/subscriptions";
 import { Onboarding } from "@/screens/onboarding";
 import { Scan } from "@/screens/scan";
 import { DataScreen } from "@/screens/settings";
@@ -45,6 +46,7 @@ function redirect(path: string): string | null {
 function routeName(base: string) {
   const seg = base.split("/")[1];
   if (seg === "activity") return base === "/activity" ? "Activity" : "Entry";
+  if (base === "/money/subscriptions") return "Upcoming";
   if (seg === "money" && base !== "/money") return "Account";
   if (seg === "data") return "Your data";
   if (seg === "today") return "M8";
@@ -82,6 +84,7 @@ function Router() {
   else if (base === "/money") screen = <Money />;
   else if (base === "/budget") screen = <Budget path={path} />;
   else if (base === "/analytics") screen = <Analytics path={path} />;
+  else if (base === "/money/subscriptions") screen = <SubscriptionsScreen />;
   else if ((m = match("/money/:id", base))) screen = <AccountDetail id={m.id} path={path} />;
   else if (base === "/review") screen = <Review />;
   else if ((m = match("/activity/:id", base))) screen = <ActivityDetail id={m.id} />;

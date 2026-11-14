@@ -1,8 +1,8 @@
 ---
 type: fact
 status: draft
-updated: 2026-10-29
-related: [review, add-entry, receipt-scan, accounts, budgets-and-goals, insights, users, system-map, D-0012, rules/rule-signed-money, D-0013, D-0005, D-0009, D-0010, D-0014, D-0015]
+updated: 2026-11-14
+related: [D-0022, review, add-entry, receipt-scan, accounts, budgets-and-goals, insights, users, system-map, D-0012, rules/rule-signed-money, D-0013, D-0005, D-0009, D-0010, D-0014, D-0015, subscriptions]
 ---
 
 # Activity
@@ -10,7 +10,7 @@ related: [review, add-entry, receipt-scan, accounts, budgets-and-goals, insights
 **Purpose.** Lets the Owner find, read and correct every entry they have logged.
 
 ## Scope
-- In: list, stats, filters/search/sort, paging, review banner, entry detail, M8's note, edit entry, edit split, refund, delete.
+- In: spend calendar with due badges and the DUE block, list, stats, filters/search/sort, paging, review banner, entry detail, M8's note, edit entry, edit split, refund, delete.
 - Out: bank-statement import ("or import a bank statement · soon", disabled); recurring logic (`auto` flag is display only); duplicate detection for typed entries.
 
 ## Permissions
@@ -34,6 +34,15 @@ related: [review, add-entry, receipt-scan, accounts, budgets-and-goals, insights
 - Refund toggles `refunded` (struck through, excluded from spend) and restores the balance (D-0009): a refunded entry has zero balance effect (`effect()`, `src/lib/store.tsx:23`), so the update reverses the outflow. The button is hidden for income (amount > 0, `activity.tsx:548`); helper under it "Puts ₱X back in <account>." or, with no account, "Removes ₱X from this month's spending." (`activity.tsx:554-557`).
 - Update reverses the old balance effect and applies the new; delete reverses it (`src/lib/store.tsx:54-71`). Credit accounts: balance - amount.
 - Delete of a linked entry removes every entry with the same `linkId` in the reducer (`store.tsx:62-71`). The confirm reads "Delete this transfer? Both legs go: −₱X from <A> and +₱X to <B>. You can't undo this." with button "Delete transfer" (`activity.tsx:524-538`).
+
+## Spend calendar and due payments
+Specs: `docs/superpowers/specs/2026-11-14-calendar-due.md`. Logic: `dueInMonth` in `src/lib/subscriptions.ts`; cell in `src/screens/charts/spend-calendar.tsx` (prop `due`, passed only by the Activity tab); block in `src/screens/activity-tab.tsx`.
+- Each day with a due date shows a **badge** (top-right): ink with the count still to pay; red when any item that day is overdue; outlined in ink with the day's count when all are paid (the badge never disappears); `9+` above 9. The cell's `aria-label` adds ", 2 payments due, 1 paid".
+- A future day with something due can be tapped; a future day with nothing due stays dashed and disabled.
+- The next-month arrow has no limit (Owner decision 2026-11-14). Future months show only due badges, since there is no spending yet. Picking a day keeps the URL range `from = to = day`.
+- **DUE section**, `DUE · 18 NOVEMBER`, sits inside the ledger list as a sibling of the day sections, before the day's entries, when that day has items. Paid row: `PAID <entry date> · <account paid from>`, a ✓ with the amount, tap opens the entry. Overdue row: `OVERDUE · N DAYS` in red. **Mark paid** (subscription) or **Pay** (card) shows only on the actionable occurrence; any other unpaid row has no button. Tapping any row opens the same payment drawer as Upcoming (`DueOnDay`, exported from `src/screens/subscriptions.tsx`; states in `features/subscriptions.md`); a past unpaid card month can be paid from here and settles that month (D-0022).
+- A future day with no entries keeps the ledger's empty message.
+- Not true: paid status is stored; a card shows an amount before it is paid; Analytics' calendar shows due badges.
 
 ## States
 | State | Trigger | User sees | Exit |
@@ -67,11 +76,11 @@ List -> row -> detail (note, split, receipt) -> Edit / Edit split / Refund / Del
 | | |
 |---|---|
 | Owns | Entry (the whole list) |
-| Reads | entries, accounts, profile budgets, month totals, URL query |
-| Writes | `update-entry`, `delete-entry` (balance reversal), URL params (replace-navigate) |
-| Triggers | `/review`, `/activity/:id`, AddSheet (`openAdd`), `/activity?acct=<id>` from accounts |
+| Reads | entries, accounts, profile budgets, month totals, URL query; subscriptions and card reminders (`dueInMonth`) for the calendar badges and DUE block |
+| Writes | `update-entry`, `delete-entry` (balance reversal), URL params (replace-navigate); `add-entry` via Mark paid and Transfer via Pay from the DUE block (owned by subscriptions) |
+| Triggers | `/review`, `/activity/:id` (also from a paid DUE row), AddSheet (`openAdd`), `/activity?acct=<id>` from accounts, subscription and card reminder sheets, Mark paid, Pay |
 | Exposes | Filtered entry views to accounts ("See all") and insights day sheet; entry detail target for home receipt card and chat sources |
-| Depends on | add-entry, receipt-scan (split/receipt), review, budgets-and-goals (Budget row), accounts |
+| Depends on | add-entry, receipt-scan (split/receipt), review, budgets-and-goals (Budget row), accounts, subscriptions (due items) |
 
 ## Edge cases
 | Case | Behavior | Decided |

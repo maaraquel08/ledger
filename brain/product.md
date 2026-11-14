@@ -1,8 +1,8 @@
 ---
 type: fact
 status: draft
-updated: 2026-10-29
-related: [glossary, users, constraints, system-map, D-0012, D-0013, D-0014, D-0015, D-0016]
+updated: 2026-11-14
+related: [glossary, users, constraints, system-map, D-0012, D-0013, D-0014, D-0015, D-0016, D-0020]
 ---
 
 # Ledger
@@ -38,7 +38,7 @@ related: [glossary, users, constraints, system-map, D-0012, D-0013, D-0014, D-00
 ## Roadmap (buckets, not dates)
 | Bucket | Feature | Why now / why not |
 |---|---|---|
-| Now | all ten in `features/` (local mode) | shipped in the prototype |
+| Now | all ten in `features/` (local mode); Subscriptions and Upcoming on Money, local and cloud (D-0020) | in progress on `feat/subscriptions`; draft |
 | Next | cloud mode: Supabase ledger, M8 on Claude, derived balances, Today / Money / Review tabs, insight inbox and push (D-0012–D-0016) | approved 2026-10-29; spec `docs/superpowers/specs/2026-10-29-cfo-agent-design.md` |
 | Later | statement import; dark mode toggle | copy already promises "· soon"; dark tokens exist unwired |
 | Not doing | bank connections | the Owner logs by hand; copy says "Ledger never connects to your bank" |

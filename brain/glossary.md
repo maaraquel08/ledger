@@ -1,8 +1,8 @@
 ---
 type: fact
 status: draft
-updated: 2026-10-29
-related: [D-0017, features/analytics, product, features/home, features/activity, features/chat, D-0012, D-0013, D-0014, D-0015, D-0016]
+updated: 2026-11-14
+related: [D-0022, D-0017, D-0020, features/subscriptions, features/analytics, product, features/home, features/activity, features/chat, D-0012, D-0013, D-0014, D-0015, D-0016]
 ---
 
 # Glossary
@@ -44,7 +44,10 @@ Use the first column everywhere: UI, specs, decisions, code names. Words in "Don
 | Like for like | Comparing an unfinished period with the same elapsed days of the one before (Oct 1–29 vs Sep 1–29) | Same period last time | UI: "VS. SEP 1–29 (SAME DAYS)" |
 | Trailing average | The average of up to 8 weeks / 3 months / 5 years before the period, like for like, since the ledger began | Baseline, norm | UI: "VS AVG", "AVG OF 3 MONTHS" |
 | Savings rate | Net saved as a share of income in a period | Savings ratio | Changes shown in points ("−5 PTS") |
-| Recurring bill | A merchant charged about monthly, similar amount and day, in ≥ 3 of the last 6 months | Subscription (unless it is one), autopay | Detected, never scheduled; Analytics only |
+| Recurring bill | A merchant charged about monthly, similar amount and day, in ≥ 3 of the last 6 months | Subscription (unless the Owner added it), autopay | Detected, never scheduled; Analytics only. A Subscription is one the Owner added |
+| Subscription | A bill with a fixed amount the Owner pays monthly on a set day, e.g. Netflix, rent, utilities. Never a credit card | Recurring item (internal table name only), autopay, card subscription | `recurring_items` row; paid status derived from entries (D-0020) |
+| Card reminder | A credit card the Owner asked to be reminded to pay on a day; no amount, the Owner decides each time | Card bill, card subscription | An account's `dueDate` = its first due date, the month it was set in (D-0022); opt-in, added in Upcoming; row shows "You decide" and `OWED ₱X`; paying stays a Transfer |
+| Upcoming | What is due next on Money: subscriptions and card reminders, overdue first; the 30-day total counts subscriptions only | Bills (as the heading) | `UPCOMING · ₱X SUBSCRIPTIONS, 30 DAYS`; "Mark paid" for a subscription, "Pay" for a card reminder; full screen titled "Upcoming" |
 | Money | The second tab: accounts, net worth and the full ledger | Wallet, Accounts tab | D-0015 |
 | Verdict | Internal name for the monthly budget computation | — | `selectors.ts` `verdict()`; never shown as a word |
 | Refunded | An expense entry reversed; struck through, excluded from spend, balance restored (D-0009) | Reversed, voided | Expenses only |
