@@ -28,7 +28,7 @@ type DueItem = {
 ```
 - **Subscriptions.** Due date `i` (`dueOn(sub, i)`) is paid by the `i`-th matching entry, oldest first (the same rule as Upcoming). If it has no matching entry, it's `overdue` when it's before today, otherwise `due`. Only the first unpaid due date is `actionable`, because Mark paid always pays the earliest unpaid month. `paidFrom` is the paying entry's account.
 - **Cards** (only those with a card reminder):
-  - **Which due dates:** the card's current due date (as on Upcoming), every month after it, and last month's due date when it falls earlier in the current month and was paid (an unpaid one there is history, not a reminder).
+  - **Which due dates:** the card's current due date (as on Upcoming), every month after it, and last month's due date when it falls earlier in the current month, paid or not: the month the reminder was set in is the first one shown (Owner, 2026-11-14).
   - **Paid:** a due date is paid when a transfer went into the card after the previous month's due date and on or before this one. `entry` is the latest such transfer; `paidFrom` is the account on the other side of that transfer.
   - **Pay button:** only on the card's current due date (`actionable`).
   - **Amount:** an unpaid card shows no amount. Only its current due date shows what's owed, as a hint.

@@ -206,7 +206,8 @@ export function dueInMonth(s: Pick<LedgerState, "subscriptions" | "accounts" | "
     const now = cardStatus(card, s.entries, today);
     if (!now) continue;
     const day = now.due.getDate();
-    // the current due date and every month after it; last month's only while it is past, in this month and paid
+    // the current due date and every month after it, and last month's while it is past and in this month:
+    // the first month the Owner tracks is the one the reminder was set in (Owner, 2026-11-14)
     const k = monthsBetween(now.due, new Date(y, m, 1));
     let due = k >= 0 ? dayIn(y, m, day) : null;
     if (k === -1) {
@@ -219,8 +220,6 @@ export function dueInMonth(s: Pick<LedgerState, "subscriptions" | "accounts" | "
     const ins = s.entries.filter((e) => e.accountId === card.id && e.amount > 0 && e.linkId != null && new Date(e.date) >= since && new Date(e.date) < until);
     const entry = ins.sort((a, b) => b.date.localeCompare(a.date))[0];
     const current = due.getTime() === now.due.getTime();
-    // last month's due date is history: shown only when something paid it
-    if (!current && due < t && !entry) continue;
     put({
       key: `card:${card.id}:${localDay(due)}`,
       kind: "card",

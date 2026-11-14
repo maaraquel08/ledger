@@ -178,8 +178,10 @@ describe("due dates on the calendar", () => {
   });
   test("a card: the current due date with the owed hint, later months without an amount, paid shows the source account", () => {
     // 20 Dec: 15 Dec has passed, so the current due date is 15 Jan; 15 Dec still shows this month
-    // unpaid last month is not shown (a reminder added today has no history)
-    expect(dueInMonth(state, new Date(2026, 11, 1), today).get(15)).toBeUndefined();
+    // last month's, earlier this month, shows unpaid without the hint or the Pay button
+    const dec = dueInMonth(state, new Date(2026, 11, 1), today).get(15)!;
+    expect(dec[0]).toMatchObject({ kind: "card", status: "due", amount: null, actionable: false });
+    expect(dec[0].owed).toBeUndefined();
     const jan = dueInMonth(state, new Date(2027, 0, 1), today).get(15)![0];
     expect(jan).toMatchObject({ kind: "card", status: "due", amount: null, owed: 3000, actionable: true });
     expect(dueInMonth(state, new Date(2027, 1, 1), today).get(15)![0]).toMatchObject({ amount: null, actionable: false });
