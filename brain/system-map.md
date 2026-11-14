@@ -17,7 +17,7 @@ Shared nouns. Every object has exactly one owning feature; others read or trigge
 | Entry | activity | Logged → (Needs category / account → Review → Filed) · Queued → synced flag cleared · Refunded (flag) · Deleted | home, add-entry, receipt-scan, review, accounts, insights, budgets-and-goals, chat |
 | Account | accounts | Added (balance 0 in onboarding) → balance moves with entries → Removed (entries orphaned) | every feature that shows an entry; onboarding creates the first set |
 | Profile (income, frequency, side income, budgets, goals, holdings) | budgets-and-goals (budgets, goals); onboarding (income); holdings seed-only | Set in onboarding → edited in Budgets | home, insights, chat, accounts (holdings %) |
-| Subscription | subscriptions | Added (`recurring_items`, monthly) → due → paid (derived from a matching entry, never stored) → next month · overdue when due date passes unpaid · Deleted (`active = false`) | accounts (Money tab), activity (PAID WITH), M8 knowledge base (read-only) |
+| Subscription | subscriptions | Added (`recurring_items`, monthly) → due → paid (derived from a matching entry, never stored) → next month · overdue when due date passes unpaid · Deleted (`active = false`) | accounts (Money tab), activity (PAID WITH, calendar due badges and DUE block), M8 knowledge base (read-only) |
 | Receipt (image + items, inside an Entry) | receipt-scan | Read → Reviewed or auto-logged → attached to an Entry | activity (photo, split), home (receipt card) |
 | Chat transcript | chat | sessionStorage only; cleared on tab close or "Clear conversation" | — |
 | Onboarding draft | onboarding | sessionStorage; cleared on finish | — |
@@ -67,6 +67,7 @@ Any feature that creates or changes an object must define its entry in each:
 | Review queue | every Entry with null category or account, no exceptions |
 | Account balance | every Entry moves exactly one account by its signed amount (credit inverted) |
 | Today's number + The math | every spend Entry this month changes them; Investments and Transfer never do; a subscription payment is ordinary spend |
+| Activity spend calendar | every due date of a Subscription or card reminder in the month gets a badge on its day (count unpaid, red overdue, ✓ all paid) and a DUE block above that day's entries; future months browse without limit; derived like Upcoming, per occurrence (`dueInMonth`); Mark paid and Pay only on the actionable occurrence |
 | Upcoming (Money tab) | every Subscription, plus a credit account only if it has a `dueDate` (opt-in card reminder, owed or not); the 30-day total counts subscriptions only; paid status derived from entries by matching (D-0020); a card payment is a Transfer |
 | M8 surfaces | each feature may add one AI card, gold-marked (D-0003); local mode: fixed rule templates; cloud mode: Claude prose with numbers only from facts (D-0013) |
 | Exports / search / notifications | none exist today; planned: insight inbox + Web Push for the weekly review and material alerts (D-0016) |

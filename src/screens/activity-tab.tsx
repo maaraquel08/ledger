@@ -4,9 +4,11 @@ import { PageTitle, Screen } from "@/components/ledger/primitives";
 import { addDays, localDay, monthName, sameDay } from "@/lib/format";
 import { navigate, query } from "@/lib/router";
 import { monthBounds, ledgerStart } from "@/lib/selectors";
+import { dueInMonth } from "@/lib/subscriptions";
 import { useLedger } from "@/lib/store";
 import { SpendCalendar } from "@/screens/charts/spend-calendar";
 import { LedgerList } from "@/screens/ledger-list";
+import { DueOnDay } from "@/screens/subscriptions";
 
 const dayOf = (k: string) => new Date(`${k}T00:00:00`);
 const NAV = "flex size-11 items-center justify-center rounded-full text-fg active:bg-surface disabled:text-fg-subtle disabled:opacity-40 disabled:active:bg-transparent";
@@ -47,9 +49,10 @@ export function ActivityTab({ path }: { path: string }) {
 
   const shown = from ? dayOf(from) : now;
   const [month] = monthBounds(shown);
-  const isCurrent = month.getTime() === monthBounds(now)[0].getTime();
   const isFirst = month.getTime() <= monthBounds(first)[0].getTime();
   const day = from && to && from === to ? dayOf(from) : null;
+  const due = React.useMemo(() => dueInMonth(state, month, now), [state, month, now]);
+  const dueToday = day ? due.get(day.getDate()) : undefined;
 
   const pick = (d: Date) => {
     if (day && sameDay(day, d)) setMonth(month);
@@ -66,13 +69,13 @@ export function ActivityTab({ path }: { path: string }) {
         <div aria-live="polite" className="text-[15px] font-medium">
           {monthName(month)} {month.getFullYear()}
         </div>
-        <button type="button" aria-label="Next month" disabled={isCurrent} onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))} className={`-mr-3 ${NAV}`}>
+        <button type="button" aria-label="Next month" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))} className={`-mr-3 ${NAV}`}>
           <ChevronRight />
         </button>
       </div>
-      <SpendCalendar from={month} now={now} selectedDay={day} onPickDay={pick} />
+      <SpendCalendar from={month} now={now} selectedDay={day} onPickDay={pick} due={due} />
       <div className="mt-6 border-t border-line pt-4">
-        <LedgerList path={path} base="/activity" />
+        <LedgerList path={path} base="/activity" lead={day && dueToday?.length ? <DueOnDay day={day} items={dueToday} /> : undefined} />
       </div>
       <div className="h-16" aria-hidden />
     </Screen>

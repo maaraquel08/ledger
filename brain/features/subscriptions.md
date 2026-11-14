@@ -13,7 +13,7 @@ Specs: `docs/superpowers/specs/2026-11-14-subscriptions.md`, amended by `2026-11
 
 ## Scope
 - In: add, edit, delete a subscription; **Upcoming** on Money (30-day subscription total); full Upcoming screen; Mark paid; add, edit, remove a **card reminder**; Pay a card; both modes.
-- Out: yearly or weekly cycles (monthly only); push; skipping a month; linking or unlinking an entry by hand; M8 answers about bills; card statement amounts; "mark done" without an entry; minimum-payment chips; reminders for non-credit accounts; price-change history.
+- Out: due badges on Analytics' calendar; payments before a subscription's `startsOn`; card history before the current month; yearly or weekly cycles (monthly only); push; skipping a month; linking or unlinking an entry by hand; M8 answers about bills; card statement amounts; "mark done" without an entry; minimum-payment chips; reminders for non-credit accounts; price-change history.
 
 ## Permissions
 | Role | Sees | Does | Cannot |
@@ -30,6 +30,8 @@ Specs: `docs/superpowers/specs/2026-11-14-subscriptions.md`, amended by `2026-11
 - **Card reminder rule.** Cards are opt-in. A **card reminder** is a credit account's `dueDate` (`accounts.due_date`); no migration. Adding one sets it to the next due date, removing it clears it. A credit account without a due date is never in Upcoming; one with it always is, even when nothing is owed. No amount: the row says "You decide" and its meta shows `OWED ₱X` or `NOTHING OWED`; Ledger never assumes an amount for a card. Due = the stored date while it is today or later, else the next time its day comes round. Paid = a transfer went into the card (a move leg, amount > 0) since the month before the due date; an Adjustment or other credit doesn't count. Cards are never overdue: Ledger cannot see the statement.
 - **Pay** opens Transfer with the card as destination and the amount **blank**. A chip "Pay in full · ₱X" under the amount fills the amount owed; no chip when nothing is owed. From defaults to the first bank, e-wallet or cash account. It stays a Transfer, not spending (D-0007).
 - Upcoming order: overdue first, then by due date, paid cards last. The 30-day total counts **subscriptions only**: unpaid, due within 30 days, overdue included. Cards are never counted.
+- **Per occurrence (Activity calendar).** `dueInMonth` lists every due date in a month, each with a status. Subscription due date `i` is paid by the `i`-th matching entry, oldest first (same rule as Upcoming); with none it is overdue if before today, else due. Only the first unpaid occurrence is **actionable**, because Mark paid always pays the earliest unpaid month. `paidFrom` is the paying entry's account. A month before `startsOn` has nothing; a future month lists every subscription as due.
+- **Card occurrences** (only cards with a reminder): the current due date, every month after it, and last month's due date when it falls earlier in this month. Paid when a transfer into the card landed after the previous month's due date and on or before this one; `entry` is the latest such transfer, `paidFrom` the account on its other leg. Pay shows only on the current due date. An unpaid card shows no amount; only the current due date shows what is owed, as a hint. Never overdue. Paid status is still never stored.
 - Subscription payments are ordinary spending in totals; Mark paid is not a Transfer.
 
 ## States
@@ -50,6 +52,7 @@ Money → Upcoming → Mark paid sheet (amount, account, date; "Log ₱549") or 
 | Screen | Route | Primary action | Components |
 |---|---|---|---|
 | Upcoming section | `/money` (above net worth) | Mark paid / Pay | Eyebrow, flat card rows |
+| DUE block | Activity tab, above the picked day's entries | Mark paid / Pay | `DueOnDay`, same sheets as Upcoming |
 | Upcoming (full) | `/money/subscriptions` (matched before `/money/:id`), titled "Upcoming" | "Add" | SUBSCRIPTIONS and CARD REMINDERS groups, each by due date, each with its own empty line |
 | Subscription sheet | sheet | Save | Sheet, account picker, Cta |
 | Mark paid sheet | sheet | `Log ₱549` | Sheet, Cta |
@@ -62,7 +65,7 @@ Money → Upcoming → Mark paid sheet (amount, account, date; "Log ₱549") or 
 | Reads | entries (matching, PAID WITH), accounts (card reminders, owed, pickers), categories |
 | Writes | `upsert-subscription`, `remove-subscription` (`recurring_items`, active false on delete), `add-entry` (Mark paid), `upsert-account` (`dueDate` = add, edit or remove a card reminder) |
 | Triggers | Transfer sheet from accounts (Pay, preset destination, blank amount, "Pay in full" chip); entry detail from PAID WITH |
-| Exposes | Upcoming list and 30-day subscription total on Money; `recurring_items` to M8's capture knowledge base and the server's `recurring_missed` |
+| Exposes | Upcoming list and 30-day subscription total on Money; per-day due items (`dueInMonth`, `DueOnDay`) to Activity's spend calendar; `recurring_items` to M8's capture knowledge base and the server's `recurring_missed` |
 | Depends on | accounts (`dueDate` as the card reminder, Transfer), activity (entries are the proof of payment), add-entry (any logging path), D-0007, D-0014 |
 
 ## Edge cases

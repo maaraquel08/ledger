@@ -16,6 +16,13 @@ export const parseDay = (s: string) => {
   return new Date(y, m - 1, d);
 };
 
+/**
+ * A card's due date as local midnight. Stored as "YYYY-MM-DD" (accounts.due_date); an older
+ * ISO datetime is read in local time. new Date("YYYY-MM-DD") would be UTC and land a day early
+ * west of Greenwich, and writing local midnight as ISO lands a day early east of it (PH).
+ */
+export const dueDayOf = (iso: string) => (/^\d{4}-\d{2}-\d{2}$/.test(iso) ? parseDay(iso) : startOfDay(new Date(iso)));
+
 /** `day` of the month `offset` months after (year, month), clamped to that month's end */
 function dayIn(year: number, month: number, day: number, offset = 0) {
   const end = new Date(year, month + offset + 1, 0).getDate();
@@ -100,7 +107,7 @@ export interface CardStatus {
 export function cardStatus(card: Account, entries: Entry[], today = new Date()): CardStatus | null {
   if (card.type !== "credit" || !card.dueDate) return null;
   // the date the Owner set while it's ahead; once past, the same day next time round
-  const set = startOfDay(new Date(card.dueDate));
+  const set = dueDayOf(card.dueDate);
   const day = set.getDate();
   const due = set >= startOfDay(today) ? set : parseDay(firstDue(day, today));
   const last = dayIn(due.getFullYear(), due.getMonth(), day, -1);
@@ -140,4 +147,93 @@ export function upcoming(s: Pick<LedgerState, "subscriptions" | "accounts" | "en
 export function dueWithin(items: Upcoming[], days: number, today = new Date()): number {
   const by = addDays(startOfDay(today), days);
   return items.reduce((t, u) => (u.kind === "subscription" && u.due <= by ? t + u.amount : t), 0);
+}
+
+/* ---------- the calendar: every due date in a month (spec 2026-11-14-calendar-due) ---------- */
+
+export interface DueItem {
+  key: string;
+  kind: "subscription" | "card";
+  id: string;
+  name: string;
+  due: Date;
+  /** cards are never overdue */
+  status: "paid" | "due" | "overdue";
+  /** paid: what was paid; a subscription still due: its amount; a card still due: null */
+  amount: number | null;
+  /** a card's current due date only: what it owes now, a hint */
+  owed?: number;
+  /** paid: the entry that paid it (for a card, the leg into the card) */
+  entry?: Entry;
+  /** paid: the account the money came from */
+  paidFrom?: string | null;
+  /** the one due date Mark paid / Pay acts on (the earliest unpaid one) */
+  actionable: boolean;
+}
+
+const monthsBetween = (a: Date, b: Date) => (b.getFullYear() - a.getFullYear()) * 12 + b.getMonth() - a.getMonth();
+
+/** Every subscription and card due date in the month `month` falls in, by day of the month. */
+export function dueInMonth(s: Pick<LedgerState, "subscriptions" | "accounts" | "entries">, month: Date, today = new Date()): Map<number, DueItem[]> {
+  const out = new Map<number, DueItem[]>();
+  const put = (it: DueItem) => out.set(it.due.getDate(), [...(out.get(it.due.getDate()) ?? []), it]);
+  const y = month.getFullYear();
+  const m = month.getMonth();
+  const t = startOfDay(today);
+
+  const subs = s.subscriptions ?? [];
+  const paid = payments(subs, s.entries);
+  for (const sub of subs) {
+    const i = monthsBetween(parseDay(sub.startsOn), new Date(y, m, 1));
+    if (i < 0) continue;
+    const due = dueOn(sub, i);
+    const list = paid.get(sub.id) ?? [];
+    const entry = list[i];
+    put({
+      key: `subscription:${sub.id}:${localDay(due)}`,
+      kind: "subscription",
+      id: sub.id,
+      name: sub.name,
+      due,
+      status: entry ? "paid" : due < t ? "overdue" : "due",
+      amount: entry ? Math.abs(entry.amount) : sub.amount,
+      ...(entry ? { entry, paidFrom: entry.accountId } : {}),
+      actionable: i === list.length,
+    });
+  }
+
+  for (const card of s.accounts) {
+    const now = cardStatus(card, s.entries, today);
+    if (!now) continue;
+    const day = now.due.getDate();
+    // the current due date and every month after it; last month's only while it is past, in this month and paid
+    const k = monthsBetween(now.due, new Date(y, m, 1));
+    let due = k >= 0 ? dayIn(y, m, day) : null;
+    if (k === -1) {
+      const prev = dayIn(now.due.getFullYear(), now.due.getMonth(), day, -1);
+      if (prev < t && prev.getFullYear() === y && prev.getMonth() === m) due = prev;
+    }
+    if (!due) continue;
+    const since = addDays(dayIn(due.getFullYear(), due.getMonth(), day, -1), 1);
+    const until = addDays(due, 1);
+    const ins = s.entries.filter((e) => e.accountId === card.id && e.amount > 0 && e.linkId != null && new Date(e.date) >= since && new Date(e.date) < until);
+    const entry = ins.sort((a, b) => b.date.localeCompare(a.date))[0];
+    const current = due.getTime() === now.due.getTime();
+    // last month's due date is history: shown only when something paid it
+    if (!current && due < t && !entry) continue;
+    put({
+      key: `card:${card.id}:${localDay(due)}`,
+      kind: "card",
+      id: card.id,
+      name: card.name,
+      due,
+      status: entry ? "paid" : "due",
+      amount: entry ? entry.amount : null,
+      ...(current ? { owed: now.owed } : {}),
+      ...(entry ? { entry, paidFrom: s.entries.find((x) => x.linkId === entry.linkId && x.id !== entry.id)?.accountId ?? null } : {}),
+      actionable: current && !entry,
+    });
+  }
+  for (const list of out.values()) list.sort((a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name));
+  return out;
 }

@@ -20,6 +20,7 @@ import { balance, monthShort, peso, signed } from "@/lib/format";
 import { PROVIDERS, providerMeta, TYPE_KIND, TYPE_LABEL } from "@/lib/providers";
 import { back, navigate } from "@/lib/router";
 import { netWorth } from "@/lib/selectors";
+import { dueDayOf } from "@/lib/subscriptions";
 import { LedgerList } from "@/screens/ledger-list";
 import { adjustmentAmount, newId, useLedger } from "@/lib/store";
 import { cloud } from "@/lib/supabase";
@@ -49,7 +50,7 @@ export const EDIT_HIT = "flex h-11 min-w-11 items-center justify-center px-1 tex
 
 function dueText(iso?: string) {
   if (!iso) return null;
-  const d = new Date(iso);
+  const d = dueDayOf(iso);
   return `due ${d.getDate()} ${monthShort(d)}`;
 }
 

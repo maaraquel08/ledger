@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import { localDay } from "../../src/lib/format";
 import { reducer } from "../../src/lib/store";
 import { buildDemo, EMPTY_STATE } from "../../src/lib/seed";
-import { cardStatus, dueOn, dueWithin, firstDue, payments, pays, subscriptionStatus, upcoming } from "../../src/lib/subscriptions";
+import { cardStatus, dueInMonth, dueOn, dueWithin, firstDue, payments, pays, subscriptionStatus, upcoming } from "../../src/lib/subscriptions";
 import type { Account, Entry, Subscription } from "../../src/lib/types";
 
 const netflix: Subscription = { id: "s1", name: "Netflix", amount: 549, day: 18, startsOn: "2026-11-18", accountId: "a", category: "Subscriptions" };
@@ -151,5 +151,53 @@ describe("store", () => {
     expect(subs.length).toBe(4);
     for (const u of subs) expect(u.overdue).toBe(false);
     expect(subs.map((u) => day(u.due))).toEqual(["2026-11-15", "2026-11-18", "2026-11-22", "2026-12-02"]);
+  });
+});
+
+describe("due dates on the calendar", () => {
+  const today = new Date(2026, 11, 20); // 20 Dec
+  const card: Account = { id: "c", name: "Card", provider: "rcbc", providerLabel: "RCBC", type: "credit", kind: "CREDIT", balance: 3000, dueDate: new Date(2026, 11, 15).toISOString() };
+  const bank: Account = { ...card, id: "b", name: "BPI", type: "bank", dueDate: undefined };
+  const nov = spend("e1", "Netflix", 549, at(2026, 11, 17), { accountId: "b" });
+  const state = { subscriptions: [netflix], accounts: [card, bank], entries: [nov] };
+  const keys = (m: Map<number, unknown[]>) => [...m.keys()].sort((a, b) => a - b);
+
+  test("a paid month names its entry and the account it came from", () => {
+    const it = dueInMonth(state, new Date(2026, 10, 1), today).get(18)![0];
+    expect(it).toMatchObject({ kind: "subscription", status: "paid", amount: 549, paidFrom: "b", actionable: false });
+    expect(it.entry!.id).toBe("e1");
+  });
+  test("an unpaid past month is overdue and the one Mark paid acts on; the next month is due, not actionable", () => {
+    expect(dueInMonth(state, new Date(2026, 11, 1), today).get(18)!.find((i) => i.kind === "subscription")).toMatchObject({ status: "overdue", amount: 549, actionable: true });
+    expect(dueInMonth(state, new Date(2027, 0, 1), today).get(18)![0]).toMatchObject({ status: "due", actionable: false });
+  });
+  test("nothing before the first due date; day 31 clamps in February", () => {
+    expect(keys(dueInMonth(state, new Date(2026, 9, 1), today))).toEqual([]);
+    const s31 = { ...state, subscriptions: [{ ...netflix, day: 31, startsOn: "2027-01-31" }], accounts: [] };
+    expect(keys(dueInMonth(s31, new Date(2027, 1, 1), today))).toEqual([28]);
+  });
+  test("a card: the current due date with the owed hint, later months without an amount, paid shows the source account", () => {
+    // 20 Dec: 15 Dec has passed, so the current due date is 15 Jan; 15 Dec still shows this month
+    // unpaid last month is not shown (a reminder added today has no history)
+    expect(dueInMonth(state, new Date(2026, 11, 1), today).get(15)).toBeUndefined();
+    const jan = dueInMonth(state, new Date(2027, 0, 1), today).get(15)![0];
+    expect(jan).toMatchObject({ kind: "card", status: "due", amount: null, owed: 3000, actionable: true });
+    expect(dueInMonth(state, new Date(2027, 1, 1), today).get(15)![0]).toMatchObject({ amount: null, actionable: false });
+    const legs = [
+      { ...spend("t1", "Card payment", 2000, at(2026, 11, 30)), accountId: "b", category: "Transfer", linkId: "l1" },
+      { ...spend("t2", "Card payment", -2000, at(2026, 11, 30)), accountId: "c", category: "Transfer", linkId: "l1" },
+    ];
+    const paid = dueInMonth({ ...state, entries: [...state.entries, ...legs] }, new Date(2026, 11, 1), today).get(15)![0];
+    expect(paid).toMatchObject({ status: "paid", amount: 2000, paidFrom: "b" });
+    expect(paid.entry!.id).toBe("t2");
+  });
+  test("a date-only due date is the local day, whatever the time zone", () => {
+    const d = { ...card, dueDate: "2026-12-13" };
+    expect(day(cardStatus(d, [], new Date(2026, 10, 14))!.due)).toBe("2026-12-13");
+  });
+  test("no reminder, no card on the calendar; a stored date still ahead doesn't add last month", () => {
+    expect(keys(dueInMonth({ ...state, accounts: [{ ...card, dueDate: undefined }] }, new Date(2026, 11, 1), today))).toEqual([18]);
+    const ahead = { ...state, accounts: [{ ...card, dueDate: new Date(2026, 11, 15).toISOString() }] };
+    expect(keys(dueInMonth(ahead, new Date(2026, 10, 1), new Date(2026, 10, 14)))).toEqual([18]);
   });
 });

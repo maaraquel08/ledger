@@ -2,11 +2,11 @@ import * as React from "react";
 import { PickField } from "@/components/ledger/entry-draft";
 import { ActionButton, BackBar, Cta, Eyebrow, PageTitle, Pill, ProviderMark, Screen, Segmented, Sheet } from "@/components/ledger/primitives";
 import { cn } from "@/lib/cn";
-import { MAX_AMOUNT, localDay, monthShort, parseWholePesos, peso } from "@/lib/format";
+import { MAX_AMOUNT, localDay, monthName, monthShort, parseWholePesos, peso, startOfDay } from "@/lib/format";
 import { spendCategories } from "@/lib/categories";
 import { back, navigate } from "@/lib/router";
 import { accountLabel } from "@/lib/selectors";
-import { dueWithin, firstDue, parseDay, payments, upcoming, type Upcoming } from "@/lib/subscriptions";
+import { dueDayOf, dueWithin, firstDue, parseDay, payments, upcoming, type DueItem, type Upcoming } from "@/lib/subscriptions";
 import { newId, useLedger } from "@/lib/store";
 import type { Account, Entry, Subscription } from "@/lib/types";
 import { TransferSheet } from "@/screens/accounts";
@@ -109,6 +109,78 @@ function BillRow({ item, bills }: { item: Item; bills: ReturnType<typeof useBill
         </ActionButton>
       )}
     </div>
+  );
+}
+
+/* ====================================================================== */
+/*  Activity: what is due on the picked day                                */
+/* ====================================================================== */
+
+/** The DUE block above a day's entries (spec 2026-11-14-calendar-due); the same sheets as Upcoming. */
+export function DueOnDay({ day, items }: { day: Date; items: DueItem[] }) {
+  const { state } = useLedger();
+  const bills = useBills();
+  // the actionable occurrence is exactly the one Upcoming lists, so it drives the same sheets
+  const current = React.useMemo(() => upcoming(state), [state]);
+  return (
+    <section aria-label="Due this day" className="mb-8">
+      <Eyebrow className="mb-4">
+        DUE · {day.getDate()} {monthName(day).toUpperCase()}
+      </Eyebrow>
+      <div className="flex flex-col gap-[22px]">
+        {items.map((it) => {
+          const card = it.kind === "card" ? state.accounts.find((a) => a.id === it.id) : undefined;
+          const sub = it.kind === "subscription" ? (state.subscriptions ?? []).find((s) => s.id === it.id) : undefined;
+          const paid = it.status === "paid";
+          const overdue = it.status === "overdue";
+          const provider = paid ? (state.accounts.find((a) => a.id === it.paidFrom) ?? card)?.provider : (card ?? state.accounts.find((a) => a.id === sub?.accountId))?.provider;
+          const days = Math.round((startOfDay(new Date()).getTime() - it.due.getTime()) / 86_400_000);
+          const from = it.paidFrom ? state.accounts.find((a) => a.id === it.paidFrom) : undefined;
+          const meta = paid
+            ? `PAID ${dueLabel(new Date(it.entry?.date ?? it.due))}${from ? ` · ${accountLabel(from)}` : ""}`
+            : overdue
+              ? `OVERDUE · ${days} ${days === 1 ? "DAY" : "DAYS"}`
+              : "NOT PAID";
+          const open = () => (paid ? it.entry && navigate(`/activity/${it.entry.id}`) : card ? bills.editReminder(card) : sub && bills.edit(sub));
+          const target = it.actionable ? current.find((u) => u.kind === it.kind && u.id === it.id) : undefined;
+          return (
+            <div key={it.key} className="flex min-h-[52px] items-center gap-3">
+              <button type="button" onClick={open} className="flex min-w-0 flex-1 items-center gap-3.5 text-left active:opacity-60">
+                <ProviderMark provider={provider ?? null} />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[15px] leading-[1.3]">{it.name}</div>
+                  <div className={cn("mt-1.5 truncate font-mono text-[10.5px] font-medium tracking-[0.05em]", overdue ? "text-danger" : "text-fg-subtle")}>{meta}</div>
+                  {it.kind === "card" && !paid && it.owed !== undefined ? (
+                    <div className="mt-1 truncate font-mono text-[10.5px] font-medium tracking-[0.05em] text-fg-subtle">{it.owed > 0 ? `OWED ${peso(it.owed)}` : "NOTHING OWED"}</div>
+                  ) : null}
+                </div>
+                {paid ? (
+                  <div className="tnum flex flex-none items-center gap-1.5 text-[18px] font-semibold tracking-[-0.01em]">
+                    <span aria-label="Paid" className="text-[14px] font-normal text-fg-muted">✓</span>
+                    {peso(it.amount ?? 0)}
+                  </div>
+                ) : it.kind === "subscription" ? (
+                  <div className="tnum flex-none text-[18px] font-semibold tracking-[-0.01em]">{peso(it.amount ?? 0)}</div>
+                ) : (
+                  <div className="flex-none text-[13px] text-fg-muted">You decide</div>
+                )}
+              </button>
+              {target ? (
+                <ActionButton
+                  variant="secondary"
+                  className="min-h-11 w-[76px] flex-none px-0 text-center"
+                  onClick={() => (it.kind === "card" ? bills.payCard(target) : bills.markPaid(target))}
+                  aria-label={`${it.kind === "card" ? "Pay" : "Mark paid"} ${it.name}`}
+                >
+                  {it.kind === "card" ? "Pay" : "Mark paid"}
+                </ActionButton>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+      {bills.sheets}
+    </section>
   );
 }
 
@@ -407,7 +479,7 @@ function ReminderForm({ card, onDone }: { card: Account | null; onDone: () => vo
   // adding: only cards without a reminder yet
   const choices = card ? [card] : credit.filter((a) => !a.dueDate);
   const [cardId, setCardId] = React.useState<string | null>(card?.id ?? choices[0]?.id ?? null);
-  const [day, setDay] = React.useState(card?.dueDate ? String(new Date(card.dueDate).getDate()) : "");
+  const [day, setDay] = React.useState(card?.dueDate ? String(dueDayOf(card.dueDate).getDate()) : "");
 
   if (!card && credit.length === 0) return <p className="pt-5 pb-3 text-[14px] text-fg-muted">Add your credit card on Money first.</p>;
   if (!card && choices.length === 0) return <p className="pt-5 pb-3 text-[14px] text-fg-muted">Every card already has a reminder. Tap one in Upcoming to change it.</p>;
@@ -419,12 +491,12 @@ function ReminderForm({ card, onDone }: { card: Account | null; onDone: () => vo
   const save = () => {
     if (!picked || dueDay === null) return;
     // same day: keep the date already set; a new day starts the next time it comes round
-    const same = picked.dueDate && new Date(picked.dueDate).getDate() === dueDay;
+    const same = picked.dueDate && dueDayOf(picked.dueDate).getDate() === dueDay;
     dispatch({
       type: "upsert-account",
       account: {
         ...picked,
-        dueDate: same ? picked.dueDate : parseDay(firstDue(dueDay)).toISOString(),
+        dueDate: same ? picked.dueDate : firstDue(dueDay),
       },
     });
     onDone();

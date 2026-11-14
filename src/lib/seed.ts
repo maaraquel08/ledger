@@ -1,3 +1,4 @@
+import { localDay } from "./format";
 import { firstDue } from "./subscriptions";
 import type { Account, Category, Entry, LedgerState, Profile } from "./types";
 
@@ -142,7 +143,7 @@ export function buildDemo(today = new Date()): LedgerState {
 
   entries.sort((a, b) => b.date.localeCompare(a.date));
 
-  const dueDate = new Date(today.getFullYear(), today.getMonth() + 1, 15).toISOString();
+  const dueDate = localDay(new Date(today.getFullYear(), today.getMonth() + 1, 15));
   return {
     onboarded: true,
     demo: true,
