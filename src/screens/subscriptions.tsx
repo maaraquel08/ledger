@@ -686,7 +686,7 @@ function MarkPaidSheet({ open, onOpenChange, item }: { open: boolean; onOpenChan
   React.useEffect(() => {
     if (!open || item?.kind !== "subscription") return;
     setAmount(String(item.amount));
-    setAccountId(item.accountId);
+    setAccountId(state.accounts.some((a) => a.id === item.accountId) ? item.accountId : null);
     setDate(localDay());
   }, [open, item]);
 

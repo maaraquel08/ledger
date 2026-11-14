@@ -147,7 +147,12 @@ export function reducer(s: LedgerState, a: Action): LedgerState {
       };
     }
     case "remove-account":
-      return { ...s, accounts: s.accounts.filter((x) => x.id !== a.id), entries: detachAccounts(s.entries, (id) => id === a.id) };
+      return {
+        ...s,
+        accounts: s.accounts.filter((x) => x.id !== a.id),
+        entries: detachAccounts(s.entries, (id) => id === a.id),
+        subscriptions: s.subscriptions?.map((x) => (x.accountId === a.id ? { ...x, accountId: null } : x)),
+      };
     case "update-profile":
       return { ...s, profile: { ...s.profile, ...resolveProfilePatch(s, a.patch) } };
     case "ask": {
@@ -181,6 +186,7 @@ export function reducer(s: LedgerState, a: Action): LedgerState {
             : d,
         ),
         entries: recategorize(s.entries, a.from, to),
+        subscriptions: s.subscriptions?.map((x) => (x.category === a.from ? { ...x, category: to } : x)),
         profile: { ...s.profile, categoryBudgets: budgets, ...(pct ? { categoryBudgetPct: pct } : {}) },
       };
     }
@@ -197,6 +203,7 @@ export function reducer(s: LedgerState, a: Action): LedgerState {
         ...s,
         categories: defs.filter((d) => d !== def),
         entries: recategorize(s.entries, a.name, a.moveTo),
+        subscriptions: s.subscriptions?.map((x) => (x.category === a.name ? { ...x, category: a.moveTo } : x)),
         profile: { ...s.profile, categoryBudgets: budgets, ...(pct ? { categoryBudgetPct: pct } : {}) },
       };
     }

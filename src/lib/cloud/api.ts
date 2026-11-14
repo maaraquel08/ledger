@@ -56,7 +56,7 @@ export async function loadState(): Promise<LedgerState> {
     sb().from("profiles").select("*").maybeSingle().then(check),
     all("goals", "*", (q) => q.is("archived_at", null).order("created_at")),
     all("user_categories", "code,kind,categories(is_fixed,is_monthly)", (q) => q.order("sort").order("code")),
-    all("recurring_items", "*", (q) => q.eq("active", true).eq("cadence", "monthly").order("created_at")),
+    all("recurring_items", "*", (q) => q.eq("active", true).eq("cadence", "monthly").lt("amount", 0).order("created_at")),
   ]);
   const categories = toCategories(cats);
   const bal = new Map(balances.map((b) => [String(b.account_id), Number(b.balance)]));

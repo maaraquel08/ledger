@@ -159,6 +159,19 @@ describe("store", () => {
     s = reducer(s, { type: "delete-entry", id: "e1" });
     expect(day(upcoming(s, new Date(2026, 10, 19))[0].due)).toBe("2026-11-18");
   });
+  test("renaming or deleting a category carries its subscriptions along", () => {
+    let s = reducer(EMPTY_STATE, { type: "upsert-subscription", sub: netflix });
+    s = reducer(s, { type: "rename-category", from: "Subscriptions", to: "Streaming" });
+    expect(s.subscriptions?.[0].category).toBe("Streaming");
+    s = reducer(s, { type: "delete-category", name: "Streaming", moveTo: "Other" });
+    expect(s.subscriptions?.[0].category).toBe("Other");
+  });
+  test("removing an account leaves its subscriptions with no account", () => {
+    const acct: Account = { id: "a", name: "BPI", provider: "bpi", providerLabel: "BPI", type: "bank", kind: "SAVINGS", balance: 1000 };
+    let s = reducer({ ...EMPTY_STATE, accounts: [acct] }, { type: "upsert-subscription", sub: netflix });
+    s = reducer(s, { type: "remove-account", id: "a" });
+    expect(s.subscriptions?.[0].accountId).toBeNull();
+  });
   test("the demo starts every subscription unpaid at its next due date", () => {
     const today = new Date(2026, 10, 14, 9);
     const demo = buildDemo(today);
