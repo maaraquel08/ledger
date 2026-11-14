@@ -1,6 +1,6 @@
 import * as React from "react";
 import { PickField } from "@/components/ledger/entry-draft";
-import { ActionButton, BackBar, Cta, Eyebrow, PageTitle, Pill, ProviderMark, Screen, Sheet } from "@/components/ledger/primitives";
+import { ActionButton, BackBar, Cta, Eyebrow, PageTitle, Pill, ProviderMark, Screen, Segmented, Sheet } from "@/components/ledger/primitives";
 import { cn } from "@/lib/cn";
 import { MAX_AMOUNT, localDay, monthShort, parseWholePesos, peso } from "@/lib/format";
 import { spendCategories } from "@/lib/categories";
@@ -11,8 +11,7 @@ import { newId, useLedger } from "@/lib/store";
 import type { Account, Entry, Subscription } from "@/lib/types";
 import { TransferSheet } from "@/screens/accounts";
 
-const FIELD =
-  "h-11 w-full rounded-md border border-line-strong bg-bg px-3 text-[16px] text-fg outline-none placeholder:text-fg-subtle focus:border-accent";
+const FIELD = "h-11 w-full rounded-md border border-line-strong bg-bg px-3 text-[16px] text-fg outline-none placeholder:text-fg-subtle focus:border-accent";
 
 type Item = Upcoming;
 
@@ -36,6 +35,7 @@ function useBills() {
   const [paying, setPaying] = React.useState<Item | null>(null);
   const [card, setCard] = React.useState<Item | null>(null);
   const [editing, setEditing] = React.useState<Subscription | "new" | null>(null);
+  const [reminder, setReminder] = React.useState<Account | null>(null);
 
   // the card is paid from the first bank, wallet or cash account that isn't the card itself
   const payer = (c: Item) => state.accounts.find((a) => a.type !== "credit" && a.type !== "investments") ?? state.accounts.find((a) => a.id !== c.id);
@@ -46,11 +46,25 @@ function useBills() {
       <SubscriptionSheet open={editing !== null} onOpenChange={(o) => !o && setEditing(null)} sub={editing === "new" ? null : editing} />
       <MarkPaidSheet open={paying !== null} onOpenChange={(o) => !o && setPaying(null)} item={paying} />
       {payFrom ? (
-        <TransferSheet open={card !== null} onOpenChange={(o) => !o && setCard(null)} from={payFrom} to={card?.id} amount={card?.amount} />
+        // the Owner decides how much: the amount opens blank, paying in full is one tap
+        <TransferSheet
+          open={card !== null}
+          onOpenChange={(o) => !o && setCard(null)}
+          from={payFrom}
+          to={card?.id}
+          suggest={card?.kind === "card" ? { label: "Pay in full", amount: card.owed } : undefined}
+        />
       ) : null}
+      <ReminderSheet open={reminder !== null} onOpenChange={(o) => !o && setReminder(null)} card={reminder} />
     </>
   );
-  return { sheets, markPaid: setPaying, payCard: setCard, edit: setEditing };
+  return {
+    sheets,
+    markPaid: setPaying,
+    payCard: setCard,
+    edit: setEditing,
+    editReminder: setReminder,
+  };
 }
 
 function BillRow({ item, bills }: { item: Item; bills: ReturnType<typeof useBills> }) {
@@ -58,8 +72,10 @@ function BillRow({ item, bills }: { item: Item; bills: ReturnType<typeof useBill
   const account = state.accounts.find((a) => a.id === item.accountId);
   const meta = item.overdue
     ? `OVERDUE · ${item.daysLate} ${item.daysLate === 1 ? "DAY" : "DAYS"}`
-    : `DUE ${dueLabel(item.due)}${item.kind === "subscription" && account ? ` · ${accountLabel(account)}` : ""}`;
-  const open = () => (item.kind === "card" ? navigate(`/money/${item.id}`) : bills.edit(item.sub));
+    : item.kind === "card"
+      ? `DUE ${dueLabel(item.due)}`
+      : `DUE ${dueLabel(item.due)}${account ? ` · ${accountLabel(account)}` : ""}`;
+  const open = () => (item.kind === "card" ? account && bills.editReminder(account) : bills.edit(item.sub));
   const paidCard = item.kind === "card" && item.paid;
   return (
     <div className="flex min-h-[52px] items-center gap-3">
@@ -68,8 +84,17 @@ function BillRow({ item, bills }: { item: Item; bills: ReturnType<typeof useBill
         <div className="min-w-0 flex-1">
           <div className="truncate text-[15px] leading-[1.3]">{item.name}</div>
           <div className={cn("mt-1.5 truncate font-mono text-[10.5px] font-medium tracking-[0.05em]", item.overdue ? "text-danger" : "text-fg-subtle")}>{meta}</div>
+          {/* what the card owes is a hint on its own line, never the amount due */}
+          {item.kind === "card" && !item.paid ? (
+            <div className="mt-1 truncate font-mono text-[10.5px] font-medium tracking-[0.05em] text-fg-subtle">{item.owed > 0 ? `OWED ${peso(item.owed)}` : "NOTHING OWED"}</div>
+          ) : null}
         </div>
-        <div className={cn("tnum flex-none text-[18px] font-semibold tracking-[-0.01em]", paidCard && "text-fg-muted")}>{peso(item.amount)}</div>
+        {item.kind === "subscription" ? (
+          <div className="tnum flex-none text-[18px] font-semibold tracking-[-0.01em]">{peso(item.amount)}</div>
+        ) : paidCard ? null : (
+          // a card has no amount due: how much to pay is the Owner's call
+          <div className="flex-none text-[13px] text-fg-muted">You decide</div>
+        )}
       </button>
       {paidCard ? (
         <span className="w-[76px] flex-none text-center font-mono text-[10.5px] tracking-[0.05em] text-fg-subtle uppercase">Paid</span>
@@ -101,9 +126,9 @@ export function UpcomingSection() {
     return (
       <div className="px-6 pt-6">
         <Eyebrow>UPCOMING</Eyebrow>
-        <p className="mt-3 text-[14px] leading-[1.5] text-fg-muted">Nothing due yet. Add Netflix, rent or any bill you pay each month.</p>
+        <p className="mt-3 text-[14px] leading-[1.5] text-fg-muted">Nothing due yet. Add a subscription like Netflix, or a reminder to pay a card.</p>
         <ActionButton variant="secondary" className="mt-4 min-h-11" onClick={() => bills.edit("new")}>
-          Add a subscription
+          Add
         </ActionButton>
         {bills.sheets}
       </div>
@@ -113,7 +138,7 @@ export function UpcomingSection() {
   return (
     <section className="px-6 pt-6 pb-9">
       <div className="mb-4 flex items-center justify-between">
-        <Eyebrow>UPCOMING · {peso(total)} NEXT 30 DAYS</Eyebrow>
+        <Eyebrow>UPCOMING · {peso(total)} SUBSCRIPTIONS, 30 DAYS</Eyebrow>
         <button type="button" onClick={() => navigate("/money/subscriptions")} className="-mr-2 flex h-11 items-center px-2 text-[13px] text-fg-muted active:opacity-60">
           See all
         </button>
@@ -149,7 +174,7 @@ export function SubscriptionsScreen() {
           </button>
         }
       >
-        Subscriptions
+        Upcoming
       </PageTitle>
       <div className="px-6 pt-6">
         <section className="mb-9">
@@ -169,16 +194,18 @@ export function SubscriptionsScreen() {
             </div>
           )}
         </section>
-        {cards.length > 0 ? (
-          <section className="mb-9">
-            <Eyebrow className="mb-4">CARDS</Eyebrow>
+        <section className="mb-9">
+          <Eyebrow className="mb-4">CARD REMINDERS</Eyebrow>
+          {cards.length === 0 ? (
+            <p className="text-[14px] leading-[1.5] text-fg-muted">No card reminders. Add one for a card you pay each month; you choose how much when you pay.</p>
+          ) : (
             <div className="flex flex-col gap-[22px]">
               {cards.map((it) => (
                 <BillRow key={it.id} item={it} bills={bills} />
               ))}
             </div>
-          </section>
-        ) : null}
+          )}
+        </section>
       </div>
       {bills.sheets}
     </Screen>
@@ -199,9 +226,11 @@ function SubscriptionSheet({ open, onOpenChange, sub }: { open: boolean; onOpenC
   const [accountId, setAccountId] = React.useState(NO_ACCOUNT);
   const [category, setCategory] = React.useState("Subscriptions");
   const [confirm, setConfirm] = React.useState(false);
+  const [kind, setKind] = React.useState<AddKind>("Subscription");
 
   React.useEffect(() => {
     if (!open) return;
+    setKind("Subscription");
     setName(sub?.name ?? "");
     setAmount(sub ? String(sub.amount) : "");
     setDay(sub ? String(sub.day) : "");
@@ -243,95 +272,213 @@ function SubscriptionSheet({ open, onOpenChange, sub }: { open: boolean; onOpenC
   };
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange} title={sub ? "Edit subscription" : "Add subscription"}>
-      <form
-        className="space-y-5 pt-5 pb-3"
-        onSubmit={(e) => {
-          e.preventDefault();
-          save();
-        }}
-      >
-        <label className="block">
-          <Eyebrow className="mb-2">NAME</Eyebrow>
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Netflix" className={FIELD} enterKeyHint="next" />
-        </label>
-        <div className="grid grid-cols-2 gap-3">
-          <label className="block">
-            <Eyebrow className="mb-2">AMOUNT (₱)</Eyebrow>
-            <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="numeric" placeholder="549" className={cn(FIELD, "font-mono")} />
-          </label>
-          <label className="block">
-            <Eyebrow className="mb-2">DUE DAY (1–31)</Eyebrow>
-            <input value={day} onChange={(e) => setDay(e.target.value.replace(/\D/g, "").slice(0, 2))} inputMode="numeric" placeholder="18" className={cn(FIELD, "font-mono")} />
-          </label>
+    <Sheet open={open} onOpenChange={onOpenChange} title={sub ? "Edit subscription" : kind === "Card reminder" ? "Add card reminder" : "Add subscription"}>
+      {sub ? null : (
+        <div className="pt-5">
+          <Segmented value={kind} options={ADD_KINDS} onChange={setKind} />
         </div>
-        <PickField
-          label="Paid from"
-          value={accountId}
-          onChange={setAccountId}
-          options={[
-            ...state.accounts.map((a) => ({ value: a.id, label: a.name, lead: <ProviderMark provider={a.provider} size={26} radius={7} /> })),
-            { value: NO_ACCOUNT, label: "No account", lead: <ProviderMark provider={null} size={26} radius={7} /> },
-          ]}
-        />
-        <PickField label="Category" value={category} onChange={setCategory} options={categoryOptions} />
-        <Cta type="submit" disabled={!valid}>
-          {sub ? "Save changes" : "Add subscription"}
-        </Cta>
+      )}
+      {kind === "Card reminder" ? (
+        <ReminderForm card={null} onDone={() => onOpenChange(false)} />
+      ) : (
+        <form
+          className="space-y-5 pt-5 pb-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            save();
+          }}
+        >
+          <label className="block">
+            <Eyebrow className="mb-2">NAME</Eyebrow>
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Netflix" className={FIELD} enterKeyHint="next" />
+          </label>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block">
+              <Eyebrow className="mb-2">AMOUNT (₱)</Eyebrow>
+              <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="numeric" placeholder="549" className={cn(FIELD, "font-mono")} />
+            </label>
+            <label className="block">
+              <Eyebrow className="mb-2">DUE DAY (1–31)</Eyebrow>
+              <input value={day} onChange={(e) => setDay(e.target.value.replace(/\D/g, "").slice(0, 2))} inputMode="numeric" placeholder="18" className={cn(FIELD, "font-mono")} />
+            </label>
+          </div>
+          <PickField
+            label="Paid from"
+            value={accountId}
+            onChange={setAccountId}
+            options={[
+              ...state.accounts.map((a) => ({
+                value: a.id,
+                label: a.name,
+                lead: <ProviderMark provider={a.provider} size={26} radius={7} />,
+              })),
+              {
+                value: NO_ACCOUNT,
+                label: "No account",
+                lead: <ProviderMark provider={null} size={26} radius={7} />,
+              },
+            ]}
+          />
+          <PickField label="Category" value={category} onChange={setCategory} options={categoryOptions} />
+          <Cta type="submit" disabled={!valid}>
+            {sub ? "Save changes" : "Add subscription"}
+          </Cta>
 
-        {sub ? (
-          <>
-            <div>
-              <Eyebrow className="mb-3">PAID WITH</Eyebrow>
-              {paid.length === 0 ? (
-                <p className="text-[13.5px] text-fg-muted">No entries yet. Log one with {sub.name} in the description and it counts.</p>
-              ) : (
-                <div className="divide-y divide-line rounded-md border border-line">
-                  {paid.map((e) => (
-                    <button
-                      key={e.id}
-                      type="button"
-                      onClick={() => {
-                        onOpenChange(false);
-                        navigate(`/activity/${e.id}`);
-                      }}
-                      className="flex min-h-12 w-full items-center justify-between gap-3 px-3 text-left active:opacity-60"
-                    >
-                      <span className="min-w-0 flex-1 truncate text-[14px]">{e.desc}</span>
-                      <span className="flex-none font-mono text-[10.5px] tracking-[0.05em] text-fg-subtle">{dueLabel(new Date(e.date))}</span>
-                      <span className="tnum flex-none text-[14px] font-semibold">{peso(e.amount)}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-            {confirm ? (
-              <div className="rounded-lg border border-danger/50 p-3.5">
-                <p className="text-[13.5px] leading-[1.45]">Delete {sub.name}? Its entries stay in Activity. It just stops showing as due.</p>
-                <div className="mt-3 flex gap-2.5">
-                  <ActionButton variant="secondary" className="min-h-11 flex-1" autoFocus onClick={() => setConfirm(false)}>
-                    Cancel
-                  </ActionButton>
-                  <ActionButton
-                    className="min-h-11 flex-1 !bg-danger"
-                    onClick={() => {
-                      dispatch({ type: "remove-subscription", id: sub.id });
-                      onOpenChange(false);
-                    }}
-                  >
-                    Delete subscription
-                  </ActionButton>
-                </div>
+          {sub ? (
+            <>
+              <div>
+                <Eyebrow className="mb-3">PAID WITH</Eyebrow>
+                {paid.length === 0 ? (
+                  <p className="text-[13.5px] text-fg-muted">No entries yet. Log one with {sub.name} in the description and it counts.</p>
+                ) : (
+                  <div className="divide-y divide-line rounded-md border border-line">
+                    {paid.map((e) => (
+                      <button
+                        key={e.id}
+                        type="button"
+                        onClick={() => {
+                          onOpenChange(false);
+                          navigate(`/activity/${e.id}`);
+                        }}
+                        className="flex min-h-12 w-full items-center justify-between gap-3 px-3 text-left active:opacity-60"
+                      >
+                        <span className="min-w-0 flex-1 truncate text-[14px]">{e.desc}</span>
+                        <span className="flex-none font-mono text-[10.5px] tracking-[0.05em] text-fg-subtle">{dueLabel(new Date(e.date))}</span>
+                        <span className="tnum flex-none text-[14px] font-semibold">{peso(e.amount)}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
-            ) : (
-              <button type="button" onClick={() => setConfirm(true)} className="flex min-h-11 w-full items-center justify-center text-[14px] text-danger active:opacity-60">
-                Delete subscription
-              </button>
-            )}
-          </>
-        ) : null}
-      </form>
+              {confirm ? (
+                <div className="rounded-lg border border-danger/50 p-3.5">
+                  <p className="text-[13.5px] leading-[1.45]">Delete {sub.name}? Its entries stay in Activity. It just stops showing as due.</p>
+                  <div className="mt-3 flex gap-2.5">
+                    <ActionButton variant="secondary" className="min-h-11 flex-1" autoFocus onClick={() => setConfirm(false)}>
+                      Cancel
+                    </ActionButton>
+                    <ActionButton
+                      className="min-h-11 flex-1 !bg-danger"
+                      onClick={() => {
+                        dispatch({ type: "remove-subscription", id: sub.id });
+                        onOpenChange(false);
+                      }}
+                    >
+                      Delete subscription
+                    </ActionButton>
+                  </div>
+                </div>
+              ) : (
+                <button type="button" onClick={() => setConfirm(true)} className="flex min-h-11 w-full items-center justify-center text-[14px] text-danger active:opacity-60">
+                  Delete subscription
+                </button>
+              )}
+            </>
+          ) : null}
+        </form>
+      )}
     </Sheet>
+  );
+}
+
+/* ====================================================================== */
+/*  Card reminders                                                         */
+/* ====================================================================== */
+
+type AddKind = "Subscription" | "Card reminder";
+const ADD_KINDS: AddKind[] = ["Subscription", "Card reminder"];
+
+/** Edit or remove a card's reminder (opened from its row). */
+function ReminderSheet({ open, onOpenChange, card }: { open: boolean; onOpenChange: (o: boolean) => void; card: Account | null }) {
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange} title="Edit reminder">
+      {card ? <ReminderForm key={card.id} card={card} onDone={() => onOpenChange(false)} /> : null}
+    </Sheet>
+  );
+}
+
+/**
+ * A card reminder is the card's due date (spec 2026-11-14-card-reminders): set it to remind,
+ * clear it to stop. No amount is kept; the Owner decides how much when they pay.
+ */
+function ReminderForm({ card, onDone }: { card: Account | null; onDone: () => void }) {
+  const { state, dispatch } = useLedger();
+  const credit = state.accounts.filter((a) => a.type === "credit");
+  // adding: only cards without a reminder yet
+  const choices = card ? [card] : credit.filter((a) => !a.dueDate);
+  const [cardId, setCardId] = React.useState<string | null>(card?.id ?? choices[0]?.id ?? null);
+  const [day, setDay] = React.useState(card?.dueDate ? String(new Date(card.dueDate).getDate()) : "");
+
+  if (!card && credit.length === 0) return <p className="pt-5 pb-3 text-[14px] text-fg-muted">Add your credit card on Money first.</p>;
+  if (!card && choices.length === 0) return <p className="pt-5 pb-3 text-[14px] text-fg-muted">Every card already has a reminder. Tap one in Upcoming to change it.</p>;
+
+  const picked = choices.find((a) => a.id === cardId) ?? null;
+  const dueDay = parseDayOfMonth(day);
+  const valid = !!picked && dueDay !== null;
+
+  const save = () => {
+    if (!picked || dueDay === null) return;
+    // same day: keep the date already set; a new day starts the next time it comes round
+    const same = picked.dueDate && new Date(picked.dueDate).getDate() === dueDay;
+    dispatch({
+      type: "upsert-account",
+      account: {
+        ...picked,
+        dueDate: same ? picked.dueDate : parseDay(firstDue(dueDay)).toISOString(),
+      },
+    });
+    onDone();
+  };
+
+  return (
+    <form
+      className="space-y-5 pt-5 pb-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        save();
+      }}
+    >
+      {card ? (
+        <div className="flex items-center gap-3">
+          <ProviderMark provider={card.provider} size={32} radius={8} />
+          <span className="text-[15px]">{card.name}</span>
+        </div>
+      ) : (
+        <div>
+          <Eyebrow className="mb-2.5">CARD</Eyebrow>
+          <div className="flex flex-wrap gap-2">
+            {choices.map((a) => (
+              <Pill key={a.id} active={cardId === a.id} className="min-h-10 max-w-full px-3.5 text-[12.5px] whitespace-normal text-start" onClick={() => setCardId(a.id)}>
+                {a.name}
+              </Pill>
+            ))}
+          </div>
+        </div>
+      )}
+      <label className="block">
+        <Eyebrow className="mb-2">DUE DAY (1–31)</Eyebrow>
+        <input value={day} onChange={(e) => setDay(e.target.value.replace(/\D/g, "").slice(0, 2))} inputMode="numeric" placeholder="15" className={cn(FIELD, "font-mono")} />
+      </label>
+      <p className="text-[13px] leading-[1.45] text-fg-muted">No amount to set. When it's due, you choose how much to pay.</p>
+      <Cta type="submit" disabled={!valid}>
+        {card ? "Save" : "Remind me"}
+      </Cta>
+      {card ? (
+        <button
+          type="button"
+          onClick={() => {
+            dispatch({
+              type: "upsert-account",
+              account: { ...card, dueDate: undefined },
+            });
+            onDone();
+          }}
+          className="flex min-h-11 w-full items-center justify-center text-[14px] text-danger active:opacity-60"
+        >
+          Remove reminder
+        </button>
+      ) : null}
+    </form>
   );
 }
 
@@ -346,7 +493,7 @@ function MarkPaidSheet({ open, onOpenChange, item }: { open: boolean; onOpenChan
   const [date, setDate] = React.useState(localDay());
 
   React.useEffect(() => {
-    if (!open || !item) return;
+    if (!open || item?.kind !== "subscription") return;
     setAmount(String(item.amount));
     setAccountId(item.accountId);
     setDate(localDay());

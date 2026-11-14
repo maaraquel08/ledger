@@ -3,7 +3,7 @@ type: decision
 area: product
 status: draft
 updated: 2026-11-14
-related: [features/subscriptions, features/accounts, glossary, system-map, D-0014, D-0012, D-0013, D-0007]
+related: [D-0021, features/subscriptions, features/accounts, glossary, system-map, D-0014, D-0012, D-0013, D-0007]
 supersedes: []
 superseded_by: null
 ---
@@ -12,7 +12,7 @@ superseded_by: null
 
 **Context.** The Owner wants Upcoming bills on Money, and a bill counted as paid when they log the payment themselves, however they log it (typed, voice, receipt, server capture). Decided by the Owner on 2026-11-14.
 
-**Decision.** A subscription is a row in the existing `recurring_items` table (monthly only; delete sets `active = false`). Whether a month is paid is never stored: an entry pays it when it is spending, matches the subscription's name, and is within 50–150% of its amount (rule in `features/subscriptions`). Next due = the cycle date after the number of paying entries. Card bills are derived from credit accounts with a due date. Nothing links an entry to a subscription in the data.
+**Decision.** A subscription is a row in the existing `recurring_items` table (monthly only; delete sets `active = false`). Whether a month is paid is never stored: an entry pays it when it is spending, matches the subscription's name, and is within 50–150% of its amount (rule in `features/subscriptions`). Next due = the cycle date after the number of paying entries. Cards are no longer derived automatically: they are opt-in card reminders with no amount (D-0021). Nothing links an entry to a subscription in the data.
 
 | Option | Outcome |
 |---|---|

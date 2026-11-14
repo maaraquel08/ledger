@@ -86,17 +86,19 @@ export function subscriptionStatus(sub: Subscription, paid: Entry[], today = new
 
 export interface CardStatus {
   due: Date;
+  /** what the card owes now: a hint, never the amount due (the Owner decides how much to pay) */
+  owed: number;
   /** a transfer went into the card since its last due date */
   paid: boolean;
 }
 
 /**
- * A credit card's bill: due on its due date, or once that has passed, the next time its day
- * comes round (today counts).
- * Never overdue, Ledger can't see the statement. null = no due date or nothing owed.
+ * A card reminder: a credit card whose due date the Owner set (spec 2026-11-14-card-reminders).
+ * Due on that date, or once it has passed, the next time its day comes round (today counts).
+ * Never overdue, Ledger can't see the statement. null = not a card, or no reminder.
  */
 export function cardStatus(card: Account, entries: Entry[], today = new Date()): CardStatus | null {
-  if (card.type !== "credit" || !card.dueDate || card.balance <= 0) return null;
+  if (card.type !== "credit" || !card.dueDate) return null;
   // the date the Owner set while it's ahead; once past, the same day next time round
   const set = startOfDay(new Date(card.dueDate));
   const day = set.getDate();
@@ -105,12 +107,12 @@ export function cardStatus(card: Account, entries: Entry[], today = new Date()):
   const since = addDays(last, 1);
   // a payment is a move into the card (D-0007); an Adjustment or a stray credit isn't one
   const paid = entries.some((e) => e.accountId === card.id && e.amount > 0 && e.linkId != null && new Date(e.date) >= since);
-  return { due, paid };
+  return { due, paid, owed: Math.max(0, card.balance) };
 }
 
 export type Upcoming =
   | ({ kind: "subscription"; id: string; name: string; amount: number; accountId: string | null; sub: Subscription } & SubscriptionStatus)
-  | ({ kind: "card"; id: string; name: string; amount: number; accountId: string; overdue: false; daysLate: 0 } & CardStatus);
+  | ({ kind: "card"; id: string; name: string; accountId: string; overdue: false; daysLate: 0 } & CardStatus);
 
 const settled = (u: Upcoming) => u.kind === "card" && u.paid;
 
@@ -129,13 +131,13 @@ export function upcoming(s: Pick<LedgerState, "subscriptions" | "accounts" | "en
   }));
   for (const a of s.accounts) {
     const c = cardStatus(a, s.entries, today);
-    if (c) items.push({ kind: "card", id: a.id, name: a.name, amount: a.balance, accountId: a.id, overdue: false, daysLate: 0, ...c });
+    if (c) items.push({ kind: "card", id: a.id, name: a.name, accountId: a.id, overdue: false, daysLate: 0, ...c });
   }
   return items.sort((a, b) => Number(settled(a)) - Number(settled(b)) || a.due.getTime() - b.due.getTime() || a.name.localeCompare(b.name));
 }
 
-/** What's still to pay by `days` from today, overdue included (paid cards aren't). */
+/** Subscriptions still to pay by `days` from today, overdue included. Cards have no amount to add. */
 export function dueWithin(items: Upcoming[], days: number, today = new Date()): number {
   const by = addDays(startOfDay(today), days);
-  return items.filter((u) => !settled(u) && u.due <= by).reduce((t, u) => t + u.amount, 0);
+  return items.reduce((t, u) => (u.kind === "subscription" && u.due <= by ? t + u.amount : t), 0);
 }

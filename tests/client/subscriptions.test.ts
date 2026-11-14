@@ -99,9 +99,10 @@ describe("credit cards", () => {
     const paidOct = { ...spend("p", "Card payment", -5000, at(2026, 10, 28)), accountId: "c", linkId: "l" };
     expect(cardStatus(later, [paidOct], today)!.paid).toBe(false);
   });
-  test("nothing owed or no due date: no bill", () => {
-    expect(cardStatus({ ...card, balance: 0 }, [], today)).toBeNull();
+  test("a reminder is the due date: none, no item; nothing owed still reminds, owed is only a hint", () => {
     expect(cardStatus({ ...card, dueDate: undefined }, [], today)).toBeNull();
+    expect(cardStatus({ ...card, balance: 0 }, [], today)).toMatchObject({ owed: 0, paid: false });
+    expect(cardStatus(card, [], today)!.owed).toBe(18240);
     expect(cardStatus({ ...card, type: "bank" }, [], today)).toBeNull();
   });
 });
@@ -112,16 +113,16 @@ describe("upcoming", () => {
   const late: Subscription = { ...netflix, id: "s0", name: "Rent", amount: 18000, day: 3, startsOn: "2026-11-03" };
   const far: Subscription = { ...netflix, id: "s9", name: "Insurance", amount: 9000, day: 20, startsOn: "2026-12-20" };
   const state = { subscriptions: [netflix, late, far], accounts: [card], entries: [] as Entry[] };
-  test("overdue first, then by date; the 30-day total counts overdue and leaves later ones out", () => {
+  test("overdue first, then by date; the 30-day total is subscriptions only, overdue in, later ones out", () => {
     const items = upcoming(state, today);
     expect(items.map((u) => u.id)).toEqual(["s0", "s1", "c", "s9"]);
-    expect(dueWithin(items, 30, today)).toBe(18000 + 549 + 5000);
-  });
-  test("a paid card goes last and isn't counted", () => {
-    const paid = { ...spend("p", "Card payment", -2000, at(2026, 11, 1)), accountId: "c", linkId: "l" };
-    const items = upcoming({ ...state, entries: [paid] }, today);
-    expect(items.at(-1)!.id).toBe("c");
     expect(dueWithin(items, 30, today)).toBe(18000 + 549);
+  });
+  test("a paid card goes last; a card without a reminder isn't listed", () => {
+    const paid = { ...spend("p", "Card payment", -2000, at(2026, 11, 1)), accountId: "c", linkId: "l" };
+    expect(upcoming({ ...state, entries: [paid] }, today).at(-1)!.id).toBe("c");
+    const noReminder = { ...card, dueDate: undefined };
+    expect(upcoming({ ...state, accounts: [noReminder] }, today).map((u) => u.id)).toEqual(["s0", "s1", "s9"]);
   });
 });
 

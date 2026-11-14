@@ -20,7 +20,6 @@ import { balance, monthShort, peso, signed } from "@/lib/format";
 import { PROVIDERS, providerMeta, TYPE_KIND, TYPE_LABEL } from "@/lib/providers";
 import { back, navigate } from "@/lib/router";
 import { netWorth } from "@/lib/selectors";
-import { firstDue, parseDay } from "@/lib/subscriptions";
 import { LedgerList } from "@/screens/ledger-list";
 import { adjustmentAmount, newId, useLedger } from "@/lib/store";
 import { cloud } from "@/lib/supabase";
@@ -357,7 +356,6 @@ function EditAccountSheet({ open, onOpenChange, account, onRemove }: { open: boo
   const [name, setName] = React.useState(account.name);
   const [last4, setLast4] = React.useState(account.last4 ?? "");
   const [provider, setProvider] = React.useState<Provider>(account.provider);
-  const [dueDay, setDueDay] = React.useState("");
   const [confirm, setConfirm] = React.useState(false);
 
   React.useEffect(() => {
@@ -365,14 +363,11 @@ function EditAccountSheet({ open, onOpenChange, account, onRemove }: { open: boo
       setName(account.name);
       setLast4(account.last4 ?? "");
       setProvider(account.provider);
-      setDueDay(account.dueDate ? String(new Date(account.dueDate).getDate()) : "");
       setConfirm(false);
     }
   }, [open, account]);
 
-  const day = Number(dueDay);
-  const dayOk = dueDay === "" || (Number.isInteger(day) && day >= 1 && day <= 31);
-  const valid = name.trim() !== "" && dayOk;
+  const valid = name.trim() !== "";
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange} title="Edit account">
@@ -383,9 +378,7 @@ function EditAccountSheet({ open, onOpenChange, account, onRemove }: { open: boo
           if (!valid) return;
           // a known bank names the account in rows (METROBANK ·7185); "Other" goes back to the account's own name
           const providerLabel = provider === "other" ? name.trim() : provider === account.provider ? account.providerLabel : providerMeta(provider).label;
-          // a card's due day is kept as the next time it comes round; blank clears it
-          const dueDate = account.type === "credit" && dueDay !== "" ? parseDay(firstDue(day)).toISOString() : undefined;
-          dispatch({ type: "upsert-account", account: { ...account, name: name.trim(), last4: last4 || undefined, provider, providerLabel, ...(account.type === "credit" ? { dueDate } : {}) } });
+          dispatch({ type: "upsert-account", account: { ...account, name: name.trim(), last4: last4 || undefined, provider, providerLabel } });
           onOpenChange(false);
         }}
       >
@@ -407,12 +400,6 @@ function EditAccountSheet({ open, onOpenChange, account, onRemove }: { open: boo
           <Eyebrow className="mb-2">LAST 4</Eyebrow>
           <input value={last4} onChange={(e) => setLast4(e.target.value.replace(/\D/g, "").slice(0, 4))} inputMode="numeric" maxLength={4} className={cn(FIELD, "font-mono")} />
         </label>
-        {account.type === "credit" ? (
-          <label className="block">
-            <Eyebrow className="mb-2">DUE DAY (1–31, OPTIONAL)</Eyebrow>
-            <input value={dueDay} onChange={(e) => setDueDay(e.target.value.replace(/\D/g, "").slice(0, 2))} inputMode="numeric" placeholder="18" className={cn(FIELD, "font-mono")} />
-          </label>
-        ) : null}
         <Cta type="submit" disabled={!valid}>
           Save changes
         </Cta>
@@ -520,15 +507,15 @@ export function TransferSheet({
   onOpenChange,
   from: preset,
   to: presetTo,
-  amount: presetAmount,
+  suggest,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
   from: Account;
   /** destination account id to open with (a card's Pay) */
   to?: string;
-  /** amount to open with, in pesos */
-  amount?: number;
+  /** a one-tap amount under the field (a card's "Pay in full"); the field itself opens blank */
+  suggest?: { label: string; amount: number };
 }) {
   const { state, dispatch } = useLedger();
   const [fromId, setFromId] = React.useState(preset.id);
@@ -539,9 +526,9 @@ export function TransferSheet({
     if (open) {
       setFromId(preset.id);
       setTo(presetTo ?? null);
-      setAmount(presetAmount ? String(Math.round(presetAmount)) : "");
+      setAmount("");
     }
-  }, [open, preset.id, presetTo, presetAmount]);
+  }, [open, preset.id, presetTo]);
 
   const from = state.accounts.find((a) => a.id === fromId) ?? preset;
   const others = state.accounts.filter((a) => a.id !== from.id);
@@ -591,6 +578,11 @@ export function TransferSheet({
               <Eyebrow className="mb-2">AMOUNT (₱)</Eyebrow>
               <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="numeric" placeholder="0" className={cn(FIELD, "font-mono")} />
             </label>
+            {suggest && suggest.amount > 0 ? (
+              <Pill active={value === Math.round(suggest.amount)} className="min-h-10 px-3.5 text-[12.5px]" onClick={() => setAmount(String(Math.round(suggest.amount)))}>
+                {suggest.label} · {peso(suggest.amount)}
+              </Pill>
+            ) : null}
             {short ? <p className="text-[13px] text-danger">That would leave {from.name} at {balance(from.balance - value)}.</p> : null}
             {valid && dest ? (
               <p className="text-[13px] text-fg-muted">

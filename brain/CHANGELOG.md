@@ -13,6 +13,8 @@ Format: `- kind — what, in one sentence — files`
 ## 2026
 
 ### 2026-11-14
+- decided — D-0021: card reminders are opt-in (the card's due date), carry no amount and are left out of the 30-day total; D-0020 points to it for cards — `decisions/D-0021-card-reminders-are-opt-in.md`, `decisions/D-0020-subscriptions-paid-is-derived.md`
+- changed — Credit cards are no longer automatic in Upcoming: a card appears only with a card reminder (its `dueDate`, added in Upcoming, no amount, "You decide", Pay opens Transfer with a blank amount and a "Pay in full" chip); the 30-day total counts subscriptions only; Edit account loses Due day; full screen titled "Upcoming"; glossary gains Card reminder — `features/subscriptions.md`, `features/accounts.md`, `glossary.md`, `system-map.md`
 - changed — Credit due date is editable ("Due day"), Pay from Upcoming opens Transfer prefilled; glossary gains Subscription and Upcoming; system map gains the Subscription object, matrix row, events and Upcoming surface; roadmap Now lists Subscriptions — `features/accounts.md`, `glossary.md`, `system-map.md`, `product.md`
 - added — Subscriptions feature (Upcoming on Money, derived paid status, card bills) and D-0020 (paid is derived from entries, reuse `recurring_items`) — `features/subscriptions.md`, `decisions/D-0020-subscriptions-paid-is-derived.md`
 

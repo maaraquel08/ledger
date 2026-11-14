@@ -37,7 +37,7 @@ R = reads, W = writes, T = triggers something in, E = exposes to.
 | accounts | W (transfer = two entries; remove orphans entries) | — (owner) | R (holdings %) | T (orphaned entries) | — | — |
 | insights | superseded by analytics (D-0017) | | | | | |
 | analytics | R (period entries; T `/money` filtered or pinned ids) | — | R (month budget) | — | — | T (AddSheet, empty state) · R from home ("This month so far") |
-| subscriptions | R (matching entries); W (Mark paid = `add-entry`) | R (card due date and owed; account picker); T (Pay opens Transfer) | — | — | — | — |
+| subscriptions | R (matching entries); W (Mark paid = `add-entry`) | R (card reminder = `dueDate`, owed; account picker); W (`upsert-account` sets or clears `dueDate`); T (Pay opens Transfer, blank amount) | — | — | — | — |
 | budgets-and-goals | R (spend by category) | — | — (owner) | — | — | — |
 | chat | R | R | W (goal via offer) | — | — (owner) | — |
 
@@ -67,7 +67,7 @@ Any feature that creates or changes an object must define its entry in each:
 | Review queue | every Entry with null category or account, no exceptions |
 | Account balance | every Entry moves exactly one account by its signed amount (credit inverted) |
 | Today's number + The math | every spend Entry this month changes them; Investments and Transfer never do; a subscription payment is ordinary spend |
-| Upcoming (Money tab) | every Subscription and every credit account with a due date and amount owed; paid status derived from entries by matching (D-0020); a card payment is a Transfer |
+| Upcoming (Money tab) | every Subscription, plus a credit account only if it has a `dueDate` (opt-in card reminder, owed or not); the 30-day total counts subscriptions only; paid status derived from entries by matching (D-0020); a card payment is a Transfer |
 | M8 surfaces | each feature may add one AI card, gold-marked (D-0003); local mode: fixed rule templates; cloud mode: Claude prose with numbers only from facts (D-0013) |
 | Exports / search / notifications | none exist today; planned: insight inbox + Web Push for the weekly review and material alerts (D-0016) |
 

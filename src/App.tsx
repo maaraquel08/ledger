@@ -46,7 +46,7 @@ function redirect(path: string): string | null {
 function routeName(base: string) {
   const seg = base.split("/")[1];
   if (seg === "activity") return base === "/activity" ? "Activity" : "Entry";
-  if (base === "/money/subscriptions") return "Subscriptions";
+  if (base === "/money/subscriptions") return "Upcoming";
   if (seg === "money" && base !== "/money") return "Account";
   if (seg === "data") return "Your data";
   if (seg === "today") return "M8";

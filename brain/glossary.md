@@ -45,8 +45,9 @@ Use the first column everywhere: UI, specs, decisions, code names. Words in "Don
 | Trailing average | The average of up to 8 weeks / 3 months / 5 years before the period, like for like, since the ledger began | Baseline, norm | UI: "VS AVG", "AVG OF 3 MONTHS" |
 | Savings rate | Net saved as a share of income in a period | Savings ratio | Changes shown in points ("−5 PTS") |
 | Recurring bill | A merchant charged about monthly, similar amount and day, in ≥ 3 of the last 6 months | Subscription (unless the Owner added it), autopay | Detected, never scheduled; Analytics only. A Subscription is one the Owner added |
-| Subscription | A bill the Owner pays monthly on a set day, e.g. Netflix, rent, utilities | Recurring item (internal table name only), autopay | `recurring_items` row; paid status derived from entries (D-0020); a credit card bill is not one, it is a card bill in Upcoming |
-| Upcoming | What is due next on Money: subscriptions and card bills, overdue first, with a 30-day total | Bills (as the heading), Reminders | `UPCOMING · ₱X NEXT 30 DAYS`; "Mark paid" for a subscription, "Pay" for a card; paying a card stays a Transfer |
+| Subscription | A bill with a fixed amount the Owner pays monthly on a set day, e.g. Netflix, rent, utilities. Never a credit card | Recurring item (internal table name only), autopay, card subscription | `recurring_items` row; paid status derived from entries (D-0020) |
+| Card reminder | A credit card the Owner asked to be reminded to pay on a day; no amount, the Owner decides each time | Card bill, card subscription | An account's `dueDate`; opt-in, added in Upcoming; row shows "You decide" and `OWED ₱X`; paying stays a Transfer |
+| Upcoming | What is due next on Money: subscriptions and card reminders, overdue first; the 30-day total counts subscriptions only | Bills (as the heading) | `UPCOMING · ₱X SUBSCRIPTIONS, 30 DAYS`; "Mark paid" for a subscription, "Pay" for a card reminder; full screen titled "Upcoming" |
 | Money | The second tab: accounts, net worth and the full ledger | Wallet, Accounts tab | D-0015 |
 | Verdict | Internal name for the monthly budget computation | — | `selectors.ts` `verdict()`; never shown as a word |
 | Refunded | An expense entry reversed; struck through, excluded from spend, balance restored (D-0009) | Reversed, voided | Expenses only |
