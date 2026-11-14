@@ -13,6 +13,8 @@ Format: `- kind — what, in one sentence — files`
 ## 2026
 
 ### 2026-11-14
+- decided — D-0022: a card reminder's stored date is its first due date and payments settle the earliest unpaid one, so Pay on a past month settles that month — `decisions/D-0022-card-payments-settle-earliest-unpaid.md`
+- changed — Card rules replaced (first due date, earliest-unpaid payments, partial sums, never overdue); rows on Upcoming, the full screen and Activity's DUE block open a payment drawer (amount, account, one CTA, Edit as a link); empty Upcoming screen has only the title-bar Add — `features/subscriptions.md`, `features/activity.md`, `system-map.md`, `glossary.md`
 - changed — Calendar badges stay once a day is paid (ink outline with the count, not a faint ✓); the DUE section sits inside the ledger list; a card's unpaid due date earlier this month shows — `features/activity.md`
 - changed — Activity's spend calendar shows due badges (count unpaid, red overdue, ✓ all paid), future days with due items are tappable, the next-month arrow has no limit, and a DUE block above the picked day's entries shows paid rows with the account paid from and Mark paid or Pay on the actionable occurrence; subscriptions gain per-occurrence rules for subscriptions and cards — `features/activity.md`, `features/subscriptions.md`, `system-map.md`
 - decided — D-0021: card reminders are opt-in (the card's due date), carry no amount and are left out of the 30-day total; D-0020 points to it for cards — `decisions/D-0021-card-reminders-are-opt-in.md`, `decisions/D-0020-subscriptions-paid-is-derived.md`

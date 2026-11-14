@@ -1,5 +1,4 @@
-import { localDay } from "./format";
-import { firstDue } from "./subscriptions";
+import { dueThisMonth, firstDue } from "./subscriptions";
 import type { Account, Category, Entry, LedgerState, Profile } from "./types";
 
 /** The account a brand-new user starts with: nothing. */
@@ -143,7 +142,8 @@ export function buildDemo(today = new Date()): LedgerState {
 
   entries.sort((a, b) => b.date.localeCompare(a.date));
 
-  const dueDate = localDay(new Date(today.getFullYear(), today.getMonth() + 1, 15));
+  // the card reminder's first due date is this month's 15th (the Oct 28 payment settles it)
+  const dueDate = dueThisMonth(15, today);
   return {
     onboarded: true,
     demo: true,

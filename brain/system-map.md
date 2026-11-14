@@ -2,7 +2,7 @@
 type: fact
 status: draft
 updated: 2026-11-14
-related: [D-0020, features/subscriptions, D-0012, D-0013, D-0014, D-0015, D-0016, D-0017, D-0018, features/analytics, features/home, features/add-entry, features/receipt-scan, features/activity, features/review, features/accounts, features/insights, features/budgets-and-goals, features/chat, features/onboarding, design/screens]
+related: [D-0022, D-0020, features/subscriptions, D-0012, D-0013, D-0014, D-0015, D-0016, D-0017, D-0018, features/analytics, features/home, features/add-entry, features/receipt-scan, features/activity, features/review, features/accounts, features/insights, features/budgets-and-goals, features/chat, features/onboarding, design/screens]
 ---
 
 # System map
@@ -37,7 +37,7 @@ R = reads, W = writes, T = triggers something in, E = exposes to.
 | accounts | W (transfer = two entries; remove orphans entries) | — (owner) | R (holdings %) | T (orphaned entries) | — | — |
 | insights | superseded by analytics (D-0017) | | | | | |
 | analytics | R (period entries; T `/money` filtered or pinned ids) | — | R (month budget) | — | — | T (AddSheet, empty state) · R from home ("This month so far") |
-| subscriptions | R (matching entries); W (Mark paid = `add-entry`) | R (card reminder = `dueDate`, owed; account picker); W (`upsert-account` sets or clears `dueDate`); T (Pay opens Transfer, blank amount) | — | — | — | — |
+| subscriptions | R (matching entries); W (Mark paid = `add-entry`) | R (card reminder = `dueDate`, owed; account picker); W (`upsert-account` sets or clears `dueDate`); T (Pay opens Transfer, blank amount; payments settle the earliest unpaid month, D-0022) | — | — | — | — |
 | budgets-and-goals | R (spend by category) | — | — (owner) | — | — | — |
 | chat | R | R | W (goal via offer) | — | — (owner) | — |
 
@@ -67,7 +67,7 @@ Any feature that creates or changes an object must define its entry in each:
 | Review queue | every Entry with null category or account, no exceptions |
 | Account balance | every Entry moves exactly one account by its signed amount (credit inverted) |
 | Today's number + The math | every spend Entry this month changes them; Investments and Transfer never do; a subscription payment is ordinary spend |
-| Activity spend calendar | every due date of a Subscription or card reminder in the month gets a badge on its day (count unpaid, red overdue, ✓ all paid) and a DUE block above that day's entries; future months browse without limit; derived like Upcoming, per occurrence (`dueInMonth`); Mark paid and Pay only on the actionable occurrence |
+| Activity spend calendar | every due date of a Subscription or card reminder in the month gets a badge on its day (count unpaid, red overdue, ✓ all paid) and a DUE block above that day's entries; future months browse without limit; derived like Upcoming, per occurrence (`dueInMonth`); Mark paid and Pay only on the actionable occurrence; a card's due dates run from its first, each settled by the earliest unpaid payment (D-0022); rows open the payment drawer |
 | Upcoming (Money tab) | every Subscription, plus a credit account only if it has a `dueDate` (opt-in card reminder, owed or not); the 30-day total counts subscriptions only; paid status derived from entries by matching (D-0020); a card payment is a Transfer |
 | M8 surfaces | each feature may add one AI card, gold-marked (D-0003); local mode: fixed rule templates; cloud mode: Claude prose with numbers only from facts (D-0013) |
 | Exports / search / notifications | none exist today; planned: insight inbox + Web Push for the weekly review and material alerts (D-0016) |

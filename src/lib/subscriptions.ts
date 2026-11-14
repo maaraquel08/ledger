@@ -92,38 +92,66 @@ export function subscriptionStatus(sub: Subscription, paid: Entry[], today = new
 }
 
 export interface CardStatus {
+  /** the earliest due date not yet paid (it can be past: cards are never overdue, it just waits) */
   due: Date;
+  /** that due date's index from the card's first one */
+  index: number;
   /** what the card owes now: a hint, never the amount due (the Owner decides how much to pay) */
   owed: number;
-  /** a transfer went into the card since its last due date */
-  paid: boolean;
+}
+
+/** The card's `k`-th due date, counting from its first: the stored due date (spec 2026-11-14-card-payments). */
+export function cardDueOn(card: Pick<Account, "dueDate">, k: number): Date {
+  const first = dueDayOf(card.dueDate!);
+  return dayIn(first.getFullYear(), first.getMonth(), first.getDate(), k);
+}
+
+/** The due date in the month `today` is in, for `day`, as "YYYY-MM-DD" (past or not): a new reminder's first. */
+export function dueThisMonth(day: number, today = new Date()): string {
+  return localDay(dayIn(today.getFullYear(), today.getMonth(), day));
 }
 
 /**
- * A card reminder: a credit card whose due date the Owner set (spec 2026-11-14-card-reminders).
- * Due on that date, or once it has passed, the next time its day comes round (today counts).
- * Never overdue, Ledger can't see the statement. null = not a card, or no reminder.
+ * Which due date each payment into a card settles. A payment is a move into the card (D-0007;
+ * an Adjustment or a stray credit isn't one), counted from the day after the month before the
+ * first due date. Oldest first, each goes to the earliest unpaid due date if one is behind its own,
+ * else to its own (the one it lands on or before), so several payments in a month add up there.
+ * `next` is the earliest due date still unpaid.
  */
-export function cardStatus(card: Account, entries: Entry[], today = new Date()): CardStatus | null {
+export function cardPayments(card: Account, entries: Entry[]): { paid: Entry[][]; next: number } {
+  const from = addDays(cardDueOn(card, -1), 1);
+  const ins = entries
+    .filter((e) => e.accountId === card.id && e.amount > 0 && e.linkId != null && new Date(e.date) >= from)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const first = dueDayOf(card.dueDate!);
+  const paid: Entry[][] = [];
+  let next = 0;
+  for (const e of ins) {
+    const day = startOfDay(new Date(e.date));
+    let own = Math.max(0, monthsBetween(first, day));
+    if (day > cardDueOn(card, own)) own++;
+    const k = next < own ? next : own;
+    (paid[k] ??= []).push(e);
+    while (paid[next]?.length) next++;
+  }
+  return { paid, next };
+}
+
+/**
+ * A card reminder: a credit card whose first due date the Owner set (spec 2026-11-14-card-payments).
+ * Due on the earliest due date not yet paid. null = not a card, or no reminder.
+ */
+export function cardStatus(card: Account, entries: Entry[]): CardStatus | null {
   if (card.type !== "credit" || !card.dueDate) return null;
-  // the date the Owner set while it's ahead; once past, the same day next time round
-  const set = dueDayOf(card.dueDate);
-  const day = set.getDate();
-  const due = set >= startOfDay(today) ? set : parseDay(firstDue(day, today));
-  const last = dayIn(due.getFullYear(), due.getMonth(), day, -1);
-  const since = addDays(last, 1);
-  // a payment is a move into the card (D-0007); an Adjustment or a stray credit isn't one
-  const paid = entries.some((e) => e.accountId === card.id && e.amount > 0 && e.linkId != null && new Date(e.date) >= since);
-  return { due, paid, owed: Math.max(0, card.balance) };
+  const { next } = cardPayments(card, entries);
+  return { due: cardDueOn(card, next), index: next, owed: Math.max(0, card.balance) };
 }
 
 export type Upcoming =
   | ({ kind: "subscription"; id: string; name: string; amount: number; accountId: string | null; sub: Subscription } & SubscriptionStatus)
   | ({ kind: "card"; id: string; name: string; accountId: string; overdue: false; daysLate: 0 } & CardStatus);
 
-const settled = (u: Upcoming) => u.kind === "card" && u.paid;
-
-/** Everything due, overdue first, then by date; paid cards last. */
+/** Everything due, by date (overdue and unpaid card months first). */
 export function upcoming(s: Pick<LedgerState, "subscriptions" | "accounts" | "entries">, today = new Date()): Upcoming[] {
   const subs = s.subscriptions ?? [];
   const paid = payments(subs, s.entries);
@@ -137,10 +165,10 @@ export function upcoming(s: Pick<LedgerState, "subscriptions" | "accounts" | "en
     ...subscriptionStatus(sub, paid.get(sub.id) ?? [], today),
   }));
   for (const a of s.accounts) {
-    const c = cardStatus(a, s.entries, today);
+    const c = cardStatus(a, s.entries);
     if (c) items.push({ kind: "card", id: a.id, name: a.name, accountId: a.id, overdue: false, daysLate: 0, ...c });
   }
-  return items.sort((a, b) => Number(settled(a)) - Number(settled(b)) || a.due.getTime() - b.due.getTime() || a.name.localeCompare(b.name));
+  return items.sort((a, b) => a.due.getTime() - b.due.getTime() || a.name.localeCompare(b.name));
 }
 
 /** Subscriptions still to pay by `days` from today, overdue included. Cards have no amount to add. */
@@ -167,6 +195,8 @@ export interface DueItem {
   entry?: Entry;
   /** paid: the account the money came from */
   paidFrom?: string | null;
+  /** paid: every entry that paid it, oldest first (a card can be paid in parts) */
+  payments?: Entry[];
   /** the one due date Mark paid / Pay acts on (the earliest unpaid one) */
   actionable: boolean;
 }
@@ -197,40 +227,30 @@ export function dueInMonth(s: Pick<LedgerState, "subscriptions" | "accounts" | "
       due,
       status: entry ? "paid" : due < t ? "overdue" : "due",
       amount: entry ? Math.abs(entry.amount) : sub.amount,
-      ...(entry ? { entry, paidFrom: entry.accountId } : {}),
+      ...(entry ? { entry, payments: [entry], paidFrom: entry.accountId } : {}),
       actionable: i === list.length,
     });
   }
 
   for (const card of s.accounts) {
-    const now = cardStatus(card, s.entries, today);
-    if (!now) continue;
-    const day = now.due.getDate();
-    // the current due date and every month after it, and last month's while it is past and in this month:
-    // the first month the Owner tracks is the one the reminder was set in (Owner, 2026-11-14)
-    const k = monthsBetween(now.due, new Date(y, m, 1));
-    let due = k >= 0 ? dayIn(y, m, day) : null;
-    if (k === -1) {
-      const prev = dayIn(now.due.getFullYear(), now.due.getMonth(), day, -1);
-      if (prev < t && prev.getFullYear() === y && prev.getMonth() === m) due = prev;
-    }
-    if (!due) continue;
-    const since = addDays(dayIn(due.getFullYear(), due.getMonth(), day, -1), 1);
-    const until = addDays(due, 1);
-    const ins = s.entries.filter((e) => e.accountId === card.id && e.amount > 0 && e.linkId != null && new Date(e.date) >= since && new Date(e.date) < until);
-    const entry = ins.sort((a, b) => b.date.localeCompare(a.date))[0];
-    const current = due.getTime() === now.due.getTime();
+    if (card.type !== "credit" || !card.dueDate) continue;
+    const k = monthsBetween(dueDayOf(card.dueDate), new Date(y, m, 1));
+    if (k < 0) continue;
+    const due = cardDueOn(card, k);
+    const { paid, next } = cardPayments(card, s.entries);
+    const ins = paid[k] ?? [];
+    const entry = ins.at(-1);
     put({
       key: `card:${card.id}:${localDay(due)}`,
       kind: "card",
       id: card.id,
       name: card.name,
       due,
-      status: entry ? "paid" : "due",
-      amount: entry ? entry.amount : null,
-      ...(current ? { owed: now.owed } : {}),
-      ...(entry ? { entry, paidFrom: s.entries.find((x) => x.linkId === entry.linkId && x.id !== entry.id)?.accountId ?? null } : {}),
-      actionable: current && !entry,
+      status: ins.length ? "paid" : "due",
+      amount: ins.length ? ins.reduce((n, e) => n + e.amount, 0) : null,
+      ...(k === next ? { owed: Math.max(0, card.balance) } : {}),
+      ...(entry ? { entry, payments: ins, paidFrom: s.entries.find((x) => x.linkId === entry.linkId && x.id !== entry.id)?.accountId ?? null } : {}),
+      actionable: k === next,
     });
   }
   for (const list of out.values()) list.sort((a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name));

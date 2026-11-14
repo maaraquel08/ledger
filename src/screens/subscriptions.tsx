@@ -6,7 +6,7 @@ import { MAX_AMOUNT, localDay, monthName, monthShort, parseWholePesos, peso, sta
 import { spendCategories } from "@/lib/categories";
 import { back, navigate } from "@/lib/router";
 import { accountLabel } from "@/lib/selectors";
-import { dueDayOf, dueWithin, firstDue, parseDay, payments, upcoming, type DueItem, type Upcoming } from "@/lib/subscriptions";
+import { cardStatus, dueDayOf, dueInMonth, dueThisMonth, dueWithin, firstDue, parseDay, payments, upcoming, type DueItem, type Upcoming } from "@/lib/subscriptions";
 import { newId, useLedger } from "@/lib/store";
 import type { Account, Entry, Subscription } from "@/lib/types";
 import { TransferSheet } from "@/screens/accounts";
@@ -36,13 +36,31 @@ function useBills() {
   const [card, setCard] = React.useState<Item | null>(null);
   const [editing, setEditing] = React.useState<Subscription | "new" | null>(null);
   const [reminder, setReminder] = React.useState<Account | null>(null);
+  // the payment drawer shows one due item; it is resolved fresh from state on each render
+  const [view, setView] = React.useState<DueItem | null>(null);
+  const [viewOpen, setViewOpen] = React.useState(false);
 
   // the card is paid from the first bank, wallet or cash account that isn't the card itself
   const payer = (c: Item) => state.accounts.find((a) => a.type !== "credit" && a.type !== "investments") ?? state.accounts.find((a) => a.id !== c.id);
   const payFrom = card ? payer(card) : undefined;
 
+  // close the drawer in the same update that opens the next sheet, so drawers never stack
+  const next = <T,>(set: (v: T) => void) => (v: T) => {
+    setViewOpen(false);
+    set(v);
+  };
+
   const sheets = (
     <>
+      <PaymentSheet
+        open={viewOpen}
+        onOpenChange={setViewOpen}
+        item={view}
+        onMarkPaid={next(setPaying)}
+        onPay={next(setCard)}
+        onEdit={next(setEditing)}
+        onEditReminder={next(setReminder)}
+      />
       <SubscriptionSheet open={editing !== null} onOpenChange={(o) => !o && setEditing(null)} sub={editing === "new" ? null : editing} />
       <MarkPaidSheet open={paying !== null} onOpenChange={(o) => !o && setPaying(null)} item={paying} />
       {payFrom ? (
@@ -64,6 +82,18 @@ function useBills() {
     payCard: setCard,
     edit: setEditing,
     editReminder: setReminder,
+    view: (it: DueItem) => {
+      setView(it);
+      setViewOpen(true);
+    },
+    // an Upcoming item's current due date, as the drawer's due item
+    viewUpcoming: (u: Item) => {
+      const it = dueInMonth(state, u.due).get(u.due.getDate())?.find((d) => d.kind === u.kind && d.id === u.id);
+      if (it) {
+        setView(it);
+        setViewOpen(true);
+      }
+    },
   };
 }
 
@@ -75,39 +105,33 @@ function BillRow({ item, bills }: { item: Item; bills: ReturnType<typeof useBill
     : item.kind === "card"
       ? `DUE ${dueLabel(item.due)}`
       : `DUE ${dueLabel(item.due)}${account ? ` · ${accountLabel(account)}` : ""}`;
-  const open = () => (item.kind === "card" ? account && bills.editReminder(account) : bills.edit(item.sub));
-  const paidCard = item.kind === "card" && item.paid;
   return (
     <div className="flex min-h-[52px] items-center gap-3">
-      <button type="button" onClick={open} className="flex min-w-0 flex-1 items-center gap-3.5 text-left active:opacity-60">
+      <button type="button" onClick={() => bills.viewUpcoming(item)} className="flex min-w-0 flex-1 items-center gap-3.5 text-left active:opacity-60">
         <ProviderMark provider={account?.provider ?? null} />
         <div className="min-w-0 flex-1">
           <div className="truncate text-[15px] leading-[1.3]">{item.name}</div>
           <div className={cn("mt-1.5 truncate font-mono text-[10.5px] font-medium tracking-[0.05em]", item.overdue ? "text-danger" : "text-fg-subtle")}>{meta}</div>
           {/* what the card owes is a hint on its own line, never the amount due */}
-          {item.kind === "card" && !item.paid ? (
+          {item.kind === "card" ? (
             <div className="mt-1 truncate font-mono text-[10.5px] font-medium tracking-[0.05em] text-fg-subtle">{item.owed > 0 ? `OWED ${peso(item.owed)}` : "NOTHING OWED"}</div>
           ) : null}
         </div>
         {item.kind === "subscription" ? (
           <div className="tnum flex-none text-[18px] font-semibold tracking-[-0.01em]">{peso(item.amount)}</div>
-        ) : paidCard ? null : (
+        ) : (
           // a card has no amount due: how much to pay is the Owner's call
           <div className="flex-none text-[13px] text-fg-muted">You decide</div>
         )}
       </button>
-      {paidCard ? (
-        <span className="w-[76px] flex-none text-center font-mono text-[10.5px] tracking-[0.05em] text-fg-subtle uppercase">Paid</span>
-      ) : (
-        <ActionButton
-          variant="secondary"
-          className="min-h-11 w-[76px] flex-none px-0 text-center"
-          onClick={() => (item.kind === "card" ? bills.payCard(item) : bills.markPaid(item))}
-          aria-label={`${item.kind === "card" ? "Pay" : "Mark paid"} ${item.name}`}
-        >
-          {item.kind === "card" ? "Pay" : "Mark paid"}
-        </ActionButton>
-      )}
+      <ActionButton
+        variant="secondary"
+        className="min-h-11 w-[76px] flex-none px-0 text-center"
+        onClick={() => (item.kind === "card" ? bills.payCard(item) : bills.markPaid(item))}
+        aria-label={`${item.kind === "card" ? "Pay" : "Mark paid"} ${item.name}`}
+      >
+        {item.kind === "card" ? "Pay" : "Mark paid"}
+      </ActionButton>
     </div>
   );
 }
@@ -141,7 +165,7 @@ export function DueOnDay({ day, items }: { day: Date; items: DueItem[] }) {
             : overdue
               ? `OVERDUE · ${days} ${days === 1 ? "DAY" : "DAYS"}`
               : "NOT PAID";
-          const open = () => (paid ? it.entry && navigate(`/activity/${it.entry.id}`) : card ? bills.editReminder(card) : sub && bills.edit(sub));
+          const open = () => bills.view(it);
           const target = it.actionable ? current.find((u) => u.kind === it.kind && u.id === it.id) : undefined;
           return (
             <div key={it.key} className="flex min-h-[52px] items-center gap-3">
@@ -199,7 +223,7 @@ export function UpcomingSection() {
       <div className="px-6 pt-6">
         <Eyebrow>UPCOMING</Eyebrow>
         <p className="mt-3 text-[14px] leading-[1.5] text-fg-muted">Nothing due yet. Add a subscription like Netflix, or a reminder to pay a card.</p>
-        <ActionButton variant="secondary" className="mt-4 min-h-11" onClick={() => bills.edit("new")}>
+        <ActionButton variant="secondary" className="mt-4 min-h-11 w-full" onClick={() => bills.edit("new")}>
           Add
         </ActionButton>
         {bills.sheets}
@@ -252,12 +276,7 @@ export function SubscriptionsScreen() {
         <section className="mb-9">
           <Eyebrow className="mb-4">SUBSCRIPTIONS</Eyebrow>
           {subs.length === 0 ? (
-            <>
-              <p className="text-[14px] leading-[1.5] text-fg-muted">Bills you pay each month, like Netflix or rent, show up here with their due dates.</p>
-              <ActionButton variant="secondary" className="mt-4 min-h-11" onClick={() => bills.edit("new")}>
-                Add a subscription
-              </ActionButton>
-            </>
+            <p className="text-[14px] leading-[1.5] text-fg-muted">Bills you pay each month, like Netflix or rent, show up here with their due dates.</p>
           ) : (
             <div className="flex flex-col gap-[22px]">
               {subs.map((it) => (
@@ -269,7 +288,7 @@ export function SubscriptionsScreen() {
         <section className="mb-9">
           <Eyebrow className="mb-4">CARD REMINDERS</Eyebrow>
           {cards.length === 0 ? (
-            <p className="text-[14px] leading-[1.5] text-fg-muted">No card reminders. Add one for a card you pay each month; you choose how much when you pay.</p>
+            <p className="text-[14px] leading-[1.5] text-fg-muted">No card reminders yet.</p>
           ) : (
             <div className="flex flex-col gap-[22px]">
               {cards.map((it) => (
@@ -490,13 +509,13 @@ function ReminderForm({ card, onDone }: { card: Account | null; onDone: () => vo
 
   const save = () => {
     if (!picked || dueDay === null) return;
-    // same day: keep the date already set; a new day starts the next time it comes round
+    // same day: keep the first due date already set; a new day makes this month's the first
     const same = picked.dueDate && dueDayOf(picked.dueDate).getDate() === dueDay;
     dispatch({
       type: "upsert-account",
       account: {
         ...picked,
-        dueDate: same ? picked.dueDate : firstDue(dueDay),
+        dueDate: same ? picked.dueDate : dueThisMonth(dueDay),
       },
     });
     onDone();
@@ -551,6 +570,106 @@ function ReminderForm({ card, onDone }: { card: Account | null; onDone: () => vo
         </button>
       ) : null}
     </form>
+  );
+}
+
+/* ====================================================================== */
+/*  Payment drawer: what is due or was paid, one CTA                       */
+/* ====================================================================== */
+
+const ordinal = (n: number) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? "th" : ({ 1: "st", 2: "nd", 3: "rd" } as Record<number, string>)[n % 10] ?? "th"}`;
+
+function PaymentSheet({
+  open,
+  onOpenChange,
+  item,
+  onMarkPaid,
+  onPay,
+  onEdit,
+  onEditReminder,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  item: DueItem | null;
+  onMarkPaid: (u: Item) => void;
+  onPay: (u: Item) => void;
+  onEdit: (s: Subscription) => void;
+  onEditReminder: (a: Account) => void;
+}) {
+  const { state } = useLedger();
+  // fresh from state, so the drawer turns paid the moment the payment lands
+  const it = item ? (dueInMonth(state, item.due).get(item.due.getDate())?.find((d) => d.kind === item.kind && d.id === item.id) ?? item) : null;
+  if (!it) return <Sheet open={open} onOpenChange={onOpenChange}>{null}</Sheet>;
+
+  const isCard = it.kind === "card";
+  const card = isCard ? state.accounts.find((a) => a.id === it.id) : undefined;
+  const sub = isCard ? undefined : (state.subscriptions ?? []).find((s) => s.id === it.id);
+  const current = upcoming(state).find((u) => u.kind === it.kind && u.id === it.id);
+  const paid = it.status === "paid";
+  const days = Math.round((startOfDay(new Date()).getTime() - it.due.getTime()) / 86_400_000);
+  const status = paid ? "PAID ✓" : it.status === "overdue" ? `OVERDUE · ${days} ${days === 1 ? "DAY" : "DAYS"}` : "NOT PAID";
+  const account = sub?.accountId ? state.accounts.find((a) => a.id === sub.accountId) : undefined;
+  const owed = isCard && card ? (cardStatus(card, state.entries) ? it.owed : undefined) : undefined;
+  const fromOf = (e: Entry) => state.accounts.find((a) => a.id === (isCard ? state.entries.find((x) => x.linkId === e.linkId && x.id !== e.id)?.accountId : e.accountId));
+  const go = (e: Entry) => {
+    onOpenChange(false);
+    navigate(`/activity/${e.id}`);
+  };
+
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange} title={it.name}>
+      <div className="pt-5 pb-3">
+        <Eyebrow className={cn(it.status === "overdue" && "text-danger")}>
+          {it.status === "overdue" ? status : `DUE ${dueLabel(it.due)} · ${status}`}
+        </Eyebrow>
+        {isCard && !paid ? (
+          <div className="mt-1 text-[32px] leading-[1.1] font-semibold tracking-[-0.02em] text-fg-muted">You decide</div>
+        ) : (
+          <div className="tnum mt-1 text-[32px] leading-[1.1] font-semibold tracking-[-0.02em]">{peso(it.amount ?? 0)}</div>
+        )}
+        {sub && !paid ? (
+          <div className="mt-2 text-[13.5px] text-fg-muted">
+            Every month on the {ordinal(sub.day)}
+            {account ? ` · ${accountLabel(account)}` : ""}
+          </div>
+        ) : null}
+        {isCard && !paid && owed !== undefined ? <div className="mt-2 text-[13.5px] text-fg-muted">{owed > 0 ? `Owes ${peso(owed)} now` : "Nothing owed now"}</div> : null}
+        {paid ? (
+          <div className="mt-4 divide-y divide-line rounded-md border border-line">
+            {(it.payments ?? []).map((e) => {
+              const from = fromOf(e);
+              const d = new Date(e.date);
+              return (
+                <button key={e.id} type="button" onClick={() => go(e)} className="flex min-h-12 w-full items-center justify-between gap-3 px-3 text-left active:opacity-60">
+                  <span className="min-w-0 flex-1 truncate text-[14px]">
+                    Paid {d.getDate()} {monthShort(d)}
+                    {from ? ` from ${accountLabel(from)}` : ""}
+                  </span>
+                  {isCard ? <span className="tnum flex-none text-[14px] font-semibold">{peso(Math.abs(e.amount))}</span> : null}
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="mt-5">
+            <Cta
+              disabled={!it.actionable || !current}
+              onClick={() => current && (isCard ? onPay(current) : onMarkPaid(current))}
+            >
+              {isCard ? "Pay" : "Mark paid"}
+            </Cta>
+            {!it.actionable && current ? <p className="mt-2 text-center text-[13px] text-fg-muted">{isCard ? "Pay" : "Mark"} {current.due.getDate()} {monthShort(current.due)}{isCard ? "" : " paid"} first</p> : null}
+          </div>
+        )}
+        <button
+          type="button"
+          onClick={() => (isCard ? card && onEditReminder(card) : sub && onEdit(sub))}
+          className="mt-2 flex min-h-11 w-full items-center justify-center text-[14px] text-fg-muted active:opacity-60"
+        >
+          {isCard ? "Edit reminder" : "Edit subscription"}
+        </button>
+      </div>
+    </Sheet>
   );
 }
 

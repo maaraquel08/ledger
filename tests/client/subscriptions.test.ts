@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import { localDay } from "../../src/lib/format";
 import { reducer } from "../../src/lib/store";
 import { buildDemo, EMPTY_STATE } from "../../src/lib/seed";
-import { cardStatus, dueInMonth, dueOn, dueWithin, firstDue, payments, pays, subscriptionStatus, upcoming } from "../../src/lib/subscriptions";
+import { cardPayments, cardStatus, dueInMonth, dueThisMonth, dueOn, dueWithin, firstDue, payments, pays, subscriptionStatus, upcoming } from "../../src/lib/subscriptions";
 import type { Account, Entry, Subscription } from "../../src/lib/types";
 
 const netflix: Subscription = { id: "s1", name: "Netflix", amount: 549, day: 18, startsOn: "2026-11-18", accountId: "a", category: "Subscriptions" };
@@ -82,34 +82,49 @@ describe("next due", () => {
 });
 
 describe("credit cards", () => {
-  const card: Account = { id: "c", name: "The card", provider: "rcbc", providerLabel: "RCBC", type: "credit", kind: "CREDIT", balance: 18240, dueDate: new Date(2026, 9, 15).toISOString() };
-  const today = new Date(2026, 10, 14);
-  test("due the next time the day comes round, unpaid until money goes in after the last due date", () => {
-    expect(cardStatus(card, [], today)).toMatchObject({ paid: false });
-    expect(day(cardStatus(card, [], today)!.due)).toBe("2026-11-15");
-    const before = { ...spend("p", "Card payment", -5000, at(2026, 10, 15)), accountId: "c", linkId: "l" };
-    expect(cardStatus(card, [before], today)!.paid).toBe(false);
-    const after = { ...spend("p", "Card payment", -5000, at(2026, 10, 16)), accountId: "c", linkId: "l" };
-    expect(cardStatus(card, [after], today)!.paid).toBe(true);
-    expect(cardStatus(card, [{ ...after, linkId: undefined, category: "Adjustment" }], today)!.paid).toBe(false);
+  // first due date 13 Nov: the month the reminder was set in
+  const card: Account = { id: "c", name: "U Visa", provider: "unionbank", providerLabel: "UnionBank", type: "credit", kind: "CREDIT", balance: 385, dueDate: "2026-11-13" };
+  const into = (id: string, d: string, amount: number): Entry => ({ id, desc: "Card payment", accountId: "c", category: "Transfer", amount, date: d, linkId: `l-${id}` });
+  test("due on the earliest unpaid due date, past or not; owed is only a hint", () => {
+    expect(cardStatus(card, [])).toMatchObject({ index: 0, owed: 385 });
+    expect(day(cardStatus(card, [])!.due)).toBe("2026-11-13");
   });
-  test("a due date still ahead is used as set, a month out included", () => {
-    const later = { ...card, dueDate: new Date(2026, 11, 15).toISOString() };
-    expect(day(cardStatus(later, [], today)!.due)).toBe("2026-12-15");
-    const paidOct = { ...spend("p", "Card payment", -5000, at(2026, 10, 28)), accountId: "c", linkId: "l" };
-    expect(cardStatus(later, [paidOct], today)!.paid).toBe(false);
+  test("a late payment settles the month it's behind on, not the one it lands in", () => {
+    const { paid, next } = cardPayments(card, [into("p1", at(2026, 11, 14), 385)]);
+    expect(paid[0].map((e) => e.id)).toEqual(["p1"]);
+    expect(next).toBe(1);
+    expect(day(cardStatus(card, [into("p1", at(2026, 11, 14), 385)])!.due)).toBe("2026-12-13");
   });
-  test("a reminder is the due date: none, no item; nothing owed still reminds, owed is only a hint", () => {
-    expect(cardStatus({ ...card, dueDate: undefined }, [], today)).toBeNull();
-    expect(cardStatus({ ...card, balance: 0 }, [], today)).toMatchObject({ owed: 0, paid: false });
-    expect(cardStatus(card, [], today)!.owed).toBe(18240);
-    expect(cardStatus({ ...card, type: "bank" }, [], today)).toBeNull();
+  test("payments in parts add up on one month; an early one counts for its own", () => {
+    const parts = [into("p1", at(2026, 11, 2), 200), into("p2", at(2026, 11, 10), 185)];
+    const { paid, next } = cardPayments(card, parts);
+    expect(paid[0].map((e) => e.id)).toEqual(["p1", "p2"]);
+    expect(next).toBe(1);
+  });
+  test("once caught up, an extra payment in the same month stays on it, not the next", () => {
+    const pays = [into("p1", at(2026, 11, 14), 300), into("p2", at(2026, 11, 20), 85), into("p3", at(2026, 12, 1), 100)];
+    const { paid, next } = cardPayments(card, pays);
+    expect(paid[0].map((e) => e.id)).toEqual(["p1"]);
+    // p2 (20 Nov) and p3 (1 Dec) both land on or before 13 Dec
+    expect(paid[1].map((e) => e.id)).toEqual(["p2", "p3"]);
+    expect(next).toBe(2);
+  });
+  test("only moves into the card count, from the day after the month before the first due date", () => {
+    expect(cardPayments(card, [{ ...into("a", at(2026, 11, 14), 385), linkId: undefined, category: "Adjustment" }]).next).toBe(0);
+    expect(cardPayments(card, [into("old", at(2026, 10, 13), 385)]).next).toBe(0);
+    expect(cardPayments(card, [into("ok", at(2026, 10, 14), 385)]).next).toBe(1);
+  });
+  test("no reminder or not a card: nothing; a reminder this month is its first due date", () => {
+    expect(cardStatus({ ...card, dueDate: undefined }, [])).toBeNull();
+    expect(cardStatus({ ...card, type: "bank" }, [])).toBeNull();
+    expect(dueThisMonth(13, new Date(2026, 10, 14))).toBe("2026-11-13");
+    expect(dueThisMonth(31, new Date(2027, 1, 3))).toBe("2027-02-28");
   });
 });
 
 describe("upcoming", () => {
   const today = new Date(2026, 10, 14);
-  const card: Account = { id: "c", name: "Card", provider: "rcbc", providerLabel: "RCBC", type: "credit", kind: "CREDIT", balance: 5000, dueDate: new Date(2026, 10, 25).toISOString() };
+  const card: Account = { id: "c", name: "Card", provider: "rcbc", providerLabel: "RCBC", type: "credit", kind: "CREDIT", balance: 5000, dueDate: "2026-11-25" };
   const late: Subscription = { ...netflix, id: "s0", name: "Rent", amount: 18000, day: 3, startsOn: "2026-11-03" };
   const far: Subscription = { ...netflix, id: "s9", name: "Insurance", amount: 9000, day: 20, startsOn: "2026-12-20" };
   const state = { subscriptions: [netflix, late, far], accounts: [card], entries: [] as Entry[] };
@@ -118,9 +133,9 @@ describe("upcoming", () => {
     expect(items.map((u) => u.id)).toEqual(["s0", "s1", "c", "s9"]);
     expect(dueWithin(items, 30, today)).toBe(18000 + 549);
   });
-  test("a paid card goes last; a card without a reminder isn't listed", () => {
+  test("a paid card moves on to its next due date; a card without a reminder isn't listed", () => {
     const paid = { ...spend("p", "Card payment", -2000, at(2026, 11, 1)), accountId: "c", linkId: "l" };
-    expect(upcoming({ ...state, entries: [paid] }, today).at(-1)!.id).toBe("c");
+    expect(day(upcoming({ ...state, entries: [paid] }, today).find((u) => u.id === "c")!.due)).toBe("2026-12-25");
     const noReminder = { ...card, dueDate: undefined };
     expect(upcoming({ ...state, accounts: [noReminder] }, today).map((u) => u.id)).toEqual(["s0", "s1", "s9"]);
   });
@@ -156,7 +171,7 @@ describe("store", () => {
 
 describe("due dates on the calendar", () => {
   const today = new Date(2026, 11, 20); // 20 Dec
-  const card: Account = { id: "c", name: "Card", provider: "rcbc", providerLabel: "RCBC", type: "credit", kind: "CREDIT", balance: 3000, dueDate: new Date(2026, 11, 15).toISOString() };
+  const card: Account = { id: "c", name: "Card", provider: "rcbc", providerLabel: "RCBC", type: "credit", kind: "CREDIT", balance: 3000, dueDate: "2026-12-15" };
   const bank: Account = { ...card, id: "b", name: "BPI", type: "bank", dueDate: undefined };
   const nov = spend("e1", "Netflix", 549, at(2026, 11, 17), { accountId: "b" });
   const state = { subscriptions: [netflix], accounts: [card, bank], entries: [nov] };
@@ -176,30 +191,31 @@ describe("due dates on the calendar", () => {
     const s31 = { ...state, subscriptions: [{ ...netflix, day: 31, startsOn: "2027-01-31" }], accounts: [] };
     expect(keys(dueInMonth(s31, new Date(2027, 1, 1), today))).toEqual([28]);
   });
-  test("a card: the current due date with the owed hint, later months without an amount, paid shows the source account", () => {
-    // 20 Dec: 15 Dec has passed, so the current due date is 15 Jan; 15 Dec still shows this month
-    // last month's, earlier this month, shows unpaid without the hint or the Pay button
+  test("a card: every month from its first; the earliest unpaid has the owed hint and Pay; paid names the source", () => {
+    // first due 15 Dec; on 20 Dec it's unpaid and still the one to pay
     const dec = dueInMonth(state, new Date(2026, 11, 1), today).get(15)!;
-    expect(dec[0]).toMatchObject({ kind: "card", status: "due", amount: null, actionable: false });
-    expect(dec[0].owed).toBeUndefined();
-    const jan = dueInMonth(state, new Date(2027, 0, 1), today).get(15)![0];
-    expect(jan).toMatchObject({ kind: "card", status: "due", amount: null, owed: 3000, actionable: true });
-    expect(dueInMonth(state, new Date(2027, 1, 1), today).get(15)![0]).toMatchObject({ amount: null, actionable: false });
+    expect(dec[0]).toMatchObject({ kind: "card", status: "due", amount: null, owed: 3000, actionable: true });
+    expect(dueInMonth(state, new Date(2027, 0, 1), today).get(15)![0]).toMatchObject({ amount: null, actionable: false });
+    expect(dueInMonth(state, new Date(2027, 0, 1), today).get(15)![0].owed).toBeUndefined();
     const legs = [
       { ...spend("t1", "Card payment", 2000, at(2026, 11, 30)), accountId: "b", category: "Transfer", linkId: "l1" },
       { ...spend("t2", "Card payment", -2000, at(2026, 11, 30)), accountId: "c", category: "Transfer", linkId: "l1" },
+      { ...spend("t3", "Card payment", 500, at(2026, 12, 18)), accountId: "b", category: "Transfer", linkId: "l2" },
+      { ...spend("t4", "Card payment", -500, at(2026, 12, 18)), accountId: "c", category: "Transfer", linkId: "l2" },
     ];
-    const paid = dueInMonth({ ...state, entries: [...state.entries, ...legs] }, new Date(2026, 11, 1), today).get(15)![0];
-    expect(paid).toMatchObject({ status: "paid", amount: 2000, paidFrom: "b" });
-    expect(paid.entry!.id).toBe("t2");
+    const s2 = { ...state, entries: [...state.entries, ...legs] };
+    const paid = dueInMonth(s2, new Date(2026, 11, 1), today).get(15)![0];
+    // 30 Nov settles 15 Dec; 18 Dec lands after it, nothing is behind, so it settles 15 Jan
+    expect(paid).toMatchObject({ status: "paid", amount: 2000, paidFrom: "b", actionable: false });
+    expect(paid.payments!.map((e) => e.id)).toEqual(["t2"]);
+    expect(dueInMonth(s2, new Date(2027, 0, 1), today).get(15)![0]).toMatchObject({ status: "paid", amount: 500, actionable: false });
+    expect(dueInMonth(s2, new Date(2027, 1, 1), today).get(15)![0]).toMatchObject({ status: "due", actionable: true, owed: 3000 });
   });
   test("a date-only due date is the local day, whatever the time zone", () => {
-    const d = { ...card, dueDate: "2026-12-13" };
-    expect(day(cardStatus(d, [], new Date(2026, 10, 14))!.due)).toBe("2026-12-13");
+    expect(day(cardStatus({ ...card, dueDate: "2026-12-13" }, [])!.due)).toBe("2026-12-13");
   });
-  test("no reminder, no card on the calendar; a stored date still ahead doesn't add last month", () => {
+  test("no reminder, no card on the calendar; nothing before its first due date", () => {
     expect(keys(dueInMonth({ ...state, accounts: [{ ...card, dueDate: undefined }] }, new Date(2026, 11, 1), today))).toEqual([18]);
-    const ahead = { ...state, accounts: [{ ...card, dueDate: new Date(2026, 11, 15).toISOString() }] };
-    expect(keys(dueInMonth(ahead, new Date(2026, 10, 1), new Date(2026, 10, 14)))).toEqual([18]);
+    expect(keys(dueInMonth(state, new Date(2026, 10, 1), today))).toEqual([18]);
   });
 });
