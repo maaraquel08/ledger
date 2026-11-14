@@ -1,4 +1,4 @@
-import type { Account, AccountType, Category, CategoryDef, Entry, Frequency, Goal, Profile, Provider, ReceiptItem, Split } from "../types";
+import type { Account, AccountType, Category, CategoryDef, Entry, Frequency, Goal, Profile, Provider, ReceiptItem, Split, Subscription } from "../types";
 
 /*
  * Rows <-> app types, exactly as supabase/CONTRACT.md "TypeScript <-> rows" lists them.
@@ -202,3 +202,27 @@ export function profilePayload(p: Partial<Profile>): Row {
 
 export const toGoal = (g: Row): Goal => ({ id: String(g.id), name: String(g.name), saved: num(g.saved), target: num(g.target), by: str(g.by_month) ?? "" });
 export const goalPayload = (g: Goal): Row => ({ id: g.id, name: g.name, saved: g.saved, target: g.target, by_month: g.by });
+
+/** an active monthly recurring_items row → a Subscription (the row stores the amount signed, the app shows it positive) */
+export const toSubscription = (r: Row): Subscription => ({
+  id: String(r.id),
+  name: String(r.description ?? ""),
+  amount: Math.abs(num(r.amount)),
+  day: num(r.day_of_month) || 1,
+  startsOn: String(r.starts_on ?? "").slice(0, 10),
+  accountId: str(r.account_id) ?? null,
+  category: (str(r.category_code) ?? "Subscriptions") as Category,
+});
+
+/** recurring_items upsert row: monthly, active, amount signed negative (as the entry would be) */
+export const subscriptionPayload = (s: Subscription): Row => ({
+  id: s.id,
+  description: s.name,
+  amount: -Math.abs(s.amount),
+  day_of_month: s.day,
+  starts_on: s.startsOn,
+  account_id: s.accountId,
+  category_code: s.category,
+  cadence: "monthly",
+  active: true,
+});

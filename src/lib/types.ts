@@ -138,6 +138,21 @@ export interface Profile {
   holdings?: Holding[];
 }
 
+/**
+ * Something the Owner pays every month on a day of the month (Netflix, rent).
+ * Cloud: a `recurring_items` row (cadence monthly). Whether a month is paid is derived
+ * from entries (src/lib/subscriptions.ts), never stored.
+ */
+export interface Subscription {
+  id: string;
+  name: string;
+  amount: number; // positive; the cloud row stores it signed
+  day: number; // day of the month it's due, 1–31 (clamped to month end)
+  startsOn: string; // "YYYY-MM-DD": the first due date it tracks
+  accountId: string | null; // the account it's usually paid from
+  category: Category;
+}
+
 export interface LedgerState {
   onboarded: boolean;
   demo: boolean;
@@ -146,6 +161,8 @@ export interface LedgerState {
   entries: Entry[];
   /** the Owner's category list; absent = the defaults (src/lib/categories.ts) */
   categories?: CategoryDef[];
+  /** monthly bills and subscriptions; absent = none */
+  subscriptions?: Subscription[];
   questionsToday: number;
   questionsDate?: string; // local YYYY-MM-DD the counter belongs to
 }

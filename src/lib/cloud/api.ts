@@ -2,7 +2,7 @@ import { detachAccounts } from "../entry-rules";
 import { EMPTY_STATE } from "../seed";
 import { sb, SUPABASE_ANON_KEY, SUPABASE_URL } from "../supabase";
 import type { Entry, LedgerState } from "../types";
-import { anyToEntry, toAccount, toCategories, toEntry, toProfile, type AccountRow } from "./map";
+import { anyToEntry, toAccount, toCategories, toEntry, toProfile, toSubscription, type AccountRow } from "./map";
 import { backoff, nextDay, type Call } from "./outbox";
 
 type Row = Record<string, unknown>;
@@ -49,13 +49,14 @@ async function all(table: string, select = "*", build?: (q: any) => any): Promis
 
 /** Everything the screens read, as one LedgerState (CONTRACT.md "TypeScript <-> rows"). */
 export async function loadState(): Promise<LedgerState> {
-  const [accounts, balances, entries, profile, goals, cats] = await Promise.all([
+  const [accounts, balances, entries, profile, goals, cats, recurring] = await Promise.all([
     all("accounts", "*", (q) => q.is("archived_at", null).order("created_at")),
     all("account_balances", "account_id,balance"),
     all("entries", "*, entry_splits(*), receipt_items(*)", (q) => q.neq("status", "void").order("occurred_at", { ascending: false }).order("id")),
     sb().from("profiles").select("*").maybeSingle().then(check),
     all("goals", "*", (q) => q.is("archived_at", null).order("created_at")),
     all("user_categories", "code,kind,categories(is_fixed,is_monthly)", (q) => q.order("sort").order("code")),
+    all("recurring_items", "*", (q) => q.eq("active", true).eq("cadence", "monthly").order("created_at")),
   ]);
   const categories = toCategories(cats);
   const bal = new Map(balances.map((b) => [String(b.account_id), Number(b.balance)]));
@@ -68,6 +69,7 @@ export async function loadState(): Promise<LedgerState> {
     ...(categories ? { categories } : {}),
     profile: toProfile(profile as Row | null, goals, EMPTY_STATE.profile),
     accounts: accs,
+    subscriptions: recurring.map(toSubscription),
     // an archived account's entries read as local mode's "remove account" leaves them
     entries: detachAccounts(
       entries.map(toEntry).filter((e): e is Entry => !!e),

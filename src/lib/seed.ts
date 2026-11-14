@@ -1,3 +1,4 @@
+import { firstDue } from "./subscriptions";
 import type { Account, Category, Entry, LedgerState, Profile } from "./types";
 
 /** The account a brand-new user starts with: nothing. */
@@ -148,6 +149,13 @@ export function buildDemo(today = new Date()): LedgerState {
     questionsToday: 0,
     accounts: DEMO_ACCOUNTS.map((a) => (a.type === "credit" ? { ...a, dueDate } : a)),
     entries,
+    // tracked from the next due date on, so the past Netflix and Spotify entries above are history
+    subscriptions: [
+      { id: "s-netflix", name: "Netflix", amount: 549, day: 18, startsOn: firstDue(18, today), accountId: "a-rcbc", category: "Subscriptions" },
+      { id: "s-spotify", name: "Spotify", amount: 194, day: 22, startsOn: firstDue(22, today), accountId: "a-rcbc", category: "Subscriptions" },
+      { id: "s-icloud", name: "iCloud+", amount: 149, day: 2, startsOn: firstDue(2, today), accountId: "a-rcbc", category: "Subscriptions" },
+      { id: "s-pldt", name: "PLDT Fibr", amount: 2099, day: 15, startsOn: firstDue(15, today), accountId: "a-bpi", category: "Rent & bills" },
+    ],
     profile: {
       name: "Mika Reyes",
       initials: "MR",

@@ -1,8 +1,8 @@
 ---
 type: fact
 status: draft
-updated: 2026-10-29
-related: [activity, add-entry, onboarding, review, insights, users, system-map, D-0012, rules/rule-signed-money, D-0010, D-0014, D-0015]
+updated: 2026-11-14
+related: [subscriptions, D-0020, activity, add-entry, onboarding, review, insights, users, system-map, D-0012, rules/rule-signed-money, D-0010, D-0014, D-0015]
 ---
 
 # Accounts
@@ -10,8 +10,8 @@ related: [activity, add-entry, onboarding, review, insights, users, system-map, 
 **Purpose.** Lets the Owner keep the accounts they actually use, with balances they update by hand, and see net worth.
 
 ## Scope
-- In: list groups, net worth, add account sheet, detail stats, edit, remove, transfer.
-- Out: bank connection ("Ledger never connects to your bank."); editing provider/type after creation; editing credit due date (seed only); holdings editor (seed only).
+- In: list groups, net worth, add account sheet, detail stats, edit (incl. credit "Due day"), remove, transfer.
+- Out: bank connection ("Ledger never connects to your bank."); editing provider/type after creation; holdings editor (seed only).
 
 ## Permissions
 | Role | Sees | Does | Cannot |
@@ -25,9 +25,10 @@ related: [activity, add-entry, onboarding, review, insights, users, system-map, 
 - List (`src/screens/accounts.tsx:71-160`): TOTAL NET WORTH (red with "−" if negative); groups "CASH · ₱X" (bank, ewallet, cash; sub-meta `rate`), "CREDIT" (meta "due 15 Nov"), "INVESTED · ₱X" (meta = weighted average of ALL holdings' change, repeated on every investments account). Row mono line "PROVIDER · KIND ·last4", provider omitted if name already starts with it. Row balance is `balance()` (signed, `src/lib/format.ts:7`), red when < 0 (`accounts.tsx:55`).
 - Add account sheet (`accounts.tsx:162-268`): provider grid (GCash, BPI, BDO, Maya, MariBank, RCBC, UnionBank, IBKR, Cash, Other); name defaults to provider label ("Cash on hand" for cash, blank for Other); type pills Bank / eWallet / Cash / Credit / Investments; last 4 optional (digits, max 4, no minimum); balance, or "AMOUNT OWED (₱)" for credit. Valid when provider chosen, name non-empty, balance >= 0 (blank = 0). `kind = TYPE_KIND[type]`; for Other `providerLabel` = typed name.
 - Detail (`accounts.tsx:274-379`): balance via `balance()`, red when negative (`accounts.tsx:319`) (credit also "OWED · due 15 Nov"); StatGrid `IN · OCT`, `OUT · OCT`, `ENTRIES` (entries count includes transfers; IN/OUT excludes them); "RECENT HERE" last 8 ("See all" -> `/activity?acct=<id>` when more than 8).
-- Edit (`accounts.tsx:381-448`): name, last4, balance (any finite number, may be negative); saving balance overwrites directly with no adjustment entry.
+- Edit (`accounts.tsx:381-448`): name, last4, balance (any finite number, may be negative); saving balance overwrites directly with no adjustment entry. Credit accounts also get **Due day** (1–31, since 2026-11-14): stored as the next date on that day in `dueDate` (syncs as `accounts.due_date`); shown as "due 15 Nov" and used by Upcoming (`features/subscriptions`). Blank = no due date, no card bill.
 - Remove: `remove-account` clears `accountId` on its entries so they fall into Review; other balances untouched (`store.tsx:67-73`).
 - Transfer (`accounts.tsx:450-520`): destination = any other account, amount > 0. One `add-entries` dispatch creates both legs at one timestamp with a shared `linkId`: `Transfer to <dest>` (-amt, from) and `Transfer from <src>` (+amt, to), category Transfer, excluded from spending (`accounts.tsx:471-477`). Preview "−₱X from A, +₱X to B." For non-credit sources, an amount over the balance shows "That would leave <A> at −₱X." and disables Transfer (`accounts.tsx:464-466, 509`); credit sources are not checked.
+- **Pay** on a card in Upcoming opens this Transfer sheet with the card as destination and the amount owed filled in (source chosen by the Owner). Still a Transfer, not spending.
 - Deleting either leg (from Activity) deletes both (`store.tsx:62-71`).
 - `peso()` stays unsigned (`src/lib/format.ts`); balances use `balance()` instead, which prefixes "−" for negatives. Net worth total keeps its own red "−" handling.
 
@@ -62,10 +63,10 @@ Accounts -> "Add" sheet -> row -> detail -> "Add entry here" (AddSheet prefilled
 |---|---|
 | Owns | Account |
 | Reads | entries (stats, recent), `profile.holdings`, `netWorth` |
-| Writes | `upsert-account`, `remove-account`, `add-entries` (transfer, two linked legs) |
+| Writes | `upsert-account` (incl. `dueDate`), `remove-account`, `add-entries` (transfer, two linked legs) |
 | Triggers | AddSheet with `accountId`; `/activity?acct=<id>` |
-| Exposes | Account list to parsing (name, last4, alias), AddSheet/Review/Scan pickers, chat cash figure |
-| Depends on | add-entry, activity, review (orphans), onboarding (first accounts), providers |
+| Exposes | Account list to parsing (name, last4, alias), AddSheet/Review/Scan pickers, chat cash figure; credit `dueDate` and amount owed to subscriptions (card bills); Transfer sheet with preset destination and amount |
+| Depends on | add-entry, activity, review (orphans), onboarding (first accounts), providers; subscriptions (Pay opens Transfer) |
 
 ## Edge cases
 | Case | Behavior | Decided |
@@ -74,7 +75,8 @@ Accounts -> "Add" sheet -> row -> detail -> "Add entry here" (AddSheet prefilled
 | Negative balance | Allowed (Edit balance, credit, invest outflow); shown signed in red | handled in code |
 | Deleting one transfer leg | Both legs go | handled in code (D-0010) |
 | Transfer over balance (non-credit) | Blocked with "That would leave <A> at −₱X." | handled in code |
-| Credit limit / due date | No limit; due date seed-only; paying the card only via Transfer | unhandled |
+| Credit limit | No limit | unhandled |
+| Credit due date | Editable as "Due day"; paying the card = Transfer (from Upcoming's Pay or the detail), no statement | handled in code (D-0020) |
 | Editing balance | Overwrite, no entry, breaks tie to entries | decided D-0014: removed in favour of snapshot + Adjustment (planned) |
 | Type/provider after creation | Not editable (onboarding Edit allows type) | unhandled |
 | Two accounts, same provider | Parser picks first in list order | handled in code |

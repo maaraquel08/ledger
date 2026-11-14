@@ -1,7 +1,7 @@
 ---
 type: index
 status: active
-updated: 2026-10-29
+updated: 2026-11-14
 ---
 
 # Changelog
@@ -11,6 +11,10 @@ Reverse chronological. One line per meaning change so an AI can answer "what was
 Format: `- kind — what, in one sentence — files`
 
 ## 2026
+
+### 2026-11-14
+- changed — Credit due date is editable ("Due day"), Pay from Upcoming opens Transfer prefilled; glossary gains Subscription and Upcoming; system map gains the Subscription object, matrix row, events and Upcoming surface; roadmap Now lists Subscriptions — `features/accounts.md`, `glossary.md`, `system-map.md`, `product.md`
+- added — Subscriptions feature (Upcoming on Money, derived paid status, card bills) and D-0020 (paid is derived from entries, reuse `recurring_items`) — `features/subscriptions.md`, `decisions/D-0020-subscriptions-paid-is-derived.md`
 
 ### 2026-11-03
 - changed — Home is M8 chat with saved conversations; a Budget tab (every spending category with spent, budget, pace; category create/rename/delete with entries moved; goals) replaces the budget block in Analytics; tabs are Chat · Money · Budget · Analytics — `docs/superpowers/specs/2026-11-03-home-chat.md`, `docs/superpowers/specs/2026-11-03-budget-tab.md`
